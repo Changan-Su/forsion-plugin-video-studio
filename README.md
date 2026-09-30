@@ -2,7 +2,7 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-本目录是独立 Git 仓库，版本 **0.2.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+本目录是独立 Git 仓库，版本 **0.3.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
 0.2.0 工作台：左侧搜索并定位场景，中间按视频比例预览，右侧分组编辑属性，下方查看场景和配乐时间线。预览下方可以播放、切换场景、逐帧检查和静音；支持专注预览、面板切换、时间线缩放与高度调整。窄窗口的场景列表可临时展开，属性面板独立滚动。
 
@@ -13,6 +13,14 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 - **卡点检查**：编辑器分析配乐的重音，时间线上的拍点绿色表示落在重音上，黄色表示没有，蓝色表示切到安静。
 - **导出**：「导出网页视频」立刻写出一个单文件 `.html`（素材和配乐都在里面，双击就能播放）；「导出 MP4」由导演 Agent 在本机渲染。
 - **工程文件 AI 读得懂**：它就是 Markdown，里面是 JSON、HTML、CSS、JS 代码块。格式和场景 API 写在内置技能 `forsion-video-studio` 里。
+
+## 原生工作室 Space
+
+插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；工程标题可以打开 Extend View 工程选择器，预览右上角的属性按钮打开原生 Extend View 属性面板，「问 AI」在 Extend View 中准备导演任务。关闭、切换 Space 或工程时，这些面板随主视图清理。
+
+主工作台的窗口按钮可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
+
+默认文件名 `新视频` 和示例目录 `第 2.12 话` 固定，界面文字随语言变化，避免切语言后出现两份示例目录。
 
 ## 开始
 
@@ -79,6 +87,7 @@ node tools/fvs.mjs html my-video.fvs.md         # 单文件网页视频
 ```
 forsion-video-studio/
 ├── manifest.json · main.js · icon.png      桌面插件：.fvs.md 编辑器、新建入口、笔记嵌入
+├── spaces/forsion-video-studio/space.json   原生 Space：Workspace 列表、主工作台和 Mini 配方
 ├── runtime/fvs-runtime.js                  播放运行时：预览、网页导出和渲染都用它
 ├── tools/fvs.mjs                           命令行
 ├── tools/music/                            配乐工具包（Python）
@@ -97,12 +106,13 @@ npm run check                    # 宿主契约、单元测试和完整示例 CL
 npx playwright-core install chromium  # 首次运行界面测试时安装浏览器
 npm run test:ui                  # Chromium：编辑、撤销、导出、导航、缩放、深浅/窄窗口和英文
 npm run install:dev              # 构建和自检后完整安装到 ~/.forsion-dev/plugins/
-npm run verify:dev               # 连接 dev 的 CDP 9333，保存真 Electron 截图和结果
+npm run verify:dev               # 原生主题、播放、窄窗口和工程完整性
+npm run verify:space             # 真 Space / Extend / Mini / Floating / 待保存切换和生命周期
 ```
 
 `install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
 
-真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。截图与结果写入 `artifacts/native/`。
+真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在示例目录中创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
 
 提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐仍由导演 Agent 使用本机工具执行，本次工作台测试不代表它们的真模型验收。
 

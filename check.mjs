@@ -33,7 +33,7 @@ if (ob.requires) fail('onboarding.requires would gate the plugin; nothing here i
 ok(`manifest ${manifest.version}, changelog, build outputs`);
 
 // 2. the host's view of main.js
-const reg = { fileTypes: [], creators: [], commands: [], slash: [], embeds: [] };
+const reg = { fileTypes: [], creators: [], commands: [], slash: [], embeds: [], views: [], lists: [] };
 const ctxFor = (fileTypeResult, locale = 'zh') => ({
   getLocale: () => locale,
   app: { workFolder: () => 'Forsion Video Studio', readFile: async () => null, writeFile: async () => {}, openFile: () => {} },
@@ -42,6 +42,7 @@ const ctxFor = (fileTypeResult, locale = 'zh') => ({
   registerCommand: d => reg.commands.push(d),
   registerSlashItem: d => reg.slash.push(d),
   registerEmbedRenderer: d => reg.embeds.push(d),
+  registerView: d => reg.views.push(d), registerListSource: d => reg.lists.push(d), openView() {},
   loadData: async () => ({}), saveData: async () => {},
 });
 new Function('ctx', src)(ctxFor(true));
@@ -55,10 +56,16 @@ for (const c of reg.commands.filter(c => c.invoke)) {
 }
 if (!reg.embeds[0].match('Videos/a.fvs.md') || reg.embeds[0].match('a.md')) fail('embed renderer must match .fvs.md only');
 ok(`main.js registers ${reg.fileTypes.length} file type, ${reg.commands.length} commands, creator, slash item, embed`);
+const space = JSON.parse(readFileSync(at('spaces/forsion-video-studio/space.json'), 'utf8'));
+const viewTypes = new Set(reg.views.map(v => `plugin:${manifest.id}:${v.id}`).concat('workspace'));
+for (const type of [...space.requires.views, ...Object.values(space.layout).flat().map(v => v.type), space.mini.view.type, space.mini.mainView.type]) if (!viewTypes.has(type)) fail(`Space references unknown view ${type}`);
+if (space.mini.view.type === space.mini.mainView.type) fail('Mini must have a dedicated adapter');
+if (reg.lists[0]?.id !== reg.views[0]?.workspaceSource) fail('workspace list must match the studio source');
+ok('Space, native project list and dedicated Mini adapter');
 // a built-in owner of the suffix wins: nothing else may register
 for (const k of Object.keys(reg)) reg[k] = [];
 new Function('ctx', src)(ctxFor(false));
-if (reg.creators.length || reg.commands.length || reg.slash.length || reg.embeds.length) fail('registerFileType === false must stop every other registration');
+if (reg.creators.length || reg.commands.length || reg.slash.length || reg.embeds.length || reg.views.length || reg.lists.length) fail('registerFileType === false must stop every other registration');
 ok('yields entirely when the host owns .fvs.md');
 // an old host without optional APIs must not throw during setup
 new Function('ctx', src)({ registerFileType: () => undefined, registerFileCreator() {}, registerCommand() {}, registerSlashItem() {}, registerEmbedRenderer() {}, app: {} });

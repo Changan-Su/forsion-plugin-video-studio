@@ -194,9 +194,9 @@ await shot(page, '10-new');
 // 12. A new English workspace localizes both controls and project filename.
 await page.evaluate(() => { HOST.locale = 'en'; return HOST.reg.creators[0].run('Videos'); });
 await ready();
-assert.match(await page.evaluate(() => HOST.calls.openFile.at(-1)), /New video\.fvs\.md$/);
+assert.match(await page.evaluate(() => HOST.calls.openFile.at(-1)), /新视频(?: \d+)?\.fvs\.md$/);
 const chromeText = await page.locator('.fvs-bar').innerText();
-assert.doesNotMatch(chromeText, /[\u4e00-\u9fff]/);
+assert.doesNotMatch(chromeText.replace(/新视频(?: \d+)?/g, ''), /[\u4e00-\u9fff]/);
 assert.equal(await page.getByRole('button', { name: 'Next scene', exact: true }).count(), 1);
 await shot(page, '13-english');
 

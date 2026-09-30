@@ -8,12 +8,13 @@
     "check": "node check.mjs",
     "test:ui": "node test/studio.e2e.mjs --shots artifacts/ui",
     "install:dev": "npm run build && npm run check && node scripts/install-dev.mjs",
-    "verify:dev": "node scripts/verify-dev.mjs"
+    "verify:dev": "node scripts/verify-dev.mjs",
+    "verify:space": "node scripts/verify-space.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
     "lucide": "^1.49.0",
     "playwright-core": "1.61.1"
   },
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

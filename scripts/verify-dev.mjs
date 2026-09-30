@@ -4,7 +4,9 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const spaceModule = '/@fs' + resolve(process.env.FVS_DESKTOP_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), '../../../Forsion-Genesis/desktop'), '../lcl/engine/spaceRegistry.ts');
 
 const port = process.argv.find(a => a.startsWith('--cdp='))?.split('=')[1] || '9333';
 const shots = 'artifacts/native';
@@ -18,18 +20,22 @@ let originalTheme;
 try {
   await page.reload();
   await page.waitForFunction(() => !!window.amadeus);
-  const plugin = await page.evaluate(async () => {
+  const plugin = await page.evaluate(async spaceModule => {
     const { usePageStore } = await import('/src/amadeus/store/pageStore.ts');
     await usePageStore.getState().restoreVault();
     const { usePluginStore } = await import('/src/amadeus/plugins/pluginStore.ts');
     await usePluginStore.getState().reloadOne('forsion-video-studio', { force: true, strict: true });
+    await (await import('/src/userSpaces.tsx')).loadUserSpaces();
+    // The Vite dev host resolves @lcl to this source directory; verification only, never in main.js.
+    const { setActiveSpace } = await import(spaceModule);
+    setActiveSpace('forsion-video-studio');
     const s = usePluginStore.getState();
     const p = s.plugins.find(p => p.id === 'forsion-video-studio');
     const c = s.commands.find(c => c.pluginId === p.id && c.item.id === 'fvs-open-example');
     await c.item.run();
     return { id: p.id, version: p.version, vault: usePageStore.getState().vaultRoot };
-  });
-  assert.equal(plugin.version, '0.2.0');
+  }, spaceModule);
+  assert.equal(plugin.version, '0.3.0');
   await page.waitForSelector('.fvs-clip');
   const gate = page.locator('.fvs-gate button');
   if (await gate.count()) await gate.click();
@@ -63,7 +69,7 @@ try {
   try {
     await page.setViewportSize({ width: 780, height: 860 });
     await page.waitForFunction(() => document.querySelector('.fvs-studio').classList.contains('narrow'));
-    assert.equal(await page.locator('.fvs-side').isVisible(), true);
+    assert.equal(await page.locator('.fvs-side').isVisible(), false, 'Space keeps properties in the native Extend View');
     assert.equal(await page.locator('.fvs-storyboard').isVisible(), false, 'narrow window leaves room for preview');
     await page.screenshot({ path: join(shots, 'studio-narrow.png') });
   } finally { await page.setViewportSize(size); }

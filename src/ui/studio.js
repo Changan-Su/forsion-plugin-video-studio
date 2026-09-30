@@ -60,21 +60,25 @@ export async function previewHtml(p, path, assets, mode = 'embed') {
 /* ───────── the editor ───────── */
 export function mountStudio(ctx, el, path, t, opts = {}) {
   const app = ctx.app;
+  const nativeInspector = !!opts.view?.extendView && !opts.compact;
+  let inspectorHandle = null, askHandle = null;
   const S = {
     path, text: '', saved: '', p: P.parseProject(''), time: 0, playing: false,
     sel: null, selText: null, selHit: null, tab: 'scene', codeScope: 'scene', allTexts: false,
     zoom: 0, snap: 'half', undo: [], redo: [], trusted: false, gen: 0,
     runtimeErrors: [], counts: null, sync: null, audioKey: '', analysis: null, disposed: false, status: 'saved',
-    search: '', focus: false, scenesOpen: null, inspectorOpen: true, muted: false,
+    search: '', focus: false, scenesOpen: null, inspectorOpen: !nativeInspector, muted: false,
     zoomFit: false, timelineHeight: 224, advancedOpen: false,
   };
   const assets = assetLoader(ctx);
   const root = h('div', { class: 'fvs-studio', tabindex: '-1' });
+  root.classList.toggle('compact', !!opts.compact);
   root.append(h('style', { text: STUDIO_CSS }));
   el.append(root);
 
   /* toolbar */
   const nameEl = h('span', { class: 'fvs-name', title: path, text: path.split('/').pop() });
+  if (opts.chooseProject) { nameEl.tabIndex = 0; nameEl.setAttribute('role', 'button'); nameEl.title = t('choose-project'); nameEl.onclick = opts.chooseProject; nameEl.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); opts.chooseProject(); } }; }
   const statusEl = h('span', { class: 'fvs-status' });
   const tool = (glyph, key, fn, cls = 'icon') => h('button', { class: `fvs-btn ${cls}`, title: t(key), 'aria-label': t(key), onclick: fn }, icon(glyph), cls.includes('icon') ? null : h('span', { text: t(key) }));
   const undoBtn = tool('Undo2', 'undo', () => undo());
@@ -86,20 +90,25 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const exportBtn = tool('Download', 'export', e => openExport(e.currentTarget), 'primary');
   exportBtn.setAttribute('aria-haspopup', 'menu'); exportBtn.append(icon('ChevronDown'));
   const scenesToggle = tool('PanelLeft', 'toggle-scenes', () => { S.scenesOpen = !scenesVisible(); layout(); });
-  const inspectorToggle = tool('PanelRight', 'toggle-properties', () => { S.inspectorOpen = !S.inspectorOpen; layout(); });
+  const inspectorToggle = tool('PanelRight', 'toggle-properties', () => { if (nativeInspector) inspectorHandle?.isOpen ? inspectorHandle.close() : openInspector(); else { S.inspectorOpen = !S.inspectorOpen; layout(); } });
   root.append(h('div', { class: 'fvs-bar' },
     h('div', { class: 'fvs-project-brand' }, h('span', { class: 'fvs-brand-mark' }, icon('FileVideo')),
       h('div', { class: 'fvs-project-heading' }, h('span', { class: 'fvs-app-name', text: t('app') }), nameEl)),
     statusEl, h('span', { class: 'fvs-grow' }),
     h('div', { class: 'fvs-history' }, undoBtn, redoBtn),
-    h('div', { class: 'fvs-header-actions' }, aiBtn, scoreBtn, exportBtn)));
+    h('div', { class: 'fvs-header-actions' },
+      opts.compact && opts.showInMain ? tool('Maximize2', 'show-in-main', opts.showInMain, 'fvs-main-action') : null,
+      !opts.view && opts.openWorkspace ? tool('Film', 'open-workspace', opts.openWorkspace, 'icon') : null,
+      !opts.compact && opts.openMini ? tool('Minimize2', 'mini-preview', opts.openMini, 'icon fvs-mini-action') : null,
+      !opts.compact && opts.openFloating ? tool('Maximize2', 'floating-workspace', opts.openFloating, 'icon fvs-floating-action') : null,
+      aiBtn, scoreBtn, exportBtn)));
 
   /* preview + side panel */
   const view = h('div', { class: 'fvs-view' });
   const viewport = h('div', { class: 'fvs-viewport' }, view);
   const sceneNow = h('span', { class: 'fvs-current-scene' });
   const formatEl = h('span', { class: 'fvs-format' });
-  const focusBtn = tool('Maximize2', 'focus-preview', () => { S.focus = !S.focus; layout(); });
+  const focusBtn = tool('Maximize2', 'focus-preview', () => { S.focus = !S.focus; if (S.focus) opts.view?.extendView?.close(); layout(); });
   const muteBtn = tool('Volume2', 'mute', () => { S.muted = !S.muted; for (const a of audios) a.el.muted = S.muted; renderTransport(); });
   const prevBtn = tool('SkipBack', 'previous-scene', () => stepScene(-1));
   const nextBtn = tool('SkipForward', 'next-scene', () => stepScene(1));
@@ -141,7 +150,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const snapSel = h('select', { 'aria-label': t('snap'), onchange: e => { S.snap = e.target.value; } },
     ...['bar', 'beat', 'half', 'quarter', 'off'].map(k => h('option', { value: k, selected: S.snap === k }, t(`snap-${k}`))));
   const zoomInput = h('input', { type: 'range', min: '4', max: '120', step: '1', 'aria-label': t('zoom-level'), oninput: e => setZoom(+e.target.value) });
-  const syncButton = h('button', { class: 'fvs-sync-button', title: t('sync'), onclick: () => { S.inspectorOpen = true; S.focus = false; S.tab = 'project'; layout(); renderSide(); panel.querySelector('[data-sync-heading]')?.scrollIntoView({ block: 'start' }); } }, h('span', { class: 'fvs-sync-sum' }));
+  const syncButton = h('button', { class: 'fvs-sync-button', title: t('sync'), onclick: () => { S.inspectorOpen = true; S.focus = false; S.tab = 'project'; if (nativeInspector) openInspector(); layout(); renderSide(); panel.querySelector('[data-sync-heading]')?.scrollIntoView({ block: 'start' }); } }, h('span', { class: 'fvs-sync-sum' }));
   const tlBar = h('div', { class: 'fvs-tl-bar' }, icon('Scissors'), h('strong', { text: t('timeline') }),
     h('span', { class: 'fvs-timeline-duration' }), syncButton, h('span', { class: 'fvs-grow' }),
     h('label', { class: 'fvs-snap-control' }, h('span', { text: t('snap') }), snapSel),
@@ -187,9 +196,21 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     drawWave(); fitPreview();
   }
   function scenesVisible() { return S.scenesOpen ?? root.clientWidth >= 1160; }
+  function openInspector() {
+    if (!nativeInspector || S.disposed) return;
+    S.focus = false;
+    inspectorHandle = opts.view.extendView.open({ id: 'fvs-properties', title: t('properties'), side: 'right',
+      mount(body) {
+        const shell = h('div', { class: 'fvs-extension fvs-native-properties' }, h('style', { text: STUDIO_CSS }), side);
+        body.append(shell); return () => shell.remove();
+      },
+      onClose() { inspectorHandle = null; S.inspectorOpen = false; if (!S.disposed) { root.querySelector('.fvs-main').append(side); layout(); } },
+    });
+    S.inspectorOpen = true; layout();
+  }
   function layout() {
-    root.classList.toggle('scenes-hidden', !scenesVisible());
-    root.classList.toggle('inspector-hidden', !S.inspectorOpen);
+    root.classList.toggle('scenes-hidden', !scenesVisible() || !!opts.compact);
+    root.classList.toggle('inspector-hidden', !S.inspectorOpen || nativeInspector || !!opts.compact);
     root.classList.toggle('focus-preview', S.focus);
     scenesToggle.setAttribute('aria-pressed', String(scenesVisible() && !S.focus));
     inspectorToggle.setAttribute('aria-pressed', String(S.inspectorOpen && !S.focus));
@@ -392,8 +413,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (m.text != null) S.selText = { scene: m.scene, index: m.text };
     renderTimeline(); renderStoryboard();
     if (!m.dbl) root.focus({ preventScroll: true }); // take the keyboard back from the preview
-    if (m.dbl && m.text != null && textsMatch(m.scene)) openInline(m);
-    else if (m.dbl && m.img != null) { S.tab = 'text'; renderSide(); }
+    if (!opts.compact && m.dbl && m.text != null && textsMatch(m.scene)) openInline(m);
+    else if (!opts.compact && m.dbl && m.img != null) { S.tab = 'text'; renderSide(); }
     else if (S.tab === 'text' || S.tab === 'scene') renderSide();
   }
   function openInline(m) {
@@ -906,22 +927,25 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
 
   /* ───────── popovers: ask AI, export ───────── */
   let pop = null;
-  function closePop() { if (pop) { pop.remove(); pop = null; } }
+  function closePop() { if (pop) { pop.remove(); pop = null; } askHandle?.close(); askHandle = null; }
   function place(node, anchor) {
     const r = anchor.getBoundingClientRect(), R = root.getBoundingClientRect();
     node.style.top = `${r.bottom - R.top + 6}px`;
     node.style.right = `${Math.max(8, R.right - r.right)}px`;
   }
   function openAsk(anchor) {
+    if (askHandle?.isOpen) return askHandle.close();
     if (pop) return closePop();
     const ta = h('textarea', { class: 'fvs-input', placeholder: t('ai-placeholder'), 'aria-label': t('ai-title') });
     const send = text => { if (!text.trim()) return; closePop(); handOff(ctx, S, TASKS.ask(text.trim()), t); };
     const chips = [['ai-chip-scene', null], ['ai-chip-pace', null], ['ai-chip-copy', null], ['ai-chip-score', () => TASKS.score()], ['ai-chip-sync', () => TASKS.sync()], ['ai-chip-review', () => TASKS.review()]];
-    pop = h('div', { class: 'fvs-pop', role: 'dialog', 'aria-label': t('ai-title') }, h('h3', { text: t('ai-title') }), ta,
+    const content = h('div', { class: opts.view?.extendView ? 'fvs-extension fvs-ai-panel' : 'fvs-pop', role: 'dialog', 'aria-label': t('ai-title') },
+      h('style', { text: STUDIO_CSS }), h('h3', { text: t('ai-title') }), ta,
       h('div', { class: 'fvs-chips' }, ...chips.map(([k, task]) => h('button', { onclick: () => { if (task) { closePop(); handOff(ctx, S, task(), t); } else { ta.value = t(k) + (t.en() ? ': ' : '：'); ta.focus(); } } }, t(k)))),
       h('div', { class: 'fvs-row', style: { justifyContent: 'flex-end' } }, h('button', { class: 'fvs-btn primary', onclick: () => send(ta.value) }, t('ai-send'))));
     ta.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send(ta.value); if (e.key === 'Escape') closePop(); });
-    place(pop, anchor); root.append(pop); ta.focus();
+    if (opts.view?.extendView) askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount(body) { body.append(content); ta.focus(); return () => content.remove(); }, onClose() { askHandle = null; } });
+    else { pop = content; place(pop, anchor); root.append(pop); ta.focus(); }
   }
   function openExport(anchor) {
     if (pop) return closePop();
@@ -979,8 +1003,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
 
   load();
   raf = requestAnimationFrame(loop);
-  return () => {
+  const dispose = () => {
     S.disposed = true;
+    inspectorHandle?.close(); askHandle?.close();
     cancelAnimationFrame(raf);
     clearTimeout(previewTimer); clearTimeout(pendingTimer);
     if (S.text !== S.saved) save();
@@ -993,4 +1018,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     for (const a of audios) { a.el.pause(); if (a.blob) URL.revokeObjectURL(a.url); }
     root.remove();
   };
+  // Workbench entity navigation waits for queued writes before mounting the next engineering file.
+  dispose.flush = async () => { if (saving) { try { await saving; } catch { /* save reports it */ } } await save(); return S.text === S.saved; };
+  return dispose;
 }

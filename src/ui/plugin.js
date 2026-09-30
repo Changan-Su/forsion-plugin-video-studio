@@ -8,11 +8,13 @@ import { evaTemplate } from '../lib/templates.js';
 import { parseProject } from '../lib/project.js';
 import { notify } from './ai.js';
 import EXAMPLE from '../generated/example-src.js';
+import { registerWorkspace } from './workspace.js';
 
 const t = makeT(ctx);
 const EXT = '.fvs.md';
 const ICON = 'layout';
 const app = ctx.app || {};
+let workspace = null;
 const workFolder = () => (app.workFolder ? app.workFolder() : 'Forsion Video Studio');
 const exists = async p => { try { return (await app.readFile(p)) !== null; } catch { return false; } };
 
@@ -22,8 +24,8 @@ async function remember(path) {
 
 /** Create a project from the starter template in `folder` and (by default) open it. */
 async function createProject(folder, open = true) {
-  // a default file name lands on disk: keep it the same in every UI language
-  const base = t('new-project-name');
+  // Persisted default names stay identical when the user changes UI language.
+  const base = '新视频';
   let path = joinPath(folder || '', `${base}${EXT}`);
   for (let k = 2; await exists(path); k++) path = joinPath(folder || '', `${base} ${k}${EXT}`);
   await app.writeFile(path, evaTemplate({ title: base, zh: !t.en() }));
@@ -33,8 +35,8 @@ async function createProject(folder, open = true) {
 }
 
 /** The bundled example (episode 2.12): written into the work folder once, then opened. */
-async function openExample() {
-  const dir = `${workFolder()}/${t('example-folder')}`;
+async function openExample(open = true) {
+  const dir = `${workFolder()}/第 2.12 话`;
   const file = `${dir}/episode-2.12${EXT}`;
   try {
     if (!(await exists(file))) {
@@ -44,7 +46,7 @@ async function openExample() {
       await app.writeFile(file, EXAMPLE.text);
     }
     await trust(ctx, file);
-    if (app.openFile) app.openFile(file);
+    if (open && app.openFile) app.openFile(file);
     const audio = `${dir}/${EXAMPLE.audio}`;
     if (app.writeBytes && !(await exists(audio))) {
       // the score is 2 MB, so it is fetched instead of shipped inside main.js
@@ -52,6 +54,7 @@ async function openExample() {
         .then(buf => app.writeBytes(audio, new Uint8Array(buf)))
         .catch(() => notify(ctx, t('example-audio-failed'), 'warn'));
     }
+    return file;
   } catch (e) {
     notify(ctx, String(e && e.message || e), 'warn');
   }
@@ -64,25 +67,26 @@ const registered = ctx.registerFileType({
   title: 'Video project',
   mount(el, file) {
     remember(file.filePath);
-    return mountStudio(ctx, el, file.filePath, t);
+    return mountStudio(ctx, el, file.filePath, t, { openWorkspace: () => workspace?.open(file.filePath) });
   },
 });
 
 // a built-in owner of the suffix wins: then register nothing else (no duplicate "new" entries)
 if (registered !== false) {
+  workspace = registerWorkspace(ctx, t, { createProject, exampleProject: openExample, remember });
   ctx.registerFileCreator({ id: 'new-project', label: t('new-project'), icon: ICON, run: parent => createProject(parent).then(() => {}) });
 
   ctx.registerCommand({
     id: 'fvs-new-project',
     title: `Video Studio：${t('new-project')}`,
     keywords: 'video studio fvs 视频 工程 新建 动画 宣传片',
-    run: () => createProject(workFolder()).then(() => {}),
+    run: workspace.newProject,
   });
   ctx.registerCommand({
     id: 'fvs-open-example',
     title: `Video Studio：${t('open-example')}`,
     keywords: 'video studio fvs example 示例 2.12 eva 补完',
-    run: () => openExample(),
+    run: workspace.example,
   });
   ctx.registerCommand({
     id: 'fvs-open-project',
@@ -91,7 +95,7 @@ if (registered !== false) {
     run: async () => {
       let last = null;
       try { last = ((await ctx.loadData?.()) || {}).last; } catch { last = null; }
-      if (last && (await exists(last))) app.openFile(last); else createProject(workFolder());
+      if (last && (await exists(last))) workspace.open(last); else workspace.newProject();
     },
     invoke: {
       description: 'Open a Forsion Video Studio project (.fvs.md, vault-relative path) in the Video Studio editor so the user sees it. Use it after creating or editing a project for the user.',
@@ -100,7 +104,7 @@ if (registered !== false) {
         const p = String((args && args.path) || '').replace(/^\/+/, '');
         if (!p.toLowerCase().endsWith(EXT)) throw new Error(`not a ${EXT} file: ${p}`);
         if (!(await exists(p))) throw new Error(`no such file in the vault: ${p}`);
-        app.openFile(p);
+        workspace.open(p);
       },
     },
   });

@@ -1,6 +1,11 @@
 // UI strings. Chinese is canonical; English follows the host locale.
 const ZH = {
   'app': 'Video Studio',
+  'projects': '视频工程', 'project-search': '搜索工程…', 'choose-project': '切换视频工程',
+  'workspace-welcome': '视频工作室', 'workspace-intro': '打开工程，剪辑场景、文字与音乐。',
+  'projects-empty': '还没有视频工程。新建一个，或打开完整示例。', 'refresh-projects': '刷新工程',
+  'open-workspace': '打开视频工作室', 'show-in-main': '完整工作台',
+  'mini-preview': 'Mini 视频预览', 'floating-workspace': '独立窗口',
   'loading': '正在打开工程…',
   'cannot-read': '读不到这个文件：{path}',
   'no-vault': '先打开一个智库，再打开视频工程。',
@@ -67,6 +72,11 @@ const ZH = {
 };
 const EN = {
   'app': 'Video Studio',
+  'projects': 'Video projects', 'project-search': 'Search projects…', 'choose-project': 'Switch video project',
+  'workspace-welcome': 'Video Studio', 'workspace-intro': 'Open a project to edit scenes, text and music.',
+  'projects-empty': 'No video projects yet. Create one or open the complete example.', 'refresh-projects': 'Refresh projects',
+  'open-workspace': 'Open Video Studio', 'show-in-main': 'Full workspace',
+  'mini-preview': 'Mini video preview', 'floating-workspace': 'Detached window',
   'loading': 'Opening the project…',
   'cannot-read': 'Cannot read {path}',
   'no-vault': 'Open a vault first, then open the video project.',

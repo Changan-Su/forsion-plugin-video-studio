@@ -1,14 +1,14 @@
 // The editing chrome consumes Genesis tokens; the video canvas keeps the project's own palette.
 export const CSS = `
-.fvs-studio{
+.fvs-studio,.fvs-extension{
  --fv-bg:var(--bg,#151515);--fv-card:var(--bg-card,#1e1e1e);--fv-text:var(--text,#ececec);--fv-muted:var(--text-muted,#9a9a9a);--fv-line:var(--border,#333);--fv-accent:var(--accent,#4d8794);
  --fv-ok:#35b37e;--fv-warn:#b77c21;--fv-bad:#d85349;--fv-hit:#ed9747;--fv-timeline-height:224px;
  --fv-caption:var(--ui-font-caption,11px);--fv-meta:var(--ui-font-meta,12px);--fv-body:var(--ui-font-body,13px);--fv-heading:var(--ui-font-heading,14px);
  --fv-radius:var(--radius-sm,6px);--fv-mono:var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);
  position:relative;height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--fv-bg);color:var(--fv-text);font:var(--fv-body)/1.45 var(--font-ui,system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif);overflow:hidden}
-.fvs-studio *{box-sizing:border-box}
-.fvs-studio [hidden]{display:none!important}
-.fvs-studio button,.fvs-studio input,.fvs-studio select,.fvs-studio textarea{font:inherit;color:inherit}
+.fvs-studio *,.fvs-extension *{box-sizing:border-box}
+.fvs-studio [hidden],.fvs-extension [hidden]{display:none!important}
+.fvs-studio button,.fvs-studio input,.fvs-studio select,.fvs-studio textarea,.fvs-extension button,.fvs-extension input,.fvs-extension select,.fvs-extension textarea{font:inherit;color:inherit}
 .fvs-studio button{cursor:pointer}
 .fvs-studio svg{flex-shrink:0;display:block;pointer-events:none}
 .fvs-studio :focus-visible{outline:2px solid var(--fv-accent);outline-offset:2px}
@@ -208,6 +208,29 @@ textarea.fvs-input{height:auto;min-height:32px;padding:7px 9px;resize:vertical;l
 .fvs-studio.narrow .fvs-track-label svg{display:none}
 .fvs-studio.focus-preview .fvs-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
 .fvs-studio.focus-preview .fvs-storyboard,.fvs-studio.focus-preview .fvs-side{display:none}
+.fvs-workspace-host{height:100%;min-height:0;overflow:hidden}
+.fvs-name[role=button]{cursor:pointer}
+.fvs-name[role=button]:hover{color:var(--fv-accent)}
+.fvs-extension{display:block;overflow:auto}
+.fvs-native-properties{overflow:hidden}
+.fvs-native-properties .fvs-side{height:100%;border-left:0}
+.fvs-library,.fvs-ai-panel{padding:18px}
+.fvs-library-heading{display:flex;align-items:center;gap:8px}
+.fvs-library h2,.fvs-ai-panel h3{font-size:var(--fv-heading);margin:0 0 12px}
+.fvs-library>.fvs-input{margin:16px 0 8px}
+.fvs-project-list{display:grid;gap:4px}
+.fvs-project-item{display:flex;align-items:center;gap:10px;padding:12px;background:transparent;border:1px solid var(--fv-line);border-radius:var(--fv-radius);text-align:left;cursor:pointer;min-width:0}
+.fvs-project-item:hover{background:color-mix(in srgb,var(--fv-accent) 8%,transparent)}
+.fvs-project-item>span{display:grid;gap:4px;min-width:0}
+.fvs-project-item strong{font-size:var(--fv-meta);font-weight:500}
+.fvs-project-item small{font-size:var(--fv-caption);color:var(--fv-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fvs-ai-panel>.fvs-input{min-height:150px;resize:vertical}
+.fvs-ai-panel .fvs-chips{margin:12px 0}
+.fvs-studio.compact{grid-template-rows:54px minmax(0,1fr)}
+.fvs-studio.compact .fvs-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+.fvs-studio.compact .fvs-storyboard,.fvs-studio.compact .fvs-side,.fvs-studio.compact .fvs-tl,.fvs-studio.compact .fvs-history,.fvs-studio.compact .fvs-status,.fvs-studio.compact .fvs-ai-action,.fvs-studio.compact .fvs-score-action,.fvs-studio.compact .fvs-header-actions>.primary,.fvs-studio.compact .fvs-preview-bar{display:none}
+.fvs-studio.compact .fvs-preview{grid-template-rows:minmax(0,1fr) 44px}
+.fvs-studio.compact .fvs-viewport{padding:10px}
 @media(prefers-reduced-motion:reduce){.fvs-studio *{transition:none!important}}
 /* note embeds */
 .fvs-embed{position:relative;border:1px solid var(--border,#333);border-radius:var(--radius-md,12px);overflow:hidden;background:#111}
