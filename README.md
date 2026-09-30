@@ -2,6 +2,10 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
+本目录是独立 Git 仓库，版本 **0.2.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+
+0.2.0 工作台：左侧搜索并定位场景，中间按视频比例预览，右侧分组编辑属性，下方查看场景和配乐时间线。预览下方可以播放、切换场景、逐帧检查和静音；支持专注预览、面板切换、时间线缩放与高度调整。窄窗口的场景列表可临时展开，属性面板独立滚动。
+
 一段视频就是一份 `.fvs.md` 工程文件：每个场景是一页网页（HTML + CSS，加一点关键帧脚本），场景首尾相接地排在时间线上，时间线踩在音乐的拍子上。每个场景写着自己的**拍点**，画面在拍点上切，配乐也在拍点上给重音。
 
 - **手动编辑**：实时预览、播放；时间线上拖场景右边缘改长度，拖拍点改切点；双击画面里的文字直接改；右侧面板改场景设置、全部文字、代码和工程设置。撤销、重做、自动保存。
@@ -88,12 +92,19 @@ forsion-video-studio/
 ## 开发
 
 ```sh
-npm install && npm run build      # src/ → main.js、runtime/fvs-runtime.js、tools/fvs.mjs
-node check.mjs                    # 自检：宿主同构求值 main.js、单元测试、命令行跑示例
-NODE_PATH=$(npm root -g) node test/studio.e2e.mjs   # 在 Chromium 里用模拟宿主把编辑器完整走一遍
+npm ci && npm run build           # src/ → main.js、runtime/fvs-runtime.js、tools/fvs.mjs
+npm run check                    # 宿主契约、单元测试和完整示例 CLI 检查
+npx playwright-core install chromium  # 首次运行界面测试时安装浏览器
+npm run test:ui                  # Chromium：编辑、撤销、导出、导航、缩放、深浅/窄窗口和英文
+npm run install:dev              # 构建和自检后完整安装到 ~/.forsion-dev/plugins/
+npm run verify:dev               # 连接 dev 的 CDP 9333，保存真 Electron 截图和结果
 ```
 
-装到本机：整个文件夹拷到 `~/.forsion/plugins/forsion-video-studio/`，重启 Forsion（Agent 和技能由引擎在启动时发现）。
+`install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
+
+真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。截图与结果写入 `artifacts/native/`。
+
+提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐仍由导演 Agent 使用本机工具执行，本次工作台测试不代表它们的真模型验收。
 
 ---
 

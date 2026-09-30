@@ -7,6 +7,7 @@ window.HOST = (() => {
   const reg = { fileTypes: [], creators: [], commands: [], slash: [], embeds: [] };
   const enc = new TextEncoder(), dec = new TextDecoder();
   let data = {};
+  let locale = 'zh';
   let mounted = null;
   const app = {
     readFile: async p => { const v = files.get(p); return v === undefined ? null : typeof v === 'string' ? v : dec.decode(v); },
@@ -24,7 +25,7 @@ window.HOST = (() => {
   };
   const ctx = {
     app,
-    getLocale: () => 'zh',
+    getLocale: () => locale,
     notify: m => calls.notify.push(m),
     loadData: async () => data,
     saveData: async d => { data = JSON.parse(JSON.stringify(d)); },
@@ -48,6 +49,7 @@ window.HOST = (() => {
   }
   return {
     files, calls, reg, ctx, open, get data() { return data; },
+    get locale() { return locale; }, set locale(value) { locale = value; },
     load(src) { new Function('ctx', src)(ctx); },
     external(p, text) { files.set(p, text); const cb = watchers.get(p); if (cb) cb(); },
     text: p => { const v = files.get(p); return typeof v === 'string' ? v : v ? dec.decode(v) : null; },

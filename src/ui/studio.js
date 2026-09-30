@@ -11,6 +11,7 @@ import { handOff, TASKS, rewrite, notify, ensureTools } from './ai.js';
 import { exportHtml } from './exporter.js';
 
 import { h, dirOf, joinPath, mimeOf, b64 } from './util.js';
+import { icon } from './icons.js';
 export { h, dirOf, joinPath, mimeOf, b64 };
 
 const fmtTime = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
@@ -64,6 +65,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     sel: null, selText: null, selHit: null, tab: 'scene', codeScope: 'scene', allTexts: false,
     zoom: 0, snap: 'half', undo: [], redo: [], trusted: false, gen: 0,
     runtimeErrors: [], counts: null, sync: null, audioKey: '', analysis: null, disposed: false, status: 'saved',
+    search: '', focus: false, scenesOpen: null, inspectorOpen: true, muted: false,
+    zoomFit: false, timelineHeight: 224, advancedOpen: false,
   };
   const assets = assetLoader(ctx);
   const root = h('div', { class: 'fvs-studio', tabindex: '-1' });
@@ -71,19 +74,43 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   el.append(root);
 
   /* toolbar */
-  const nameEl = h('span', { class: 'fvs-name', text: path.split('/').pop() });
+  const nameEl = h('span', { class: 'fvs-name', title: path, text: path.split('/').pop() });
   const statusEl = h('span', { class: 'fvs-status' });
-  const undoBtn = h('button', { class: 'fvs-btn icon', title: `${t('undo')} (⌘Z)`, 'aria-label': t('undo'), onclick: () => undo() }, '↶');
-  const redoBtn = h('button', { class: 'fvs-btn icon', title: `${t('redo')} (⇧⌘Z)`, 'aria-label': t('redo'), onclick: () => redo() }, '↷');
-  const playBtn = h('button', { class: 'fvs-btn', onclick: () => toggle() }, `▶ ${t('play')}`);
+  const tool = (glyph, key, fn, cls = 'icon') => h('button', { class: `fvs-btn ${cls}`, title: t(key), 'aria-label': t(key), onclick: fn }, icon(glyph), cls.includes('icon') ? null : h('span', { text: t(key) }));
+  const undoBtn = tool('Undo2', 'undo', () => undo());
+  const redoBtn = tool('Redo2', 'redo', () => redo());
+  const playBtn = tool('Play', 'play', () => toggle(), 'fvs-play');
   const timeEl = h('span', { class: 'fvs-time', 'aria-live': 'off' });
-  const aiBtn = h('button', { class: 'fvs-btn primary', onclick: e => openAsk(e.currentTarget) }, `✦ ${t('ask-ai')}`);
-  const scoreBtn = h('button', { class: 'fvs-btn', title: t('ai-chip-score'), onclick: () => handOff(ctx, S, TASKS.score(), t) }, `♪ ${t('score')}`);
-  const exportBtn = h('button', { class: 'fvs-btn', 'aria-haspopup': 'menu', onclick: e => openExport(e.currentTarget) }, `${t('export')} ▾`);
-  root.append(h('div', { class: 'fvs-bar' }, nameEl, statusEl, undoBtn, redoBtn, h('span', { class: 'fvs-grow' }), playBtn, timeEl, h('span', { class: 'fvs-grow' }), aiBtn, scoreBtn, exportBtn));
+  const aiBtn = tool('Sparkles', 'ask-ai', e => openAsk(e.currentTarget), 'fvs-ai-action');
+  const scoreBtn = tool('Music2', 'score', () => handOff(ctx, S, TASKS.score(), t), 'fvs-score-action');
+  const exportBtn = tool('Download', 'export', e => openExport(e.currentTarget), 'primary');
+  exportBtn.setAttribute('aria-haspopup', 'menu'); exportBtn.append(icon('ChevronDown'));
+  const scenesToggle = tool('PanelLeft', 'toggle-scenes', () => { S.scenesOpen = !scenesVisible(); layout(); });
+  const inspectorToggle = tool('PanelRight', 'toggle-properties', () => { S.inspectorOpen = !S.inspectorOpen; layout(); });
+  root.append(h('div', { class: 'fvs-bar' },
+    h('div', { class: 'fvs-project-brand' }, h('span', { class: 'fvs-brand-mark' }, icon('FileVideo')),
+      h('div', { class: 'fvs-project-heading' }, h('span', { class: 'fvs-app-name', text: t('app') }), nameEl)),
+    statusEl, h('span', { class: 'fvs-grow' }),
+    h('div', { class: 'fvs-history' }, undoBtn, redoBtn),
+    h('div', { class: 'fvs-header-actions' }, aiBtn, scoreBtn, exportBtn)));
 
   /* preview + side panel */
   const view = h('div', { class: 'fvs-view' });
+  const viewport = h('div', { class: 'fvs-viewport' }, view);
+  const sceneNow = h('span', { class: 'fvs-current-scene' });
+  const formatEl = h('span', { class: 'fvs-format' });
+  const focusBtn = tool('Maximize2', 'focus-preview', () => { S.focus = !S.focus; layout(); });
+  const muteBtn = tool('Volume2', 'mute', () => { S.muted = !S.muted; for (const a of audios) a.el.muted = S.muted; renderTransport(); });
+  const prevBtn = tool('SkipBack', 'previous-scene', () => stepScene(-1));
+  const nextBtn = tool('SkipForward', 'next-scene', () => stepScene(1));
+  const preview = h('section', { class: 'fvs-preview', 'aria-label': t('preview') },
+    h('div', { class: 'fvs-preview-bar' }, scenesToggle, h('span', { class: 'fvs-area-label', text: t('preview') }),
+      sceneNow, h('span', { class: 'fvs-grow' }), formatEl, inspectorToggle, focusBtn), viewport,
+    h('div', { class: 'fvs-transport' }, timeEl,
+      h('div', { class: 'fvs-playback-actions' }, prevBtn, playBtn, nextBtn),
+      h('div', { class: 'fvs-preview-options' },
+        tool('ChevronLeft', 'frame-back', () => seek(S.time - 1 / (+S.p.meta.fps || 30))),
+        tool('ChevronRight', 'frame-forward', () => seek(S.time + 1 / (+S.p.meta.fps || 30))), muteBtn)));
   const errBox = h('div', { class: 'fvs-errs', hidden: true, role: 'status' });
   view.append(errBox);
   const tabs = h('div', { class: 'fvs-tabs', role: 'tablist' });
@@ -91,16 +118,35 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   for (const k of ['scene', 'text', 'code', 'project']) {
     tabs.append(h('button', { role: 'tab', 'data-tab': k, 'aria-selected': String(S.tab === k), onclick: () => { S.tab = k; renderSide(); } }, t(`tab-${k}`)));
   }
-  root.append(h('div', { class: 'fvs-main' }, view, h('div', { class: 'fvs-side' }, tabs, panel)));
+  tabs.addEventListener('keydown', e => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    const buttons = [...tabs.children], i = buttons.indexOf(document.activeElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].click(); buttons[next].focus();
+  });
+  const inspectorTitle = h('span', { class: 'fvs-inspector-selection' });
+  const side = h('aside', { class: 'fvs-side', 'aria-label': t('properties') },
+    h('div', { class: 'fvs-side-heading' }, h('strong', { text: t('properties') }), inspectorTitle), tabs, panel);
+  const sceneSearch = h('input', { type: 'search', class: 'fvs-input', placeholder: t('scene-search'), 'aria-label': t('scene-search'), oninput: e => { S.search = e.target.value; renderStoryboard(); } });
+  const sceneList = h('div', { class: 'fvs-scene-list', role: 'list', 'aria-label': t('scene-browser') });
+  const sceneCount = h('span', { class: 'fvs-scene-count' });
+  const storyboard = h('aside', { class: 'fvs-storyboard', 'aria-label': t('scene-browser') },
+    h('div', { class: 'fvs-story-heading' }, h('strong', { text: t('scene-browser') }), sceneCount,
+      tool('Plus', 'add-scene', () => addScene(S.sel))),
+    h('div', { class: 'fvs-scene-search' }, icon('Search'), sceneSearch), sceneList);
+  root.append(h('div', { class: 'fvs-main' }, storyboard, preview, side));
 
   /* timeline */
   const snapSel = h('select', { 'aria-label': t('snap'), onchange: e => { S.snap = e.target.value; } },
     ...['bar', 'beat', 'half', 'quarter', 'off'].map(k => h('option', { value: k, selected: S.snap === k }, t(`snap-${k}`))));
-  const tlBar = h('div', { class: 'fvs-tl-bar' }, h('span', { text: t('snap') }), snapSel,
-    h('button', { class: 'fvs-btn', title: t('zoom-out'), 'aria-label': t('zoom-out'), onclick: () => setZoom(S.zoom / 1.5) }, '−'),
-    h('button', { class: 'fvs-btn', title: t('zoom-in'), 'aria-label': t('zoom-in'), onclick: () => setZoom(S.zoom * 1.5) }, '+'),
-    h('button', { class: 'fvs-btn', onclick: () => setZoom(0) }, t('zoom-fit')),
-    h('span', { class: 'fvs-grow' }), h('span', { class: 'fvs-sync-sum' }));
+  const zoomInput = h('input', { type: 'range', min: '4', max: '120', step: '1', 'aria-label': t('zoom-level'), oninput: e => setZoom(+e.target.value) });
+  const syncButton = h('button', { class: 'fvs-sync-button', title: t('sync'), onclick: () => { S.inspectorOpen = true; S.focus = false; S.tab = 'project'; layout(); renderSide(); panel.querySelector('[data-sync-heading]')?.scrollIntoView({ block: 'start' }); } }, h('span', { class: 'fvs-sync-sum' }));
+  const tlBar = h('div', { class: 'fvs-tl-bar' }, icon('Scissors'), h('strong', { text: t('timeline') }),
+    h('span', { class: 'fvs-timeline-duration' }), syncButton, h('span', { class: 'fvs-grow' }),
+    h('label', { class: 'fvs-snap-control' }, h('span', { text: t('snap') }), snapSel),
+    h('div', { class: 'fvs-zoom-controls' }, tool('Minus', 'zoom-out', () => setZoom(S.zoom / 1.5)), zoomInput,
+      tool('Plus', 'zoom-in', () => setZoom(S.zoom * 1.5)), h('button', { class: 'fvs-btn', onclick: () => setZoom(0) }, t('zoom-fit'))));
   const scroller = h('div', { class: 'fvs-tl-scroll' });
   const inner = h('div', { class: 'fvs-tl-inner' });
   const ruler = h('canvas', { class: 'fvs-tl-ruler' });
@@ -109,9 +155,90 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const head = h('div', { class: 'fvs-tl-head' });
   inner.append(ruler, clips, wave, head);
   scroller.append(inner);
-  root.append(h('div', { class: 'fvs-tl', title: '' }, tlBar, scroller));
+  const trackRail = h('div', { class: 'fvs-track-rail' },
+    h('span', { class: 'fvs-track-ruler', text: S.p.tempo ? t('snap-bar') : t('time') }),
+    h('div', { class: 'fvs-track-label' }, icon('Film'), h('span', { text: t('video-track') })),
+    h('div', { class: 'fvs-track-label audio' }, icon('Music2'), h('span', { text: t('audio-track') })));
+  const resizeHandle = h('div', { class: 'fvs-tl-resize', role: 'separator', tabindex: '0', 'aria-orientation': 'horizontal', 'aria-label': t('resize-timeline'), 'aria-valuemin': '184', 'aria-valuenow': String(S.timelineHeight) });
+  resizeHandle.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const y = e.clientY, height = S.timelineHeight;
+    listenDrag(ev => resizeTimeline(height + y - ev.clientY), () => {});
+  });
+  resizeHandle.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault(); e.stopPropagation(); resizeTimeline(S.timelineHeight + (e.key === 'ArrowUp' ? 20 : -20));
+  });
+  root.append(h('div', { class: 'fvs-tl' }, resizeHandle, tlBar, h('div', { class: 'fvs-tl-body' }, trackRail, scroller),
+    h('div', { class: 'fvs-tl-footer' }, h('span', { text: t('timeline-hint') }), h('span', { text: t('preview-hint') }))));
 
   let current = null, pending = null, pendingTimer = 0, inline = null;
+  const drags = new Set();
+  function listenDrag(move, end) {
+    const clear = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); drags.delete(clear); };
+    const up = e => { clear(); if (!S.disposed) end(e); };
+    drags.add(clear);
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  }
+  function resizeTimeline(height) {
+    S.timelineHeight = Math.max(184, Math.min(Math.max(184, root.clientHeight * .52), height));
+    root.style.setProperty('--fv-timeline-height', `${S.timelineHeight}px`);
+    resizeHandle.setAttribute('aria-valuenow', String(Math.round(S.timelineHeight)));
+    drawWave(); fitPreview();
+  }
+  function scenesVisible() { return S.scenesOpen ?? root.clientWidth >= 1160; }
+  function layout() {
+    root.classList.toggle('scenes-hidden', !scenesVisible());
+    root.classList.toggle('inspector-hidden', !S.inspectorOpen);
+    root.classList.toggle('focus-preview', S.focus);
+    scenesToggle.setAttribute('aria-pressed', String(scenesVisible() && !S.focus));
+    inspectorToggle.setAttribute('aria-pressed', String(S.inspectorOpen && !S.focus));
+    focusBtn.replaceChildren(icon(S.focus ? 'Minimize2' : 'Maximize2'));
+    focusBtn.title = t(S.focus ? 'exit-focus' : 'focus-preview');
+    focusBtn.setAttribute('aria-label', focusBtn.title); focusBtn.setAttribute('aria-pressed', String(S.focus));
+    requestAnimationFrame(() => { if (S.disposed) return; fitPreview(); S.zoomFit ? setZoom(0) : renderTimeline(); });
+  }
+  function fitPreview() {
+    const style = getComputedStyle(viewport);
+    const w = Math.max(1, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+    const height = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom));
+    const ratio = (+S.p.meta.width || 1920) / (+S.p.meta.height || 1080);
+    const width = Math.min(w, height * ratio);
+    view.style.width = `${width}px`; view.style.height = `${width / ratio}px`;
+  }
+  function selectScene(id) {
+    const s = P.sceneById(S.p, id); if (!s) return;
+    S.sel = id; S.selHit = null; S.selText = null;
+    seek(s.t0); renderTimeline(); renderSide(); renderStoryboard();
+    if (root.clientWidth < 820 && scenesVisible()) { S.scenesOpen = false; layout(); }
+    const x = s.t0 * S.zoom;
+    if (x < scroller.scrollLeft || x + Math.min(s.dur * S.zoom, 140) > scroller.scrollLeft + scroller.clientWidth) scroller.scrollLeft = Math.max(0, x - 30);
+  }
+  function stepScene(direction) {
+    const currentScene = S.p.scenes.find(s => S.time >= s.t0 && S.time < s.t1) || S.p.scenes.at(-1);
+    if (!currentScene) return;
+    const next = S.p.scenes[Math.max(0, Math.min(S.p.scenes.length - 1, currentScene.index + direction))];
+    selectScene(next.id);
+  }
+  function renderStoryboard() {
+    sceneCount.textContent = String(S.p.scenes.length);
+    const q = S.search.trim().toLocaleLowerCase();
+    const matches = S.p.scenes.filter(s => `${s.id} ${s.title} ${scan(s.html).texts.map(r => r.text).join(' ')}`.toLocaleLowerCase().includes(q));
+    sceneList.replaceChildren();
+    for (const s of matches) {
+      const text = scan(s.html).texts.find(r => r.text.trim())?.text.trim() || s.id;
+      const thumb = h('span', { class: 'fvs-scene-thumb', 'aria-hidden': 'true' }, h('span', { text: text.slice(0, 20) }));
+      const image = images(s.html).find(i => i.src && !/^(https?:|data:)/i.test(i.src));
+      if (image) assets.get(joinPath(dirOf(path), image.src)).then(url => { if (url && !S.disposed && thumb.isConnected) thumb.replaceChildren(h('img', { src: url, alt: '' })); });
+      const row = h('button', { class: `fvs-scene-item${s.id === S.sel ? ' on' : ''}`, 'data-scene-id': s.id,
+        'aria-current': s.id === S.sel ? 'true' : 'false', title: `${s.title || s.id} · ${fmtTime(s.t0)} · ${t('scene-duration', { n: s.dur.toFixed(2) })}`, onclick: () => selectScene(s.id) },
+        thumb, h('span', { class: 'fvs-scene-info' },
+          h('span', { class: 'fvs-scene-title', text: s.title || s.id }),
+          h('span', { class: 'fvs-scene-meta', text: `${String(s.index + 1).padStart(2, '0')} · ${fmtTime(s.t0)} · ${s.dur.toFixed(1)}s` })));
+      sceneList.append(h('div', { role: 'listitem' }, row));
+    }
+    if (!matches.length) sceneList.append(h('p', { class: 'fvs-hint fvs-scenes-empty', text: t('scene-empty') }));
+  }
 
   /* ───────── load, save, watch ───────── */
   async function load() {
@@ -129,10 +256,10 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     S.text = S.saved = text;
     setStatus('saved');
     reparse();
-    S.sel = S.p.scenes[0] ? S.p.scenes[0].id : null;
     S.time = Math.min(S.p.length, S.p.scenes[1] ? S.p.scenes[1].t0 + .5 : 0);
+    S.sel = (S.p.scenes.find(s => S.time >= s.t0 && S.time < s.t1) || S.p.scenes[0])?.id || null;
     renderAll();
-    requestAnimationFrame(() => setZoom(0));
+    requestAnimationFrame(() => setZoom(24));
     if (S.trusted) buildPreview(); else showGate();
     loadAudio();
     watch();
@@ -140,7 +267,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function reparse() { S.p = P.parseProject(S.text); if (S.sel && !P.sceneById(S.p, S.sel)) S.sel = S.p.scenes[0] ? S.p.scenes[0].id : null; }
 
   let saveTimer = 0, saving = null;
-  function setStatus(k, vars) { S.status = k; statusEl.textContent = t(k, vars); }
+  function setStatus(k, vars) { S.status = k; statusEl.textContent = t(k, vars); statusEl.dataset.state = k; }
   function scheduleSave() { setStatus('unsaved'); clearTimeout(saveTimer); saveTimer = setTimeout(save, 600); }
   async function save() {
     clearTimeout(saveTimer);
@@ -263,7 +390,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (!m.scene) return;
     S.sel = m.scene;
     if (m.text != null) S.selText = { scene: m.scene, index: m.text };
-    renderTimeline();
+    renderTimeline(); renderStoryboard();
     if (!m.dbl) root.focus({ preventScroll: true }); // take the keyboard back from the preview
     if (m.dbl && m.text != null && textsMatch(m.scene)) openInline(m);
     else if (m.dbl && m.img != null) { S.tab = 'text'; renderSide(); }
@@ -321,11 +448,23 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     renderTransport();
   }
   function renderTransport() {
-    playBtn.textContent = S.playing ? `❚❚ ${t('pause')}` : `▶ ${t('play')}`;
+    if (playBtn.dataset.playing !== String(S.playing)) {
+      playBtn.replaceChildren(icon(S.playing ? 'Pause' : 'Play'), h('span', { text: t(S.playing ? 'pause' : 'play') }));
+      playBtn.dataset.playing = String(S.playing);
+      playBtn.setAttribute('aria-label', t(S.playing ? 'pause' : 'play'));
+    }
     const fps = +S.p.meta.fps || 30;
     timeEl.textContent = `${fmtTime(S.time)} / ${fmtTime(S.p.length)} · ${Math.round(S.time * fps)}`;
     timeEl.title = `${t('time')} · ${t('frames')}`;
     undoBtn.disabled = !S.undo.length; redoBtn.disabled = !S.redo.length;
+    const scene = S.p.scenes.find(s => S.time >= s.t0 && S.time < s.t1) || S.p.scenes.at(-1);
+    sceneNow.textContent = scene ? `${String(scene.index + 1).padStart(2, '0')} · ${scene.title || scene.id}` : '';
+    prevBtn.disabled = !scene || scene.index === 0; nextBtn.disabled = !scene || scene.index === S.p.scenes.length - 1;
+    if (muteBtn.dataset.muted !== String(S.muted)) {
+      muteBtn.replaceChildren(icon(S.muted ? 'VolumeX' : 'Volume2'));
+      muteBtn.title = t(S.muted ? 'unmute' : 'mute'); muteBtn.setAttribute('aria-label', muteBtn.title);
+      muteBtn.setAttribute('aria-pressed', String(S.muted)); muteBtn.dataset.muted = String(S.muted);
+    }
   }
   let raf = 0;
   function loop() {
@@ -356,7 +495,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       try { url = app.assetUrl ? app.assetUrl(vp) : null; } catch { url = null; }
       if (!url && app.readBytes) { const b = await app.readBytes(vp).catch(() => null); if (b) { url = URL.createObjectURL(new Blob([b], { type: mimeOf(vp) })); blob = true; } }
       if (!url) continue;
-      const a = new Audio(url); a.preload = 'auto'; a.volume = Math.min(1, 10 ** ((tr.gain || 0) / 20));
+      const a = new Audio(url); a.preload = 'auto'; a.volume = Math.min(1, 10 ** ((tr.gain || 0) / 20)); a.muted = S.muted;
       audios.push({ el: a, at: tr.at || 0, url, blob, vp });
     }
     drawWave();
@@ -387,9 +526,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     S.sync = S.analysis ? syncReport(S.p.scenes, S.analysis.env) : null;
     const sum = root.querySelector('.fvs-sync-sum');
     if (!sum) return;
-    if (!S.sync) { sum.textContent = ''; return; }
+    if (!S.sync) { sum.textContent = S.p.meta.audio?.length ? t('sync-analyzing') : ''; return; }
     const bad = S.sync.filter(r => !r.ok).length;
-    sum.textContent = bad ? t('sync-bad', { n: S.sync.length, bad }).replace(/[:：]$/, '') : t('sync-ok', { n: S.sync.length });
+    sum.textContent = t(bad ? 'sync-short' : 'sync-short-ok', { n: S.sync.length, bad });
     sum.style.color = bad ? 'var(--fv-warn)' : 'var(--fv-ok)';
   }
 
@@ -402,19 +541,23 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const snapT = x => { const g = grid(); return Math.round(x / g) * g; };
   function setZoom(z) {
     const fit = Math.max(4, (scroller.clientWidth - 24) / Math.max(1, S.p.length));
+    S.zoomFit = !(z > 0);
     S.zoom = z > 0 ? Math.min(400, Math.max(fit / 2, z)) : fit;
+    zoomInput.value = String(S.zoom);
     renderTimeline();
   }
   function renderTimeline() {
     const Z = S.zoom || 20, W = Math.ceil(S.p.length * Z) + 24;
     inner.style.width = `${W}px`;
+    root.querySelector('.fvs-timeline-duration').textContent = `${fmtTime(S.p.length)} · ${t('scene-count', { n: S.p.scenes.length })}`;
+    trackRail.querySelector('.fvs-track-ruler').textContent = S.p.tempo ? t('snap-bar') : t('time');
     clips.replaceChildren();
     if (!S.p.scenes.length) clips.append(h('div', { class: 'fvs-tl-empty', text: t('scene-none') }));
     const rows = S.sync || [];
     const u = P.hitUnit(S.p.tempo);
     S.p.scenes.forEach((s, k) => {
       const clip = h('div', { class: `fvs-clip${k % 2 ? ' alt' : ''}${s.id === S.sel ? ' on' : ''}`, 'data-id': s.id, style: { left: `${s.t0 * Z}px`, width: `${Math.max(3, s.dur * Z - 2)}px` }, title: `${s.id}${s.title ? ` · ${s.title}` : ''}\n${s.t0.toFixed(2)}–${s.t1.toFixed(2)} s · ${s.meta.length ?? ''}\n${t('hit-hint')}` });
-      clip.append(h('div', { class: 'nm' }, h('b', { text: s.id }), s.title || ''));
+      clip.append(h('div', { class: 'nm' }, h('b', { text: s.title || s.id }), h('small', { text: `${s.dur.toFixed(1)}s` })));
       const lane = h('div', { class: 'lane' });
       s.hitTimes.forEach((ht, i) => {
         const r = rows.find(x => x.scene === s.id && x.hit === i);
@@ -438,7 +581,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         const was = S.sel;
         S.sel = s.id; S.selHit = null;
         if (S.time < s.t0 || S.time >= s.t1 || was === s.id) seek(was === s.id ? s.t0 + (e.clientX - clip.getBoundingClientRect().left) / Z : s.t0);
-        renderTimeline(); renderSide();
+        renderTimeline(); renderSide(); renderStoryboard();
       });
       clips.append(clip);
     });
@@ -472,10 +615,10 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     }
   }
   function drawWave() {
-    const Z = S.zoom || 20, W = Math.ceil(S.p.length * Z) + 24, H = 58;
+    const Z = S.zoom || 20, W = Math.ceil(S.p.length * Z) + 24, H = Math.max(32, scroller.clientHeight - 112);
     const g = canvasSize(wave, W, H);
     g.clearRect(0, 0, W, H);
-    const muted = css('--fv-muted', '#999');
+    const muted = css('--fv-accent', '#5fa3b2');
     if (!audios.length) { g.fillStyle = muted; g.font = '11px system-ui'; g.fillText(t('sync-none'), 8, 24); return; }
     if (!S.analysis) return;
     const { peaks, env } = S.analysis;
@@ -500,8 +643,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const r = inner.getBoundingClientRect();
     const go = ev => seek((ev.clientX - r.left) / (S.zoom || 20));
     go(e);
-    const move = ev => go(ev), up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    listenDrag(ev => go(ev), () => {});
   }
   ruler.addEventListener('pointerdown', scrub);
   wave.addEventListener('pointerdown', scrub);
@@ -513,12 +655,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     let len = s.dur;
     const move = ev => { len = Math.max(grid(), snapT((ev.clientX - r.left) / Z) - s.t0); ghost.style.width = `${len * Z}px`; };
     const up = ev => {
-      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
       ghost.remove(); edge.classList.remove('drag');
+      if (ev.type === 'pointercancel') return;
       if (Math.abs(len - s.dur) < 1e-6) return;
       tryCommit(src => (ev.altKey || !S.p.scenes[s.index + 1] ? P.setSceneLength(src, s.id, len) : P.rollCut(src, s.id, len)));
     };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    listenDrag(move, up);
   }
   function dragHit(e, s, i, m) {
     e.preventDefault(); e.stopPropagation();
@@ -527,14 +669,14 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const Z = S.zoom || 20, r = inner.getBoundingClientRect(), u = P.hitUnit(S.p.tempo);
     let at = s.hitTimes[i], moved = false;
     const move = ev => { moved = true; at = Math.max(s.t0, Math.min(s.t1, snapT((ev.clientX - r.left) / Z))); m.style.left = `${(at - s.t0) * Z}px`; };
-    const up = () => {
-      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
-      if (!moved) { seek(s.hitTimes[i]); renderSide(); return; }
+    const up = ev => {
+      if (ev.type === 'pointercancel') { renderTimeline(); return; }
+      if (!moved) { seek(s.hitTimes[i]); renderSide(); renderStoryboard(); return; }
       const hits = s.hits.slice(); hits[i] = Math.round((at - s.t0) / u * 1e4) / 1e4;
       S.selHit = null;
       tryCommit(src => P.setHits(src, s.id, hits));
     };
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    listenDrag(move, up);
   }
 
   /* ───────── side panel ───────── */
@@ -554,10 +696,14 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (e.key === 'Tab' && !e.shiftKey && !e.isComposing) { e.preventDefault(); const a = ta.selectionStart; ta.setRangeText('  ', a, ta.selectionEnd, 'end'); }
     });
     ta.addEventListener('blur', apply);
-    return ta;
+    return h('div', { class: 'fvs-code-block' }, ta,
+      h('div', { class: 'fvs-code-footer' }, h('span', { text: '⌘ / Ctrl + Enter' }),
+        h('button', { class: 'fvs-btn', onclick: apply }, icon('Check'), t('apply-code'))));
   }
   function renderSide() {
-    for (const b of tabs.children) b.setAttribute('aria-selected', String(b.dataset.tab === S.tab));
+    for (const b of tabs.children) { b.setAttribute('aria-selected', String(b.dataset.tab === S.tab)); b.tabIndex = b.dataset.tab === S.tab ? 0 : -1; }
+    const scene = selScene();
+    inspectorTitle.textContent = scene ? `${String(scene.index + 1).padStart(2, '0')} / ${S.p.scenes.length}` : '';
     const focus = document.activeElement && panel.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     const scroll = panel.scrollTop;
     panel.replaceChildren(...({ scene: sceneTab, text: textTab, code: codeTab, project: projectTab }[S.tab])());
@@ -571,19 +717,26 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (!s) return [h('p', { class: 'fvs-hint', text: t('scene-none') })];
     const tempo = S.p.tempo;
     const out = [];
-    out.push(h('div', { class: 'fvs-row' },
-      field(t('scene-id'), input('sid', s.id, v => { const nid = v.trim(), old = S.sel; S.sel = nid; if (!tryCommit(src => P.renameScene(src, s.id, nid, undefined))) { S.sel = old; renderSide(); } })),
+    out.push(h('section', { class: 'fvs-section' },
+      h('h4', { text: t('overview') }),
+      h('div', { class: 'fvs-scene-summary' }, h('strong', { text: s.title || s.id }),
+        h('span', { text: `${fmtTime(s.t0)} — ${fmtTime(s.t1)}` })),
       field(t('scene-title'), input('stitle', s.title, v => tryCommit(src => P.renameScene(src, s.id, undefined, v.trim()))))));
-    out.push(h('div', { class: 'fvs-row' },
+    out.push(h('section', { class: 'fvs-section' }, h('h4', { text: t('timing-section') }),
       field(t('scene-length'), input('slen', s.meta.length ?? '', v => tryCommit(src => { P.parseLength(v.trim(), tempo); return P.setSceneMeta(src, s.id, { length: /^\d+(\.\d+)?$/.test(v.trim()) ? +v : v.trim() }); })), t('length-hint')),
-      field(t('scene-class'), input('sclass', s.meta.class ?? '', v => tryCommit(src => P.setSceneMeta(src, s.id, { class: v.trim() || null }))))));
-    out.push(field(t('scene-hits'), input('shits', s.hits.join(', '), v => tryCommit(src => P.setHits(src, s.id, v.split(/[\s,，]+/).filter(Boolean).map(Number).filter(x => isFinite(x))))), tempo ? t('scene-hits-hint') : t('scene-hits-hint-sec')));
-    out.push(h('div', { class: 'fvs-row' },
-      h('button', { class: 'fvs-btn', disabled: s.index === 0, onclick: () => tryCommit(src => P.moveScene(src, s.id, s.index - 1)) }, `← ${t('move-up')}`),
-      h('button', { class: 'fvs-btn', disabled: s.index === S.p.scenes.length - 1, onclick: () => tryCommit(src => P.moveScene(src, s.id, s.index + 1)) }, `${t('move-down')} →`),
-      h('button', { class: 'fvs-btn', onclick: () => { const id = P.freeId(S.p, s.id); if (tryCommit(src => P.duplicateScene(src, s.id, id))) { S.sel = id; renderAll(); } } }, t('duplicate')),
-      h('button', { class: 'fvs-btn', onclick: () => addScene(s.id) }, `+ ${t('add-scene')}`),
-      h('button', { class: 'fvs-btn', onclick: () => { if (tryCommit(src => P.deleteScene(src, s.id))) notify(ctx, t('deleted', { id: s.id })); } }, t('delete'))));
+      field(t('scene-hits'), input('shits', s.hits.join(', '), v => tryCommit(src => P.setHits(src, s.id, v.split(/[\s,，]+/).filter(Boolean).map(Number).filter(x => isFinite(x))))), tempo ? t('scene-hits-hint') : t('scene-hits-hint-sec'))));
+    out.push(h('details', { class: 'fvs-advanced', open: S.advancedOpen, ontoggle: e => { S.advancedOpen = e.target.open; } },
+      h('summary', {}, icon('SlidersHorizontal'), t('advanced')),
+      h('div', { class: 'fvs-section' },
+        field(t('scene-id'), input('sid', s.id, v => { const nid = v.trim(), old = S.sel; S.sel = nid; if (!tryCommit(src => P.renameScene(src, s.id, nid, undefined))) { S.sel = old; renderSide(); } })),
+        field(t('scene-class'), input('sclass', s.meta.class ?? '', v => tryCommit(src => P.setSceneMeta(src, s.id, { class: v.trim() || null })))))));
+    out.push(h('section', { class: 'fvs-section' }, h('h4', { text: t('scene-actions') }),
+      h('div', { class: 'fvs-scene-actions' },
+        h('button', { class: 'fvs-btn', disabled: s.index === 0, onclick: () => tryCommit(src => P.moveScene(src, s.id, s.index - 1)) }, icon('ArrowUp'), t('move-up')),
+        h('button', { class: 'fvs-btn', disabled: s.index === S.p.scenes.length - 1, onclick: () => tryCommit(src => P.moveScene(src, s.id, s.index + 1)) }, icon('ArrowDown'), t('move-down')),
+        h('button', { class: 'fvs-btn', onclick: () => { const id = P.freeId(S.p, s.id); if (tryCommit(src => P.duplicateScene(src, s.id, id))) selectScene(id); } }, icon('Copy'), t('duplicate')),
+        h('button', { class: 'fvs-btn', onclick: () => addScene(s.id) }, icon('Plus'), t('add-scene'))),
+      h('button', { class: 'fvs-btn fvs-delete-scene', onclick: () => { if (tryCommit(src => P.deleteScene(src, s.id))) notify(ctx, t('deleted', { id: s.id })); } }, icon('Trash2'), t('delete'))));
     const timed = timedElements(s.html);
     if (timed.length) {
       out.push(h('h4', {}, t('timed')), h('p', { class: 'fvs-hint', text: t('timed-hint') }));
@@ -719,7 +872,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const tracks = raw.map(a => (typeof a === 'string' ? { src: a } : { ...a }));
     const setTracks = next => setM({ audio: next });
     tracks.forEach((a, i) => out.push(h('div', { class: 'fvs-row' },
-      field('src', input(`au:${i}:src`, a.src, v => { tracks[i] = { ...a, src: v.trim() }; setTracks(tracks); })),
+      field(t('audio-source'), input(`au:${i}:src`, a.src, v => { tracks[i] = { ...a, src: v.trim() }; setTracks(tracks); })),
       field(t('audio-at'), input(`au:${i}:at`, a.at ?? 0, v => { tracks[i] = { ...a, at: +v || undefined }; setTracks(tracks); }, { type: 'number', step: '0.01' })),
       field(t('audio-gain'), input(`au:${i}:gain`, a.gain ?? 0, v => { tracks[i] = { ...a, gain: +v || undefined }; setTracks(tracks); }, { type: 'number', step: '0.5' })),
       h('button', { class: 'fvs-btn', onclick: () => setTracks(tracks.filter((_, k) => k !== i)) }, t('audio-remove')))));
@@ -730,7 +883,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     } });
     out.push(h('div', { class: 'fvs-row' }, file, h('button', { class: 'fvs-btn', disabled: !app.writeBytes, onclick: () => file.click() }, t('audio-add'))));
     // sync
-    out.push(h('h4', {}, t('sync'), h('span', { class: 'fvs-grow' }), S.sync && S.sync.some(r => !r.ok) ? h('button', { class: 'fvs-link', onclick: () => handOff(ctx, S, TASKS.sync(), t) }, `✦ ${t('sync-fix')}`) : null));
+    out.push(h('h4', { 'data-sync-heading': '' }, t('sync'), h('span', { class: 'fvs-grow' }), S.sync && S.sync.some(r => !r.ok) ? h('button', { class: 'fvs-link', onclick: () => handOff(ctx, S, TASKS.sync(), t) }, `✦ ${t('sync-fix')}`) : null));
     if (!tracks.length) out.push(h('p', { class: 'fvs-hint', text: t('sync-none') }));
     else if (!S.sync) out.push(h('p', { class: 'fvs-hint', text: t('sync-analyzing') }));
     else {
@@ -745,7 +898,11 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     return out;
   }
 
-  function renderAll() { renderTransport(); renderTimeline(); renderSide(); }
+  function renderAll() {
+    nameEl.textContent = S.p.meta.title || path.split('/').pop();
+    formatEl.textContent = `${S.p.meta.width} × ${S.p.meta.height} · ${S.p.meta.fps} fps`;
+    renderTransport(); renderTimeline(); renderSide(); renderStoryboard(); fitPreview();
+  }
 
   /* ───────── popovers: ask AI, export ───────── */
   let pop = null;
@@ -794,7 +951,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (typing(e)) return;
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
-    if (e.key === 'Escape') { closePop(); return; }
+    if (e.key === 'Escape') { closePop(); if (S.focus) { S.focus = false; layout(); } return; }
     if (e.code === 'Space') { e.preventDefault(); toggle(); return; }
     const beat = S.p.tempo ? S.p.tempo.beat : .5, frame = 1 / (+S.p.meta.fps || 30);
     if (e.key === 'ArrowRight') { e.preventDefault(); seek(S.time + (e.shiftKey ? beat : frame)); }
@@ -811,10 +968,14 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   // clicks on the timeline and the toolbar keep the keyboard on the editor (Space, arrows, ⌘Z)
   root.addEventListener('pointerdown', e => { if (!e.target.closest('input,textarea,select,.fvs-pop,.fvs-inline')) setTimeout(() => { if (!root.contains(document.activeElement) || document.activeElement === document.body) root.focus({ preventScroll: true }); }); });
   const ro = new ResizeObserver(() => {
-    root.classList.toggle('narrow', root.clientWidth < 860);
-    if (!S.zoom || S.zoom <= (scroller.clientWidth - 24) / Math.max(1, S.p.length) * 1.01) setZoom(0);
+    const narrow = root.clientWidth < 820;
+    if (narrow && !root.classList.contains('narrow')) S.scenesOpen = null;
+    root.classList.toggle('narrow', narrow);
+    root.classList.toggle('medium', root.clientWidth < 1160);
+    layout();
   });
-  ro.observe(root);
+  ro.observe(root); ro.observe(viewport);
+  layout();
 
   load();
   raf = requestAnimationFrame(loop);
@@ -828,6 +989,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     window.removeEventListener('message', onMessage);
     document.removeEventListener('pointerdown', onDocDown, true);
     ro.disconnect();
+    for (const clear of drags) clear();
     for (const a of audios) { a.el.pause(); if (a.blob) URL.revokeObjectURL(a.url); }
     root.remove();
   };

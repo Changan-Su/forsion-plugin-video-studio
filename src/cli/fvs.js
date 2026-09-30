@@ -12,7 +12,7 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
 
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project

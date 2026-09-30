@@ -23,7 +23,7 @@ async function remember(path) {
 /** Create a project from the starter template in `folder` and (by default) open it. */
 async function createProject(folder, open = true) {
   // a default file name lands on disk: keep it the same in every UI language
-  const base = '新视频';
+  const base = t('new-project-name');
   let path = joinPath(folder || '', `${base}${EXT}`);
   for (let k = 2; await exists(path); k++) path = joinPath(folder || '', `${base} ${k}${EXT}`);
   await app.writeFile(path, evaTemplate({ title: base, zh: !t.en() }));
@@ -34,7 +34,7 @@ async function createProject(folder, open = true) {
 
 /** The bundled example (episode 2.12): written into the work folder once, then opened. */
 async function openExample() {
-  const dir = `${workFolder()}/第 2.12 话`;
+  const dir = `${workFolder()}/${t('example-folder')}`;
   const file = `${dir}/episode-2.12${EXT}`;
   try {
     if (!(await exists(file))) {

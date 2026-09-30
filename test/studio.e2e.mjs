@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { checkWorkspace } from './workspace.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -62,6 +63,7 @@ await page.waitForFunction(() => /拍点/.test(document.querySelector('.fvs-sync
 const syncSum = await page.textContent('.fvs-sync-sum');
 console.log('sync summary:', syncSum);
 await shot(page, '02-open');
+await checkWorkspace(page, FILE, shot);
 
 // 2. select the cards scene and seek into its fourth card
 await page.click('.fvs-clip[data-id="cards"] .nm', { force: true });
@@ -188,6 +190,15 @@ await page.evaluate(() => HOST.reg.creators[0].run('Videos'));
 await ready();
 assert.equal(await page.locator('.fvs-clip').count(), 3);
 await shot(page, '10-new');
+
+// 12. A new English workspace localizes both controls and project filename.
+await page.evaluate(() => { HOST.locale = 'en'; return HOST.reg.creators[0].run('Videos'); });
+await ready();
+assert.match(await page.evaluate(() => HOST.calls.openFile.at(-1)), /New video\.fvs\.md$/);
+const chromeText = await page.locator('.fvs-bar').innerText();
+assert.doesNotMatch(chromeText, /[\u4e00-\u9fff]/);
+assert.equal(await page.getByRole('button', { name: 'Next scene', exact: true }).count(), 1);
+await shot(page, '13-english');
 
 assert.deepEqual(errors.filter(e => !/fonts\.|ERR_FAILED|net::/.test(e)), []);
 console.log('studio e2e ok');
