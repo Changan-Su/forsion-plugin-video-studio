@@ -35,7 +35,7 @@ try {
     await c.item.run();
     return { id: p.id, version: p.version, vault: usePageStore.getState().vaultRoot };
   }, spaceModule);
-  assert.equal(plugin.version, '0.3.0');
+  assert.equal(plugin.version, '0.4.0');
   await page.waitForSelector('.fvs-clip');
   const gate = page.locator('.fvs-gate button');
   if (await gate.count()) await gate.click();

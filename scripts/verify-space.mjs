@@ -27,7 +27,7 @@ try {
       list: s.listSources.find(x => x.pluginId === 'forsion-video-studio')?.item.id,
       root: (await import('/src/amadeus/store/pageStore.ts')).usePageStore.getState().vaultRoot };
   }, spaceModule);
-  assert.equal(state.active, 'forsion-video-studio'); assert.equal(state.plugin, '0.3.0'); assert.equal(state.list, 'projects');
+  assert.equal(state.active, 'forsion-video-studio'); assert.equal(state.plugin, '0.4.0'); assert.equal(state.list, 'projects');
   project = join(state.root, 'Forsion Video Studio/第 2.12 话/episode-2.12.fvs.md'); const before = await readFile(project);
   await page.waitForSelector('.fvs-studio .fvs-clip');
   await page.waitForFunction(() => !!document.querySelector('.fvs-view iframe:not(.fvs-pending)'));

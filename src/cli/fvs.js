@@ -11,8 +11,9 @@ import { compile, buildHtml, audioTracks } from '../lib/compile.js';
 import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
+import { renderVideo, renderJob } from './render.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
 
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project
@@ -24,6 +25,7 @@ const HELP = `fvs ${VERSION} — Forsion Video Studio
   fvs sheet <file> [--scenes | --every <sec>] [--out sheet.png]       contact sheet of frames
   fvs render <file> [--out f.mp4] [--from s] [--to s] [--scale 0.5] [--workers 3] [--crf 18]
                     [--keep-frames dir] [--no-audio]                 MP4 with the project's audio
+  fvs render-job <job.json>            export with real progress and a .cancel marker
   fvs sync <file> [--audio a.mp3]      do the hits land on accents of the score?
 
   Times: 12.5 (seconds), scene id (its start), scene:3 (its hit 3).
@@ -43,7 +45,7 @@ for (let i = 0; i < argv.length; i++) {
     else flags[k] = true;
   } else pos.push(a);
 }
-const die = (msg, code = 1) => { console.error(msg); process.exit(code); };
+const die = (msg, code = 1) => { const error = new Error(msg); error.exitCode = code; throw error; };
 const log = (...a) => console.log(...a);
 
 function load(file) {
@@ -241,52 +243,21 @@ const commands = {
   },
 
   async render() {
-    const ctx = load(pos[0]);
-    report(ctx.p);
-    const p = ctx.p, fps = +flags.fps || +p.meta.fps;
-    const from = timeArg(p, flags.from) ?? 0, to = Math.min(p.length, timeArg(p, flags.to) ?? p.length);
-    const out = resolve(flags.out || ctx.path.replace(/\.fvs\.md$/i, '') + '.mp4');
-    const ff = ffmpegBin();
-    const frames = flags['keep-frames'] ? resolve(flags['keep-frames']) : mkdtempSync(join(tmpdir(), 'fvs-frames-'));
-    rmSync(frames, { recursive: true, force: true }); mkdirSync(frames, { recursive: true });
-    const browser = await chromium();
-    const workers = Math.max(1, Math.min(8, +flags.workers || 3));
-    const stages = await Promise.all([...Array(workers)].map(() => openStage(ctx, browser)));
-    if (runtimeErrors(stages[0].st, stages[0].logs) && !flags.force) { await browser.close(); die('scene scripts failed (see above); fix them or pass --force'); }
-    const f0 = Math.round(from * fps), f1 = Math.max(f0, Math.round(to * fps) - 1);
-    const total = f1 - f0 + 1;
-    let done = 0, lastPct = -1;
-    const t0 = Date.now();
-    await Promise.all(stages.map(async ({ pg }, k) => {
-      for (let f = f0 + k; f <= f1; f += workers) {
-        await pg.evaluate(t => __stage.seek(t), f / fps);
-        await pg.screenshot({ path: join(frames, `${String(f - f0).padStart(6, '0')}.png`) });
-        done++;
-        const pct = Math.floor(done / total * 20) * 5;
-        if (pct !== lastPct) { lastPct = pct; log(`frames ${pct}% (${done}/${total}, ${((Date.now() - t0) / 1000).toFixed(0)} s)`); }
-      }
-    }));
-    await browser.close();
-    const args = ['-y', '-loglevel', 'error', '-framerate', String(fps), '-i', join(frames, '%06d.png')];
-    const tracks = flags['no-audio'] ? [] : audioTracks(p.meta).filter(a => existsSync(join(ctx.dir, a.src)));
-    for (const a of audioTracks(p.meta)) if (!existsSync(join(ctx.dir, a.src))) console.error(`warn audio not found, skipped: ${a.src}`);
-    tracks.forEach(a => args.push('-i', join(ctx.dir, a.src)));
-    const vf = +flags.scale && +flags.scale !== 1 ? ['-vf', `scale=trunc(iw*${+flags.scale}/2)*2:-2:flags=lanczos`] : [];
-    if (tracks.length) {
-      const parts = tracks.map((a, i) => {
-        const shift = a.at - from;
-        const trim = shift < 0 ? `atrim=start=${-shift},asetpts=PTS-STARTPTS,` : '';
-        const delay = shift > 0 ? `adelay=${Math.round(shift * 1000)}:all=1,` : '';
-        return `[${i + 1}:a]${trim}${delay}volume=${a.gain || 0}dB[a${i}]`;
-      });
-      const mix = tracks.length > 1 ? `;${tracks.map((_, i) => `[a${i}]`).join('')}amix=inputs=${tracks.length}:normalize=0[aout]` : '';
-      args.push('-filter_complex', parts.join(';') + mix, '-map', '0:v', '-map', tracks.length > 1 ? '[aout]' : '[a0]', '-c:a', 'aac', '-b:a', flags.abr || '256k');
-    }
-    args.push(...vf, '-c:v', 'libx264', '-preset', flags.preset || 'slow', '-crf', String(flags.crf || 18), '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', String(total / fps), out);
-    const r = spawnSync(ff, args, { stdio: 'inherit' });
-    if (!flags['keep-frames']) rmSync(frames, { recursive: true, force: true });
-    if (r.status !== 0) die('ffmpeg failed');
-    log(`${out} · ${total} frames · ${(total / fps).toFixed(2)} s · ${(statSync(out).size / 1048576).toFixed(1)} MB`);
+    const ctx = load(pos[0]); report(ctx.p);
+    return renderVideo(ctx, flags, { timeArg, ffmpegBin, chromium, openStage, runtimeErrors, log });
+  },
+  async 'render-job'() {
+    const jobPath = resolve(pos[0] || die('render-job requires a job JSON file'));
+    const job = renderJob(jobPath);
+    try {
+      const spec = JSON.parse(readFileSync(jobPath, 'utf8'));
+      if (spec.v !== 1 || !spec.project || !spec.out || !spec.options) die('Invalid render job');
+      if (['done', 'failed', 'cancelled'].includes(spec.status)) { log(`Job already ${spec.status}`); return; }
+      const ctx = load(spec.project);
+      if (spec.sourceSnapshot) { ctx.text = readFileSync(spec.sourceSnapshot, 'utf8'); ctx.p = parseProject(ctx.text); }
+      report(ctx.p);
+      return await renderVideo(ctx, { ...spec.options, out: spec.out, job: jobPath }, { timeArg, ffmpegBin, chromium, openStage, runtimeErrors, log });
+    } catch (e) { job.write({ status: job.cancelled() ? 'cancelled' : 'failed', error: String(e.message || e) }); throw e; }
   },
 
   async sync() {
@@ -315,4 +286,4 @@ const commands = {
 };
 
 if (!cmd || cmd === 'help' || flags.help || !commands[cmd]) { log(HELP); process.exit(cmd && !commands[cmd] && cmd !== 'help' ? 1 : 0); }
-commands[cmd]().catch(e => die(e && e.stack || String(e)));
+commands[cmd]().catch(e => { console.error(e && e.stack || String(e)); process.exitCode = e.exitCode || 1; });

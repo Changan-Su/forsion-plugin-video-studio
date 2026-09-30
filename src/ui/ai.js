@@ -60,14 +60,14 @@ export const TASKS = {
 };
 
 /** Start a visible conversation with the Director. Falls back to the clipboard off Tangu. */
-export async function handOff(ctx, s, task, t) {
+export async function handOff(ctx, s, task, t, options = {}) {
   let tools = null;
   try { tools = await ensureTools(ctx); } catch { tools = null; }
   const prompt = `${contextBlock(ctx, s, tools)}\n\n${task}`;
   const folder = dirOf(s.path) || undefined;
   if (ctx.tangu && ctx.tangu.startChat) {
-    const r = await ctx.tangu.startChat({ agent: AGENT, prompt, send: true, folder });
-    if (r && r.ok) { notify(ctx, t('ai-started')); return true; }
+    const r = await ctx.tangu.startChat({ agent: AGENT, prompt, send: true, folder, ...(ctx.tangu.chatSelection ? { modelId: options.modelId, thinkingLevel: options.thinkingLevel } : {}) });
+    if (r && r.ok) { options.onStarted?.(r); notify(ctx, t('ai-started')); return true; }
     if (r && !r.ok) notify(ctx, String(r.error || 'failed'), 'warn');
   }
   try { await navigator.clipboard.writeText(prompt); } catch { /* the notice still explains */ }

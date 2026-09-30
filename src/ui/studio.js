@@ -9,6 +9,9 @@ import RUNTIME from '../generated/runtime-src.js';
 import { CSS as STUDIO_CSS } from './styles.js';
 import { handOff, TASKS, rewrite, notify, ensureTools } from './ai.js';
 import { exportHtml } from './exporter.js';
+import { sceneThumbnails } from './thumbnails.js';
+import { exportController } from './export-panel.js';
+import { directorController } from './director-panel.js';
 
 import { h, dirOf, joinPath, mimeOf, b64 } from './util.js';
 import { icon } from './icons.js';
@@ -241,22 +244,29 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const next = S.p.scenes[Math.max(0, Math.min(S.p.scenes.length - 1, currentScene.index + direction))];
     selectScene(next.id);
   }
+  const thumbnails = sceneThumbnails(sceneList, scene => previewHtml({ ...S.p, scenes: [scene] }, path, assets), () => S);
+  const storyboardRows = new Map(); let storyboardRevision = '';
   function renderStoryboard() {
     sceneCount.textContent = String(S.p.scenes.length);
     const q = S.search.trim().toLocaleLowerCase();
     const matches = S.p.scenes.filter(s => `${s.id} ${s.title} ${scan(s.html).texts.map(r => r.text).join(' ')}`.toLocaleLowerCase().includes(q));
-    sceneList.replaceChildren();
+    if (storyboardRevision !== S.text) { sceneList.replaceChildren(); storyboardRows.clear(); storyboardRevision = S.text; thumbnails.update(S.text); }
+    const wanted = new Set(matches.map(s => s.id));
+    for (const [id, node] of storyboardRows) if (!wanted.has(id)) node.remove();
+    sceneList.querySelector('.fvs-scenes-empty')?.remove();
+    let position = 0;
     for (const s of matches) {
+      const existing = storyboardRows.get(s.id);
+      const slot = sceneList.children[position++];
+      if (existing) { existing.firstChild.classList.toggle('on', s.id === S.sel); existing.firstChild.setAttribute('aria-current', String(s.id === S.sel)); if (slot !== existing) sceneList.insertBefore(existing, slot || null); continue; }
       const text = scan(s.html).texts.find(r => r.text.trim())?.text.trim() || s.id;
-      const thumb = h('span', { class: 'fvs-scene-thumb', 'aria-hidden': 'true' }, h('span', { text: text.slice(0, 20) }));
-      const image = images(s.html).find(i => i.src && !/^(https?:|data:)/i.test(i.src));
-      if (image) assets.get(joinPath(dirOf(path), image.src)).then(url => { if (url && !S.disposed && thumb.isConnected) thumb.replaceChildren(h('img', { src: url, alt: '' })); });
+      const thumb = thumbnails.get(s, text.slice(0, 20));
       const row = h('button', { class: `fvs-scene-item${s.id === S.sel ? ' on' : ''}`, 'data-scene-id': s.id,
         'aria-current': s.id === S.sel ? 'true' : 'false', title: `${s.title || s.id} · ${fmtTime(s.t0)} · ${t('scene-duration', { n: s.dur.toFixed(2) })}`, onclick: () => selectScene(s.id) },
         thumb, h('span', { class: 'fvs-scene-info' },
           h('span', { class: 'fvs-scene-title', text: s.title || s.id }),
           h('span', { class: 'fvs-scene-meta', text: `${String(s.index + 1).padStart(2, '0')} · ${fmtTime(s.t0)} · ${s.dur.toFixed(1)}s` })));
-      sceneList.append(h('div', { role: 'listitem' }, row));
+      const item = h('div', { role: 'listitem' }, row); storyboardRows.set(s.id, item); sceneList.insertBefore(item, slot || null);
     }
     if (!matches.length) sceneList.append(h('p', { class: 'fvs-hint fvs-scenes-empty', text: t('scene-empty') }));
   }
@@ -356,7 +366,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     view.querySelectorAll('.fvs-gate').forEach(x => x.remove());
     view.append(h('div', { class: 'fvs-gate' }, h('div', {},
       h('h3', { text: t('trust-title') }), h('p', { text: t('trust-body') }),
-      h('button', { class: 'fvs-btn primary', onclick: async () => { S.trusted = true; await trust(ctx, path); view.querySelectorAll('.fvs-gate').forEach(x => x.remove()); buildPreview(); } }, t('trust-run')))));
+      h('button', { class: 'fvs-btn primary', onclick: async () => { S.trusted = true; await trust(ctx, path); thumbnails.refresh(); view.querySelectorAll('.fvs-gate').forEach(x => x.remove()); buildPreview(); } }, t('trust-run')))));
   }
   let previewTimer = 0;
   function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(buildPreview, 220); }
@@ -926,8 +936,15 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
 
   /* ───────── popovers: ask AI, export ───────── */
+  const exports = exportController(ctx, () => S, assets, t, async () => { if (saving) await saving.catch(() => {}); await save(); return S.text === S.saved; });
+  const director = directorController(ctx, () => S, t, async () => { if (saving) await saving.catch(() => {}); await save(); return S.text === S.saved; });
+  let exportHandle = null, inlineExportDispose = null, inlineDirectorDispose = null;
+  function openExportPanel(anchor) {
+    if (opts.view?.extendView) exportHandle = opts.view.extendView.open({ id: 'fvs-export', title: t('export'), side: 'right', mount: exports.mount, onClose() { exportHandle = null; } });
+    else { const shell = h('div', { class: 'fvs-pop fvs-export-fallback', role: 'dialog' }); pop = shell; root.append(shell); place(shell, anchor); inlineExportDispose = exports.mount(shell); }
+  }
   let pop = null;
-  function closePop() { if (pop) { pop.remove(); pop = null; } askHandle?.close(); askHandle = null; }
+  function closePop() { inlineDirectorDispose?.(); inlineDirectorDispose = null; inlineExportDispose?.(); inlineExportDispose = null; if (pop) { pop.remove(); pop = null; } askHandle?.close(); askHandle = null; }
   function place(node, anchor) {
     const r = anchor.getBoundingClientRect(), R = root.getBoundingClientRect();
     node.style.top = `${r.bottom - R.top + 6}px`;
@@ -936,16 +953,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function openAsk(anchor) {
     if (askHandle?.isOpen) return askHandle.close();
     if (pop) return closePop();
-    const ta = h('textarea', { class: 'fvs-input', placeholder: t('ai-placeholder'), 'aria-label': t('ai-title') });
-    const send = text => { if (!text.trim()) return; closePop(); handOff(ctx, S, TASKS.ask(text.trim()), t); };
-    const chips = [['ai-chip-scene', null], ['ai-chip-pace', null], ['ai-chip-copy', null], ['ai-chip-score', () => TASKS.score()], ['ai-chip-sync', () => TASKS.sync()], ['ai-chip-review', () => TASKS.review()]];
-    const content = h('div', { class: opts.view?.extendView ? 'fvs-extension fvs-ai-panel' : 'fvs-pop', role: 'dialog', 'aria-label': t('ai-title') },
-      h('style', { text: STUDIO_CSS }), h('h3', { text: t('ai-title') }), ta,
-      h('div', { class: 'fvs-chips' }, ...chips.map(([k, task]) => h('button', { onclick: () => { if (task) { closePop(); handOff(ctx, S, task(), t); } else { ta.value = t(k) + (t.en() ? ': ' : '：'); ta.focus(); } } }, t(k)))),
-      h('div', { class: 'fvs-row', style: { justifyContent: 'flex-end' } }, h('button', { class: 'fvs-btn primary', onclick: () => send(ta.value) }, t('ai-send'))));
-    ta.addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send(ta.value); if (e.key === 'Escape') closePop(); });
-    if (opts.view?.extendView) askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount(body) { body.append(content); ta.focus(); return () => content.remove(); }, onClose() { askHandle = null; } });
-    else { pop = content; place(pop, anchor); root.append(pop); ta.focus(); }
+    if (opts.view?.extendView) askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount: director.mount, onClose() { askHandle = null; } });
+    else { pop = h('div', { class: 'fvs-pop' }); place(pop, anchor); root.append(pop); inlineDirectorDispose = director.mount(pop); }
   }
   function openExport(anchor) {
     if (pop) return closePop();
@@ -953,7 +962,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const item = (label, hint, fn) => h('button', { role: 'menuitem', onclick: () => { closePop(); fn(); } }, h('span', { text: label }), h('small', { text: hint }));
     pop = h('div', { class: 'fvs-menu', role: 'menu' },
       item(t('export-html'), t('export-html-hint'), async () => { try { const out = await exportHtml(ctx, S.p, path, assets); notify(ctx, t('exported', { path: out })); } catch (e) { notify(ctx, String(e && e.message || e), 'warn'); } }),
-      item(t('export-mp4'), t('export-mp4-hint'), () => handOff(ctx, S, TASKS.render(app.hostPath ? app.hostPath(mp4) || mp4 : mp4), t)),
+      item(t('export-mp4'), t('export-mp4-hint'), () => openExportPanel(anchor)),
       item(t('export-cmd'), t('export-cmd-hint'), async () => {
         let tools = null; try { tools = await ensureTools(ctx); } catch { tools = null; }
         const abs = app.hostPath ? app.hostPath(path) : null;
@@ -1004,7 +1013,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   load();
   raf = requestAnimationFrame(loop);
   const dispose = () => {
-    S.disposed = true;
+    S.disposed = true; thumbnails.dispose(); exports.dispose(); director.dispose(); exportHandle?.close(); inlineExportDispose?.(); inlineDirectorDispose?.();
     inspectorHandle?.close(); askHandle?.close();
     cancelAnimationFrame(raf);
     clearTimeout(previewTimer); clearTimeout(pendingTimer);

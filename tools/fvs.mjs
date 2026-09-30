@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-/* Forsion Video Studio 0.3.0 — built from src/ by build.mjs; edit the sources, not this file. */
+/* Forsion Video Studio 0.4.0 — built from src/ by build.mjs; edit the sources, not this file. */
 
 // src/cli/fvs.js
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, mkdtempSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve, relative, basename, extname, sep, posix } from "node:path";
+import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, existsSync as existsSync2, rmSync as rmSync2, mkdtempSync as mkdtempSync2, readdirSync, statSync as statSync2 } from "node:fs";
+import { dirname as dirname2, join as join2, resolve as resolve2, relative, basename, extname, sep, posix } from "node:path";
 import { pathToFileURL } from "node:url";
-import { tmpdir, homedir, platform } from "node:os";
-import { spawnSync, spawn } from "node:child_process";
+import { tmpdir as tmpdir2, homedir, platform } from "node:os";
+import { spawnSync, spawn as spawn2 } from "node:child_process";
 import { createRequire } from "node:module";
 
 // src/lib/project.js
@@ -254,13 +254,13 @@ var list = (v) => v == null ? [] : Array.isArray(v) ? v : [v];
 function audioTracks(meta) {
   return list(meta.audio).map((a, i) => typeof a === "string" ? { src: a } : a).filter((a) => a && a.src).map((a, i) => ({ id: a.id || `a${i}`, src: String(a.src), at: +a.at || 0, gain: +a.gain || 0, role: a.role || (i ? "track" : "score") }));
 }
-function compile(p, { resolve: resolve2 = (u) => u } = {}) {
+function compile(p, { resolve: resolve3 = (u) => u } = {}) {
   const css = cssBlocks(p).join("\n\n");
   const refs = /* @__PURE__ */ new Set([...assetRefs(stageHtml(p), css), ...list(p.meta.assets).map(clean)]);
   for (const s of p.scenes) for (const r of assetRefs(s.html, s.css)) refs.add(r);
   const audio = audioTracks(p.meta);
   const map = {};
-  for (const r of refs) map[r] = resolve2(r);
+  for (const r of refs) map[r] = resolve3(r);
   const jsLine = (k) => k >= 0 ? p.toks[k].line + 1 : 0;
   return {
     v: 1,
@@ -290,7 +290,7 @@ function compile(p, { resolve: resolve2 = (u) => u } = {}) {
       line: jsLine(s.jsTok),
       htmlLine: jsLine(s.htmlTok)
     })),
-    audio: audio.map((a) => ({ ...a, url: resolve2(a.src) })),
+    audio: audio.map((a) => ({ ...a, url: resolve3(a.src) })),
     assets: map
   };
 }
@@ -604,10 +604,153 @@ function blankTemplate({ title = "\u65B0\u89C6\u9891", zh = true } = {}) {
 var TEMPLATES = { eva: evaTemplate, blank: blankTemplate };
 
 // src/generated/runtime-src.js
-var runtime_src_default = '/* Forsion Video Studio 0.3.0 \u2014 built from src/ by build.mjs; edit the sources, not this file. */\nvar FVS=(()=>{var K=Object.defineProperty;var P=Object.getOwnPropertyDescriptor;var tt=Object.getOwnPropertyNames;var et=Object.prototype.hasOwnProperty;var nt=(t,n)=>{for(var s in n)K(t,s,{get:n[s],enumerable:!0})},st=(t,n,s,i)=>{if(n&&typeof n=="object"||typeof n=="function")for(let e of tt(n))!et.call(t,e)&&e!==s&&K(t,e,{get:()=>n[e],enumerable:!(i=P(n,e))||i.enumerable});return t};var ot=t=>st(K({},"__esModule",{value:!0}),t);var wt={};nt(wt,{EASE:()=>H,boot:()=>xt,createStage:()=>Y,mount:()=>D,prog:()=>X,rng:()=>z,timeExpr:()=>V});var H={lin:t=>t,in:t=>t*t*t,out:t=>1-(1-t)**3,io:t=>t<.5?4*t**3:1-(-2*t+2)**3/2,expo:t=>t>=1?1:1-2**(-10*t),back:t=>1+2.70158*(t-1)**3+1.70158*(t-1)**2,step:t=>t<1?0:1},U=(t,n=0,s=1)=>Math.min(s,Math.max(n,t)),G=(t,n,s)=>t+(n-t)*s,X=(t,n,s,i="io")=>(H[i]||H.io)(U((t-n)/(s-n))),z=t=>()=>{t|=0,t=t+1831565813|0;let n=Math.imul(t^t>>>15,1|t);return n=n+Math.imul(n^n>>>7,61|n)^n,((n^n>>>14)>>>0)/4294967296},at=["x","y","z","s","sx","sy","r","rx","ry"];function it(t,n){if(n<=t[0].t)return t[0].v;for(let s=1;s<t.length;s++){let i=t[s];if(n<i.t){let e=t[s-1],r=(H[i.e]||H.io)((n-e.t)/(i.t-e.t)),m={};for(let f in i.v){let y=f in e.v?e.v[f]:i.v[f],l=i.v[f];m[f]=typeof l=="number"&&typeof y=="number"?y+(l-y)*r:r<1?y:l}return m}}return t[t.length-1].v}function rt(t,n,s){let i=t.style;if(s){let e=`translate3d(${n.x||0}px,${n.y||0}px,${n.z||0}px)`;n.rx&&(e+=` rotateX(${n.rx}deg)`),n.ry&&(e+=` rotateY(${n.ry}deg)`),n.r&&(e+=` rotate(${n.r}deg)`),(n.s??1)!==1&&(e+=` scale(${n.s})`),((n.sx??1)!==1||(n.sy??1)!==1)&&(e+=` scale(${n.sx??1},${n.sy??1})`),i.transform=e}"o"in n&&(i.opacity=n.o,i.visibility=n.o<.002?"hidden":""),("b"in n||"br"in n)&&(i.filter=`blur(${n.b||0}px) brightness(${n.br??1})`),("ct"in n||"cr"in n||"cb"in n||"cl"in n)&&(i.clipPath=`inset(${n.ct||0}% ${n.cr||0}% ${n.cb||0}% ${n.cl||0}%)`);for(let e in n)e[0]==="-"&&i.setProperty(e,n[e])}function Y(t){let n=[],s=[],i=e=>typeof e=="string"?[...t.querySelectorAll(e)]:e==null?[]:e instanceof Element?[e]:[...e];return{root:t,q:i,tracks:n,hooks:s,K(e,r,m={}){let f={},y=r.map(([v,p={},E="io"])=>(f={...f,...p},{t:v,v:f,e:E}));if(!y.length)return;let l=y.some(v=>Object.keys(v.v).some(p=>at.includes(p)));i(e).forEach((v,p)=>n.push({el:v,kf:y,hasTf:l,off:(m.stagger||0)*p}))},S(e,r,m){let f=i(e);s.push(y=>{for(let l of f)l.style.display=y>=r&&y<m?"":"none"})},H(e){s.push(e)},type(e,r,m=30,f=0){i(e).forEach((y,l)=>{let v=[...y.textContent],p=r+f*l;s.push(E=>{let C=U(Math.floor((E-p)*m),0,v.length),$=v.slice(0,C).join("");y.textContent!==$&&(y.textContent=$)})})},render(e){for(let r of s)r(e);for(let r of n)rt(r.el,it(r.kf,e-r.off),r.hasTf)}}}var I=null;function ct(){if(I)return I;let t=z(7);I=[];for(let n=0;n<4;n++){let s=document.createElement("canvas");s.width=s.height=200;let i=s.getContext("2d"),e=i.createImageData(200,200);for(let r=0;r<e.data.length;r+=4){let m=t()*255;e.data[r]=e.data[r+1]=e.data[r+2]=m,e.data[r+3]=255}i.putImageData(e,0,0),I.push(`url(${s.toDataURL()})`)}return I}function J(t,n=".grain"){let s=t.q(n),i=ct();t.H(e=>{let r=i[Math.floor(e*24)%4];for(let m of s)m.style.backgroundImage=r})}var lt=`\n.fvs-stage{position:relative;overflow:hidden;transform-origin:0 0}\n.fvs-scenes{position:absolute;inset:0}\n.fvs-scene{position:absolute;inset:0;overflow:hidden}\n[data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}\n`,dt=/^\\s*(?:(h)(\\d+)|(end|start))?\\s*(?:([+-])?\\s*(\\d*\\.?\\d+)\\s*(b|beats?|s|secs?)?)?\\s*$/i;function V(t,n,s,i){let e=String(t).match(dt);if(!e||!e[1]&&!e[3]&&!e[5])throw new Error(`cannot read time "${t}" (use h3, h3+0.5, 2b, 1.5s or end-1)`);let r=n.t0;if(e[1]){let m=+e[2];if(!(m<n.hits.length))throw new Error(`"${t}": this scene has ${n.hits.length} hits (h0\\u2013h${n.hits.length-1})`);r=n.hits[m]}if(e[3]==="end"&&(r=n.t1),e[5]){let m=+e[5]*(e[4]==="-"?-1:1),f=(e[6]||"").toLowerCase();r+=m*(f.startsWith("b")?i:f.startsWith("s")?1:s)}return r}function D(t,n,{doc:s=document,onScene:i=null}={}){let e=t,r=[],m=e.tempo,f=m?60/m.bpm:.5,y=f*(m?m.beatsPerBar:4),l=m?f:1,v=s.createElement("style");v.setAttribute("data-fvs",""),v.textContent=lt+`\n`+(e.css||"")+`\n`+e.scenes.filter(a=>a.css&&a.css.trim()).map(a=>`[data-scene="${a.id}"]{\n${a.css}\n}`).join(`\n`),s.head.append(v);let p=s.createElement("div");p.className=`fvs-stage ${e.className||""}`.trim(),Object.assign(p.style,{width:`${e.width}px`,height:`${e.height}px`,background:e.background||"#000"}),p.innerHTML=e.stage.html||"";let E=p.querySelector("[data-fvs-scenes], fvs-scenes"),C=s.createElement("div");C.className="fvs-scenes",E?E.replaceWith(C):p.prepend(C),E=C,n.append(p);let $=Y(p),N=[],T={},o=e.assets||{},d=a=>o[String(a).replace(/^\\.\\//,"")]||a;for(let a of e.scenes){let u=s.createElement("div");u.className=`fvs-scene scene ${a.cls||""}`.trim(),u.dataset.scene=a.id,u.innerHTML=a.html||"",E.append(u),$.S(u,a.t0,a.t1),T[a.id]={id:a.id,title:a.title,t0:a.t0,t1:a.t1,dur:a.t1-a.t0,hits:a.hits,beats:a.beats,el:u},i&&i(T[a.id])}function x(a,u){let w=c=>typeof c=="string"?[...u.querySelectorAll(c)]:c==null?[]:c instanceof Element?[c]:[...c],h=(c,g,q)=>$.K(w(c),g,q),R=(c,g,q)=>$.S(w(c),g,q),S=c=>a.t0+c*l,O=(c,g=0)=>c<a.hits.length?a.hits[c]+g*l:NaN,F=(c,g,q)=>h(c,[[g-.01,{o:0}],[g,{o:1},"step"]],q),j=(c,g,q={y:20},b)=>h(c,[[g-.01,{o:0,...q}],[g,{o:1},"step"],[g+.18,{x:0,y:0},"out"]],b),B=(c,g,q=f/2,b)=>h(c,[[g,{o:0}],[g+q,{o:1},"out"]],b),W=(c,g,q=a.t1)=>w(c).forEach((b,L)=>L<g.length&&$.S(b,g[L],g[L+1]??q));return{t0:a.t0,t1:a.t1,dur:a.t1-a.t0,hits:a.hits||[],beat:f,bar:y,unit:l,at:S,hit:O,root:u,stage:p,$:c=>u.querySelector(c),$$:c=>[...u.querySelectorAll(c)],K:h,S:R,H:c=>$.H(c),on:c=>$.H(c),type:(c,g,q,b)=>$.type(w(c),g,q,b),cut:F,slide:j,fade:B,seq:W,flash:(c,g=.85)=>N.push([c,g]),grain:(c=".grain")=>J({q:w,H:$.H},c),prog:X,ease:H,clamp:U,lerp:G,rng:z,scenes:T,flashes:N,asset:d,project:{title:e.title,width:e.width,height:e.height,fps:e.fps,length:e.length,tempo:m},width:e.width,height:e.height,fps:e.fps,length:e.length,during:c=>c.map(g=>Array.isArray(g)?g:T[g]?[T[g].t0,T[g].t1]:[0,0]),inside:(c,g)=>g.some(([q,b])=>c>=q&&c<b)}}function A(a,u,w,h){if(!a||!a.trim())return;let R=Object.keys(u);try{new Function(...R,`${a}\n//# sourceURL=fvs://${w}.js`)(...R.map(S=>u[S]))}catch(S){let O=String(S&&S.stack||"").match(new RegExp(`fvs://${w.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}\\\\.js:(\\\\d+)`));r.push({scene:w.replace(/^scene\\//,""),message:String(S&&S.message||S),line:O&&h?h+ +O[1]-3:h||0})}}function k(a,u){let w=(h,R)=>{try{return V(h,a,l,f)}catch(S){return r.push({scene:a.id,message:S.message,line:0,el:R.tagName}),NaN}};for(let h of a.el.querySelectorAll("[data-seq]")){let R=String(h.dataset.seq).match(/^\\s*h(\\d+)\\s*$/);if(!R){r.push({scene:a.id,message:`data-seq="${h.dataset.seq}" must name the first hit, e.g. data-seq="h0"`});continue}let S=[...h.children],O=+R[1],F=S.map((j,B)=>a.hits[O+B]).filter(j=>j!==void 0);F.length<S.length&&r.push({scene:a.id,message:`data-seq has ${S.length} items but only ${F.length} hits from h${O}`}),u.seq(S,F,h.dataset.seqEnd?w(h.dataset.seqEnd,h):a.t1)}for(let h of a.el.querySelectorAll("[data-in], [data-out]")){let R=h.dataset.each!==void 0?+h.dataset.each*l:null,S=R!==null?[...h.children]:[h],O=h.dataset.in!==void 0?w(h.dataset.in,h):null,F=h.dataset.out!==void 0?w(h.dataset.out,h):null,j=(h.dataset.fx||"cut").toLowerCase(),B=(h.dataset.fxOut||"cut").toLowerCase(),W=+h.dataset.dist||24,c=h.dataset.dur!==void 0?+h.dataset.dur*l:f/2;S.forEach((g,q)=>{let b=O===null?null:O+(R||0)*q,L=[];if(b!==null&&!isNaN(b))if(j==="type")$.type([g],b,+h.dataset.cps||30);else if(j==="fade")L.push([b,{o:0}],[b+c,{o:1},"out"]);else if(j==="pop")L.push([b-.01,{o:0,s:.92}],[b,{o:1},"step"],[b+.25,{s:1},"back"]);else if(/^(up|down|left|right)$/.test(j)){let Z={up:{y:W},down:{y:-W},left:{x:W},right:{x:-W}}[j];L.push([b-.01,{o:0,...Z}],[b,{o:1},"step"],[b+.18,{x:0,y:0},"out"])}else L.push([b-.01,{o:0}],[b,{o:1},"step"]);F!==null&&!isNaN(F)&&(B==="fade"?(L.length||L.push([a.t0,{o:1}]),L.push([F,{o:1}],[F+c,{o:0},"in"])):$.S([g],-1e9,F)),L.length&&$.K([g],L)})}}for(let a of e.scenes){let u=T[a.id],w=x(u,u.el);k(u,w),A(a.js,w,`scene/${a.id}`,a.line)}A(e.stage.js,x({id:"stage",t0:0,t1:e.length,hits:[],el:p},p),"stage",e.stage.line);let M=[...p.querySelectorAll("[data-fvs-flash]")];return M.length&&(N.sort((a,u)=>a[0]-u[0]),$.H(a=>{let u=0;for(let[w,h]of N)a>=w&&a<w+.18&&(u=Math.max(u,h*(1-(a-w)/.18)**2));for(let w of M)w.style.opacity=u})),{root:p,errors:r,scenes:T,seek:a=>$.render(a+1e-4),payload:e,length:e.length,width:e.width,height:e.height,fps:e.fps,destroy(){p.remove(),v.remove()}}}var ft=`\nhtml,body{margin:0;background:#0b0b0b;color:#e8e6e1;font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif}\n.fvs-app{max-width:1200px;margin:0 auto;padding:24px 16px 48px;display:grid;gap:14px}\n.fvs-app h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.02em}\n.fvs-frame{position:relative;width:100%;overflow:hidden;background:#000;border-radius:6px;box-shadow:0 0 0 1px #262626;cursor:pointer}\n.fvs-frame .fvs-stage{position:absolute;left:0;top:0}\n.fvs-bar{display:flex;gap:10px;align-items:center}\n.fvs-bar button{font:600 14px inherit;font-family:inherit;color:#0b0b0b;background:#e8e6e1;border:0;border-radius:6px;height:36px;min-width:84px;cursor:pointer}\n.fvs-bar button:focus-visible,.fvs-bar input:focus-visible,.fvs-chapters button:focus-visible{outline:2px solid #ff6a13;outline-offset:2px}\n.fvs-bar input{flex:1;min-width:0;accent-color:#ff6a13}\n.fvs-bar output{font:12px ui-monospace,monospace;color:#9a948d;font-variant-numeric:tabular-nums;min-width:12ch;text-align:right}\n.fvs-chapters{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;padding:0;list-style:none;font-size:13px;color:#9a948d}\n.fvs-chapters button{font:inherit;color:inherit;background:none;border:0;padding:2px 0;cursor:pointer}\n.fvs-chapters button:hover,.fvs-chapters button.on{color:#e8e6e1}\n.fvs-chapters b{font:600 12px ui-monospace,monospace;color:#ff6a13;margin-right:6px}\n.fvs-err{font:12px ui-monospace,monospace;color:#ff8a65;white-space:pre-wrap;margin:0}\n.fvs-credit{font-size:12px;color:#6f6a64;margin:0}\n`,Q=t=>`${Math.floor(t/60)}:${(t%60).toFixed(1).padStart(4,"0")}`;function pt(){let t=document.getElementById("fvs-data");return JSON.parse(t.textContent)}function ut(t,n,s,i){let e=!1,r=0,m=0,f=()=>e?Math.min(s,r+(performance.now()-m)/1e3):r,y=l=>{let v=f();for(let{el:p,at:E}of n){let C=v-E;if(!e||C<0||C>(p.duration||1/0)){p.paused||p.pause(),C<0&&p.currentTime&&(p.currentTime=0);continue}(l||Math.abs(p.currentTime-C)>.08)&&(p.currentTime=C),p.paused&&p.play().catch(()=>{})}};return{now:f,sync:y,get playing(){return e},play(){r>=s&&(r=0),e=!0,m=performance.now(),y(!0)},pause(){r=f(),e=!1,y()},seek(l){r=Math.max(0,Math.min(s,l)),m=performance.now(),y(!0)},tick(){e&&f()>=s?(r=s,e=!1,y(),i&&i()):e&&y()}}}function ht(t,n,s){let i=()=>{t.root.style.transform=`scale(${n.clientWidth/s.width})`};new ResizeObserver(i).observe(n),i()}function gt(t){let n=document.createElement("style");n.textContent=ft,document.head.append(n);let s=document.createElement("main");s.className="fvs-app",s.innerHTML=`<h1></h1><div class="fvs-frame" role="img"></div>\n    <div class="fvs-bar" role="group" aria-label="Playback"><button type="button" class="fvs-play">\\u25B6 \\u64AD\\u653E</button><input type="range" min="0" step="0.01" value="0" aria-label="\\u8FDB\\u5EA6"><output></output></div>\n    <ol class="fvs-chapters" aria-label="\\u7AE0\\u8282"></ol><pre class="fvs-err" hidden></pre><p class="fvs-credit">Made with Forsion Video Studio</p>`,document.body.append(s),s.querySelector("h1").textContent=t.title||"";let i=s.querySelector(".fvs-frame");i.style.aspectRatio=`${t.width} / ${t.height}`,i.style.maxWidth=`calc((100vh - 200px) * ${t.width/t.height})`,i.style.margin="0 auto",i.setAttribute("aria-label",t.title||"video");let e=D(t,i);ht(e,i,t);let r=t.audio.map(o=>{let d=new Audio(o.url);return d.preload="auto",d.volume=Math.min(1,10**((o.gain||0)/20)),{el:d,at:o.at||0}}),m=s.querySelector(".fvs-play"),f=s.querySelector("input"),y=s.querySelector("output");f.max=t.length;let l=ut(t,r,t.length),v=s.querySelector(".fvs-chapters");v.innerHTML=t.scenes.map(o=>`<li><button type="button" data-t="${o.t0}"><b>${o.t0.toFixed(1)}</b></button></li>`).join(""),[...v.querySelectorAll("button")].forEach((o,d)=>o.append(t.scenes[d].title||t.scenes[d].id));let p=[...v.querySelectorAll("button")];if(e.errors.length){let o=s.querySelector(".fvs-err");o.hidden=!1,o.textContent=e.errors.map(d=>`${d.scene}${d.line?`:${d.line}`:""} ${d.message}`).join(`\n`)}let E=()=>l.playing?l.pause():l.play();m.addEventListener("click",E),i.addEventListener("click",E),f.addEventListener("input",()=>l.seek(+f.value)),p.forEach(o=>o.addEventListener("click",()=>{l.seek(+o.dataset.t),l.playing||l.play()})),document.addEventListener("keydown",o=>{o.target.closest&&o.target.closest("input,button,textarea")||(o.code==="Space"&&(o.preventDefault(),E()),o.code==="ArrowRight"&&l.seek(l.now()+2),o.code==="ArrowLeft"&&l.seek(l.now()-2))});let C=-1,$=t.scenes.length?Math.min(t.length,t.scenes[Math.min(1,t.scenes.length-1)].t0+.8):0,N=!1,T=()=>{l.tick();let o=N||l.playing?l.now():$;l.playing&&(N=!0),o!==C&&(e.seek(o),C=o),f.value=o,y.textContent=`${Q(o)} / ${Q(t.length)}`,m.textContent=l.playing?"\\u275A\\u275A \\u6682\\u505C":"\\u25B6 \\u64AD\\u653E",p.forEach((d,x)=>d.classList.toggle("on",o>=t.scenes[x].t0&&o<t.scenes[x].t1)),requestAnimationFrame(T)};f.addEventListener("input",()=>{N=!0}),requestAnimationFrame(T),window.__fvs={stage:e,clock:l}}function mt(t){document.documentElement.style.background="#000",document.body.style.margin="0";let n=D(t,document.body);n.root.style.transform="none",n.seek(0),window.__stage={w:t.width,h:t.height,dur:t.length,fps:t.fps,errors:n.errors,audio:t.audio,seek:s=>n.seek(s),ready:()=>document.fonts.ready.then(()=>Promise.all([...document.images].map(s=>s.complete?0:s.decode().catch(()=>0))))}}var yt=/^(SCRIPT|STYLE|TEXTAREA|TITLE)$/i;function bt(t){document.documentElement.style.cssText="background:#141414;height:100%;overflow:hidden",document.body.style.cssText="margin:0;height:100%;overflow:hidden;display:grid;place-items:center";let n=document.createElement("div");n.style.cssText=`position:relative;overflow:hidden;background:#000;aspect-ratio:${t.width}/${t.height};width:min(100vw, calc(100vh * ${t.width/t.height}))`,document.body.append(n);let s={},i=new WeakMap,e=new WeakMap,r=new WeakMap,f=D(t,n,{onScene:o=>{let d=[],x=[...o.el.querySelectorAll("img")],A=document.createTreeWalker(o.el,NodeFilter.SHOW_TEXT);for(let k;k=A.nextNode();){if(!/\\S/.test(k.data)||k.parentElement&&yt.test(k.parentElement.tagName))continue;i.set(k,d.length);let M=k.parentElement;e.has(M)||e.set(M,[]),e.get(M).push(d.length),d.push({node:k,el:M})}x.forEach((k,M)=>r.set(k,M)),s[o.id]={texts:d,imgs:x}}}),y=()=>{f.root.style.transform=`scale(${n.clientWidth/t.width})`};new ResizeObserver(y).observe(n),y();let l=o=>parent.postMessage({fvs:o.type,...o,type:void 0},"*"),v=0;f.seek(0);let p=document.createElement("div");p.style.cssText="position:absolute;pointer-events:none;border:2px solid #ff6a13;border-radius:3px;box-shadow:0 0 0 9999px rgba(0,0,0,.18);display:none;z-index:10",n.append(p);let E=o=>({x:o.left,y:o.top,w:o.width,h:o.height}),C=o=>{if(!o){p.style.display="none";return}let d=n.getBoundingClientRect();Object.assign(p.style,{display:"",left:`${o.x-d.left-3}px`,top:`${o.y-d.top-3}px`,width:`${o.w+6}px`,height:`${o.h+6}px`})},$=o=>{let d=o&&o.closest&&o.closest("[data-scene]");return d?d.dataset.scene:null};function N(o,d){let x=document.elementFromPoint(o.clientX,o.clientY),A=$(x);if(!A||!s[A]){l({type:"pick",scene:null,dbl:d});return}if(x.tagName==="IMG"&&r.has(x)){l({type:"pick",scene:A,img:r.get(x),rect:E(x.getBoundingClientRect()),dbl:d});return}let k=null,M=document.caretRangeFromPoint&&document.caretRangeFromPoint(o.clientX,o.clientY);M&&M.startContainer.nodeType===3&&i.has(M.startContainer)&&(k=i.get(M.startContainer));for(let u=x;k===null&&u&&u!==n;u=u.parentElement)e.has(u)&&(k=e.get(u)[0]);if(k===null){l({type:"pick",scene:A,dbl:d});return}let _=s[A].texts[k],a=_.node.isConnected?(()=>{let u=document.createRange();return u.selectNodeContents(_.node),u.getBoundingClientRect()})():_.el.getBoundingClientRect();l({type:"pick",scene:A,text:k,rect:E(a.width?a:_.el.getBoundingClientRect()),dbl:d})}n.addEventListener("click",o=>N(o,!1)),n.addEventListener("dblclick",o=>{o.preventDefault(),N(o,!0)}),window.addEventListener("message",o=>{let d=o.data||{};if(d.fvs==="seek")v=d.t,f.seek(d.t);else if(d.fvs==="outline"){let x=s[d.scene],A=x?d.img!=null?x.imgs[d.img]:d.text!=null&&x.texts[d.text]?x.texts[d.text].el:null:null;C(A&&A.isConnected&&A.getClientRects().length?E(A.getBoundingClientRect()):null)}});let T=o=>Object.fromEntries(Object.entries(s).map(([d,x])=>[d,x[o].length]));l({type:"ready",length:t.length,errors:f.errors,texts:T("texts"),imgs:T("imgs")}),window.__fvs={stage:f,seek:o=>f.seek(o)}}function xt(t){let n=pt(),s=typeof window<"u"&&window.FVS_MODE||t||new URLSearchParams(location.search).get("mode")||(new URLSearchParams(location.search).has("capture")?"capture":"player");s==="capture"?mt(n):s==="embed"?bt(n):gt(n)}return ot(wt);})();\n';
+var runtime_src_default = '/* Forsion Video Studio 0.4.0 \u2014 built from src/ by build.mjs; edit the sources, not this file. */\nvar FVS=(()=>{var K=Object.defineProperty;var P=Object.getOwnPropertyDescriptor;var tt=Object.getOwnPropertyNames;var et=Object.prototype.hasOwnProperty;var nt=(t,n)=>{for(var s in n)K(t,s,{get:n[s],enumerable:!0})},st=(t,n,s,i)=>{if(n&&typeof n=="object"||typeof n=="function")for(let e of tt(n))!et.call(t,e)&&e!==s&&K(t,e,{get:()=>n[e],enumerable:!(i=P(n,e))||i.enumerable});return t};var ot=t=>st(K({},"__esModule",{value:!0}),t);var wt={};nt(wt,{EASE:()=>H,boot:()=>xt,createStage:()=>Y,mount:()=>D,prog:()=>X,rng:()=>z,timeExpr:()=>V});var H={lin:t=>t,in:t=>t*t*t,out:t=>1-(1-t)**3,io:t=>t<.5?4*t**3:1-(-2*t+2)**3/2,expo:t=>t>=1?1:1-2**(-10*t),back:t=>1+2.70158*(t-1)**3+1.70158*(t-1)**2,step:t=>t<1?0:1},U=(t,n=0,s=1)=>Math.min(s,Math.max(n,t)),G=(t,n,s)=>t+(n-t)*s,X=(t,n,s,i="io")=>(H[i]||H.io)(U((t-n)/(s-n))),z=t=>()=>{t|=0,t=t+1831565813|0;let n=Math.imul(t^t>>>15,1|t);return n=n+Math.imul(n^n>>>7,61|n)^n,((n^n>>>14)>>>0)/4294967296},at=["x","y","z","s","sx","sy","r","rx","ry"];function it(t,n){if(n<=t[0].t)return t[0].v;for(let s=1;s<t.length;s++){let i=t[s];if(n<i.t){let e=t[s-1],r=(H[i.e]||H.io)((n-e.t)/(i.t-e.t)),m={};for(let f in i.v){let y=f in e.v?e.v[f]:i.v[f],l=i.v[f];m[f]=typeof l=="number"&&typeof y=="number"?y+(l-y)*r:r<1?y:l}return m}}return t[t.length-1].v}function rt(t,n,s){let i=t.style;if(s){let e=`translate3d(${n.x||0}px,${n.y||0}px,${n.z||0}px)`;n.rx&&(e+=` rotateX(${n.rx}deg)`),n.ry&&(e+=` rotateY(${n.ry}deg)`),n.r&&(e+=` rotate(${n.r}deg)`),(n.s??1)!==1&&(e+=` scale(${n.s})`),((n.sx??1)!==1||(n.sy??1)!==1)&&(e+=` scale(${n.sx??1},${n.sy??1})`),i.transform=e}"o"in n&&(i.opacity=n.o,i.visibility=n.o<.002?"hidden":""),("b"in n||"br"in n)&&(i.filter=`blur(${n.b||0}px) brightness(${n.br??1})`),("ct"in n||"cr"in n||"cb"in n||"cl"in n)&&(i.clipPath=`inset(${n.ct||0}% ${n.cr||0}% ${n.cb||0}% ${n.cl||0}%)`);for(let e in n)e[0]==="-"&&i.setProperty(e,n[e])}function Y(t){let n=[],s=[],i=e=>typeof e=="string"?[...t.querySelectorAll(e)]:e==null?[]:e instanceof Element?[e]:[...e];return{root:t,q:i,tracks:n,hooks:s,K(e,r,m={}){let f={},y=r.map(([v,p={},E="io"])=>(f={...f,...p},{t:v,v:f,e:E}));if(!y.length)return;let l=y.some(v=>Object.keys(v.v).some(p=>at.includes(p)));i(e).forEach((v,p)=>n.push({el:v,kf:y,hasTf:l,off:(m.stagger||0)*p}))},S(e,r,m){let f=i(e);s.push(y=>{for(let l of f)l.style.display=y>=r&&y<m?"":"none"})},H(e){s.push(e)},type(e,r,m=30,f=0){i(e).forEach((y,l)=>{let v=[...y.textContent],p=r+f*l;s.push(E=>{let C=U(Math.floor((E-p)*m),0,v.length),$=v.slice(0,C).join("");y.textContent!==$&&(y.textContent=$)})})},render(e){for(let r of s)r(e);for(let r of n)rt(r.el,it(r.kf,e-r.off),r.hasTf)}}}var I=null;function ct(){if(I)return I;let t=z(7);I=[];for(let n=0;n<4;n++){let s=document.createElement("canvas");s.width=s.height=200;let i=s.getContext("2d"),e=i.createImageData(200,200);for(let r=0;r<e.data.length;r+=4){let m=t()*255;e.data[r]=e.data[r+1]=e.data[r+2]=m,e.data[r+3]=255}i.putImageData(e,0,0),I.push(`url(${s.toDataURL()})`)}return I}function J(t,n=".grain"){let s=t.q(n),i=ct();t.H(e=>{let r=i[Math.floor(e*24)%4];for(let m of s)m.style.backgroundImage=r})}var lt=`\n.fvs-stage{position:relative;overflow:hidden;transform-origin:0 0}\n.fvs-scenes{position:absolute;inset:0}\n.fvs-scene{position:absolute;inset:0;overflow:hidden}\n[data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}\n`,dt=/^\\s*(?:(h)(\\d+)|(end|start))?\\s*(?:([+-])?\\s*(\\d*\\.?\\d+)\\s*(b|beats?|s|secs?)?)?\\s*$/i;function V(t,n,s,i){let e=String(t).match(dt);if(!e||!e[1]&&!e[3]&&!e[5])throw new Error(`cannot read time "${t}" (use h3, h3+0.5, 2b, 1.5s or end-1)`);let r=n.t0;if(e[1]){let m=+e[2];if(!(m<n.hits.length))throw new Error(`"${t}": this scene has ${n.hits.length} hits (h0\\u2013h${n.hits.length-1})`);r=n.hits[m]}if(e[3]==="end"&&(r=n.t1),e[5]){let m=+e[5]*(e[4]==="-"?-1:1),f=(e[6]||"").toLowerCase();r+=m*(f.startsWith("b")?i:f.startsWith("s")?1:s)}return r}function D(t,n,{doc:s=document,onScene:i=null}={}){let e=t,r=[],m=e.tempo,f=m?60/m.bpm:.5,y=f*(m?m.beatsPerBar:4),l=m?f:1,v=s.createElement("style");v.setAttribute("data-fvs",""),v.textContent=lt+`\n`+(e.css||"")+`\n`+e.scenes.filter(a=>a.css&&a.css.trim()).map(a=>`[data-scene="${a.id}"]{\n${a.css}\n}`).join(`\n`),s.head.append(v);let p=s.createElement("div");p.className=`fvs-stage ${e.className||""}`.trim(),Object.assign(p.style,{width:`${e.width}px`,height:`${e.height}px`,background:e.background||"#000"}),p.innerHTML=e.stage.html||"";let E=p.querySelector("[data-fvs-scenes], fvs-scenes"),C=s.createElement("div");C.className="fvs-scenes",E?E.replaceWith(C):p.prepend(C),E=C,n.append(p);let $=Y(p),N=[],T={},o=e.assets||{},d=a=>o[String(a).replace(/^\\.\\//,"")]||a;for(let a of e.scenes){let u=s.createElement("div");u.className=`fvs-scene scene ${a.cls||""}`.trim(),u.dataset.scene=a.id,u.innerHTML=a.html||"",E.append(u),$.S(u,a.t0,a.t1),T[a.id]={id:a.id,title:a.title,t0:a.t0,t1:a.t1,dur:a.t1-a.t0,hits:a.hits,beats:a.beats,el:u},i&&i(T[a.id])}function x(a,u){let w=c=>typeof c=="string"?[...u.querySelectorAll(c)]:c==null?[]:c instanceof Element?[c]:[...c],h=(c,g,q)=>$.K(w(c),g,q),R=(c,g,q)=>$.S(w(c),g,q),S=c=>a.t0+c*l,O=(c,g=0)=>c<a.hits.length?a.hits[c]+g*l:NaN,F=(c,g,q)=>h(c,[[g-.01,{o:0}],[g,{o:1},"step"]],q),j=(c,g,q={y:20},b)=>h(c,[[g-.01,{o:0,...q}],[g,{o:1},"step"],[g+.18,{x:0,y:0},"out"]],b),B=(c,g,q=f/2,b)=>h(c,[[g,{o:0}],[g+q,{o:1},"out"]],b),W=(c,g,q=a.t1)=>w(c).forEach((b,L)=>L<g.length&&$.S(b,g[L],g[L+1]??q));return{t0:a.t0,t1:a.t1,dur:a.t1-a.t0,hits:a.hits||[],beat:f,bar:y,unit:l,at:S,hit:O,root:u,stage:p,$:c=>u.querySelector(c),$$:c=>[...u.querySelectorAll(c)],K:h,S:R,H:c=>$.H(c),on:c=>$.H(c),type:(c,g,q,b)=>$.type(w(c),g,q,b),cut:F,slide:j,fade:B,seq:W,flash:(c,g=.85)=>N.push([c,g]),grain:(c=".grain")=>J({q:w,H:$.H},c),prog:X,ease:H,clamp:U,lerp:G,rng:z,scenes:T,flashes:N,asset:d,project:{title:e.title,width:e.width,height:e.height,fps:e.fps,length:e.length,tempo:m},width:e.width,height:e.height,fps:e.fps,length:e.length,during:c=>c.map(g=>Array.isArray(g)?g:T[g]?[T[g].t0,T[g].t1]:[0,0]),inside:(c,g)=>g.some(([q,b])=>c>=q&&c<b)}}function A(a,u,w,h){if(!a||!a.trim())return;let R=Object.keys(u);try{new Function(...R,`${a}\n//# sourceURL=fvs://${w}.js`)(...R.map(S=>u[S]))}catch(S){let O=String(S&&S.stack||"").match(new RegExp(`fvs://${w.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}\\\\.js:(\\\\d+)`));r.push({scene:w.replace(/^scene\\//,""),message:String(S&&S.message||S),line:O&&h?h+ +O[1]-3:h||0})}}function k(a,u){let w=(h,R)=>{try{return V(h,a,l,f)}catch(S){return r.push({scene:a.id,message:S.message,line:0,el:R.tagName}),NaN}};for(let h of a.el.querySelectorAll("[data-seq]")){let R=String(h.dataset.seq).match(/^\\s*h(\\d+)\\s*$/);if(!R){r.push({scene:a.id,message:`data-seq="${h.dataset.seq}" must name the first hit, e.g. data-seq="h0"`});continue}let S=[...h.children],O=+R[1],F=S.map((j,B)=>a.hits[O+B]).filter(j=>j!==void 0);F.length<S.length&&r.push({scene:a.id,message:`data-seq has ${S.length} items but only ${F.length} hits from h${O}`}),u.seq(S,F,h.dataset.seqEnd?w(h.dataset.seqEnd,h):a.t1)}for(let h of a.el.querySelectorAll("[data-in], [data-out]")){let R=h.dataset.each!==void 0?+h.dataset.each*l:null,S=R!==null?[...h.children]:[h],O=h.dataset.in!==void 0?w(h.dataset.in,h):null,F=h.dataset.out!==void 0?w(h.dataset.out,h):null,j=(h.dataset.fx||"cut").toLowerCase(),B=(h.dataset.fxOut||"cut").toLowerCase(),W=+h.dataset.dist||24,c=h.dataset.dur!==void 0?+h.dataset.dur*l:f/2;S.forEach((g,q)=>{let b=O===null?null:O+(R||0)*q,L=[];if(b!==null&&!isNaN(b))if(j==="type")$.type([g],b,+h.dataset.cps||30);else if(j==="fade")L.push([b,{o:0}],[b+c,{o:1},"out"]);else if(j==="pop")L.push([b-.01,{o:0,s:.92}],[b,{o:1},"step"],[b+.25,{s:1},"back"]);else if(/^(up|down|left|right)$/.test(j)){let Z={up:{y:W},down:{y:-W},left:{x:W},right:{x:-W}}[j];L.push([b-.01,{o:0,...Z}],[b,{o:1},"step"],[b+.18,{x:0,y:0},"out"])}else L.push([b-.01,{o:0}],[b,{o:1},"step"]);F!==null&&!isNaN(F)&&(B==="fade"?(L.length||L.push([a.t0,{o:1}]),L.push([F,{o:1}],[F+c,{o:0},"in"])):$.S([g],-1e9,F)),L.length&&$.K([g],L)})}}for(let a of e.scenes){let u=T[a.id],w=x(u,u.el);k(u,w),A(a.js,w,`scene/${a.id}`,a.line)}A(e.stage.js,x({id:"stage",t0:0,t1:e.length,hits:[],el:p},p),"stage",e.stage.line);let M=[...p.querySelectorAll("[data-fvs-flash]")];return M.length&&(N.sort((a,u)=>a[0]-u[0]),$.H(a=>{let u=0;for(let[w,h]of N)a>=w&&a<w+.18&&(u=Math.max(u,h*(1-(a-w)/.18)**2));for(let w of M)w.style.opacity=u})),{root:p,errors:r,scenes:T,seek:a=>$.render(a+1e-4),payload:e,length:e.length,width:e.width,height:e.height,fps:e.fps,destroy(){p.remove(),v.remove()}}}var ft=`\nhtml,body{margin:0;background:#0b0b0b;color:#e8e6e1;font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif}\n.fvs-app{max-width:1200px;margin:0 auto;padding:24px 16px 48px;display:grid;gap:14px}\n.fvs-app h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.02em}\n.fvs-frame{position:relative;width:100%;overflow:hidden;background:#000;border-radius:6px;box-shadow:0 0 0 1px #262626;cursor:pointer}\n.fvs-frame .fvs-stage{position:absolute;left:0;top:0}\n.fvs-bar{display:flex;gap:10px;align-items:center}\n.fvs-bar button{font:600 14px inherit;font-family:inherit;color:#0b0b0b;background:#e8e6e1;border:0;border-radius:6px;height:36px;min-width:84px;cursor:pointer}\n.fvs-bar button:focus-visible,.fvs-bar input:focus-visible,.fvs-chapters button:focus-visible{outline:2px solid #ff6a13;outline-offset:2px}\n.fvs-bar input{flex:1;min-width:0;accent-color:#ff6a13}\n.fvs-bar output{font:12px ui-monospace,monospace;color:#9a948d;font-variant-numeric:tabular-nums;min-width:12ch;text-align:right}\n.fvs-chapters{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;padding:0;list-style:none;font-size:13px;color:#9a948d}\n.fvs-chapters button{font:inherit;color:inherit;background:none;border:0;padding:2px 0;cursor:pointer}\n.fvs-chapters button:hover,.fvs-chapters button.on{color:#e8e6e1}\n.fvs-chapters b{font:600 12px ui-monospace,monospace;color:#ff6a13;margin-right:6px}\n.fvs-err{font:12px ui-monospace,monospace;color:#ff8a65;white-space:pre-wrap;margin:0}\n.fvs-credit{font-size:12px;color:#6f6a64;margin:0}\n`,Q=t=>`${Math.floor(t/60)}:${(t%60).toFixed(1).padStart(4,"0")}`;function pt(){let t=document.getElementById("fvs-data");return JSON.parse(t.textContent)}function ut(t,n,s,i){let e=!1,r=0,m=0,f=()=>e?Math.min(s,r+(performance.now()-m)/1e3):r,y=l=>{let v=f();for(let{el:p,at:E}of n){let C=v-E;if(!e||C<0||C>(p.duration||1/0)){p.paused||p.pause(),C<0&&p.currentTime&&(p.currentTime=0);continue}(l||Math.abs(p.currentTime-C)>.08)&&(p.currentTime=C),p.paused&&p.play().catch(()=>{})}};return{now:f,sync:y,get playing(){return e},play(){r>=s&&(r=0),e=!0,m=performance.now(),y(!0)},pause(){r=f(),e=!1,y()},seek(l){r=Math.max(0,Math.min(s,l)),m=performance.now(),y(!0)},tick(){e&&f()>=s?(r=s,e=!1,y(),i&&i()):e&&y()}}}function ht(t,n,s){let i=()=>{t.root.style.transform=`scale(${n.clientWidth/s.width})`};new ResizeObserver(i).observe(n),i()}function gt(t){let n=document.createElement("style");n.textContent=ft,document.head.append(n);let s=document.createElement("main");s.className="fvs-app",s.innerHTML=`<h1></h1><div class="fvs-frame" role="img"></div>\n    <div class="fvs-bar" role="group" aria-label="Playback"><button type="button" class="fvs-play">\\u25B6 \\u64AD\\u653E</button><input type="range" min="0" step="0.01" value="0" aria-label="\\u8FDB\\u5EA6"><output></output></div>\n    <ol class="fvs-chapters" aria-label="\\u7AE0\\u8282"></ol><pre class="fvs-err" hidden></pre><p class="fvs-credit">Made with Forsion Video Studio</p>`,document.body.append(s),s.querySelector("h1").textContent=t.title||"";let i=s.querySelector(".fvs-frame");i.style.aspectRatio=`${t.width} / ${t.height}`,i.style.maxWidth=`calc((100vh - 200px) * ${t.width/t.height})`,i.style.margin="0 auto",i.setAttribute("aria-label",t.title||"video");let e=D(t,i);ht(e,i,t);let r=t.audio.map(o=>{let d=new Audio(o.url);return d.preload="auto",d.volume=Math.min(1,10**((o.gain||0)/20)),{el:d,at:o.at||0}}),m=s.querySelector(".fvs-play"),f=s.querySelector("input"),y=s.querySelector("output");f.max=t.length;let l=ut(t,r,t.length),v=s.querySelector(".fvs-chapters");v.innerHTML=t.scenes.map(o=>`<li><button type="button" data-t="${o.t0}"><b>${o.t0.toFixed(1)}</b></button></li>`).join(""),[...v.querySelectorAll("button")].forEach((o,d)=>o.append(t.scenes[d].title||t.scenes[d].id));let p=[...v.querySelectorAll("button")];if(e.errors.length){let o=s.querySelector(".fvs-err");o.hidden=!1,o.textContent=e.errors.map(d=>`${d.scene}${d.line?`:${d.line}`:""} ${d.message}`).join(`\n`)}let E=()=>l.playing?l.pause():l.play();m.addEventListener("click",E),i.addEventListener("click",E),f.addEventListener("input",()=>l.seek(+f.value)),p.forEach(o=>o.addEventListener("click",()=>{l.seek(+o.dataset.t),l.playing||l.play()})),document.addEventListener("keydown",o=>{o.target.closest&&o.target.closest("input,button,textarea")||(o.code==="Space"&&(o.preventDefault(),E()),o.code==="ArrowRight"&&l.seek(l.now()+2),o.code==="ArrowLeft"&&l.seek(l.now()-2))});let C=-1,$=t.scenes.length?Math.min(t.length,t.scenes[Math.min(1,t.scenes.length-1)].t0+.8):0,N=!1,T=()=>{l.tick();let o=N||l.playing?l.now():$;l.playing&&(N=!0),o!==C&&(e.seek(o),C=o),f.value=o,y.textContent=`${Q(o)} / ${Q(t.length)}`,m.textContent=l.playing?"\\u275A\\u275A \\u6682\\u505C":"\\u25B6 \\u64AD\\u653E",p.forEach((d,x)=>d.classList.toggle("on",o>=t.scenes[x].t0&&o<t.scenes[x].t1)),requestAnimationFrame(T)};f.addEventListener("input",()=>{N=!0}),requestAnimationFrame(T),window.__fvs={stage:e,clock:l}}function mt(t){document.documentElement.style.background="#000",document.body.style.margin="0";let n=D(t,document.body);n.root.style.transform="none",n.seek(0),window.__stage={w:t.width,h:t.height,dur:t.length,fps:t.fps,errors:n.errors,audio:t.audio,seek:s=>n.seek(s),ready:()=>document.fonts.ready.then(()=>Promise.all([...document.images].map(s=>s.complete?0:s.decode().catch(()=>0))))}}var yt=/^(SCRIPT|STYLE|TEXTAREA|TITLE)$/i;function bt(t){document.documentElement.style.cssText="background:#141414;height:100%;overflow:hidden",document.body.style.cssText="margin:0;height:100%;overflow:hidden;display:grid;place-items:center";let n=document.createElement("div");n.style.cssText=`position:relative;overflow:hidden;background:#000;aspect-ratio:${t.width}/${t.height};width:min(100vw, calc(100vh * ${t.width/t.height}))`,document.body.append(n);let s={},i=new WeakMap,e=new WeakMap,r=new WeakMap,f=D(t,n,{onScene:o=>{let d=[],x=[...o.el.querySelectorAll("img")],A=document.createTreeWalker(o.el,NodeFilter.SHOW_TEXT);for(let k;k=A.nextNode();){if(!/\\S/.test(k.data)||k.parentElement&&yt.test(k.parentElement.tagName))continue;i.set(k,d.length);let M=k.parentElement;e.has(M)||e.set(M,[]),e.get(M).push(d.length),d.push({node:k,el:M})}x.forEach((k,M)=>r.set(k,M)),s[o.id]={texts:d,imgs:x}}}),y=()=>{f.root.style.transform=`scale(${n.clientWidth/t.width})`};new ResizeObserver(y).observe(n),y();let l=o=>parent.postMessage({fvs:o.type,...o,type:void 0},"*"),v=0;f.seek(0);let p=document.createElement("div");p.style.cssText="position:absolute;pointer-events:none;border:2px solid #ff6a13;border-radius:3px;box-shadow:0 0 0 9999px rgba(0,0,0,.18);display:none;z-index:10",n.append(p);let E=o=>({x:o.left,y:o.top,w:o.width,h:o.height}),C=o=>{if(!o){p.style.display="none";return}let d=n.getBoundingClientRect();Object.assign(p.style,{display:"",left:`${o.x-d.left-3}px`,top:`${o.y-d.top-3}px`,width:`${o.w+6}px`,height:`${o.h+6}px`})},$=o=>{let d=o&&o.closest&&o.closest("[data-scene]");return d?d.dataset.scene:null};function N(o,d){let x=document.elementFromPoint(o.clientX,o.clientY),A=$(x);if(!A||!s[A]){l({type:"pick",scene:null,dbl:d});return}if(x.tagName==="IMG"&&r.has(x)){l({type:"pick",scene:A,img:r.get(x),rect:E(x.getBoundingClientRect()),dbl:d});return}let k=null,M=document.caretRangeFromPoint&&document.caretRangeFromPoint(o.clientX,o.clientY);M&&M.startContainer.nodeType===3&&i.has(M.startContainer)&&(k=i.get(M.startContainer));for(let u=x;k===null&&u&&u!==n;u=u.parentElement)e.has(u)&&(k=e.get(u)[0]);if(k===null){l({type:"pick",scene:A,dbl:d});return}let _=s[A].texts[k],a=_.node.isConnected?(()=>{let u=document.createRange();return u.selectNodeContents(_.node),u.getBoundingClientRect()})():_.el.getBoundingClientRect();l({type:"pick",scene:A,text:k,rect:E(a.width?a:_.el.getBoundingClientRect()),dbl:d})}n.addEventListener("click",o=>N(o,!1)),n.addEventListener("dblclick",o=>{o.preventDefault(),N(o,!0)}),window.addEventListener("message",o=>{let d=o.data||{};if(d.fvs==="seek")v=d.t,f.seek(d.t);else if(d.fvs==="outline"){let x=s[d.scene],A=x?d.img!=null?x.imgs[d.img]:d.text!=null&&x.texts[d.text]?x.texts[d.text].el:null:null;C(A&&A.isConnected&&A.getClientRects().length?E(A.getBoundingClientRect()):null)}});let T=o=>Object.fromEntries(Object.entries(s).map(([d,x])=>[d,x[o].length]));l({type:"ready",length:t.length,errors:f.errors,texts:T("texts"),imgs:T("imgs")}),window.__fvs={stage:f,seek:o=>f.seek(o)}}function xt(t){let n=pt(),s=typeof window<"u"&&window.FVS_MODE||t||new URLSearchParams(location.search).get("mode")||(new URLSearchParams(location.search).has("capture")?"capture":"player");s==="capture"?mt(n):s==="embed"?bt(n):gt(n)}return ot(wt);})();\n';
+
+// src/cli/render.js
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync, mkdtempSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+function renderJob(file) {
+  if (!file) return { write() {
+  }, cancelled: () => false };
+  const path = resolve(file), cancel = path + ".cancel";
+  let value = JSON.parse(readFileSync(path, "utf8"));
+  return {
+    write(patch) {
+      value = { ...value, ...patch, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      const tmp = path + ".tmp";
+      writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n");
+      renameSync(tmp, path);
+    },
+    cancelled: () => existsSync(cancel)
+  };
+}
+async function renderVideo(ctx, flags2, api) {
+  const job = renderJob(flags2.job);
+  let browser, frames, partial, cancelTimer;
+  const checkCancel = () => {
+    if (job.cancelled()) {
+      const e = new Error("Render cancelled");
+      e.cancelled = true;
+      throw e;
+    }
+  };
+  try {
+    checkCancel();
+    job.write({ status: "preparing", progress: 0, error: null });
+    const { p, dir } = ctx, fps = Number(flags2.fps || p.meta.fps), scale = Number(flags2.scale || 1), crf = Number(flags2.crf ?? 18);
+    const from = api.timeArg(p, flags2.from) ?? 0, to = Math.min(p.length, api.timeArg(p, flags2.to) ?? p.length);
+    if (!Number.isFinite(fps) || fps < 1 || fps > 120 || !Number.isFinite(scale) || scale <= 0 || scale > 4 || !Number.isFinite(crf) || crf < 0 || crf > 51 || from < 0 || !(to > from)) throw new Error("Invalid export range, frame rate, scale or quality");
+    const out = resolve(flags2.out || ctx.path.replace(/\.fvs\.md$/i, "") + ".mp4");
+    if (flags2.job && existsSync(out)) throw new Error("Output already exists; choose another file");
+    const ff = api.ffmpegBin();
+    browser = await api.chromium();
+    checkCancel();
+    frames = flags2["keep-frames"] ? resolve(flags2["keep-frames"]) : mkdtempSync(join(tmpdir(), "fvs-frames-"));
+    mkdirSync(frames, { recursive: true });
+    const workers = Math.max(1, Math.min(8, Number(flags2.workers) || 3));
+    const stages = [];
+    try {
+      for (let n = 0; n < workers; n++) {
+        checkCancel();
+        stages.push(await api.openStage(ctx, browser));
+      }
+      if (api.runtimeErrors(stages[0].st, stages[0].logs) && !flags2.force) throw new Error("Scene scripts failed");
+      const f0 = Math.round(from * fps), f1 = Math.max(f0, Math.round(to * fps) - 1), total = f1 - f0 + 1;
+      let done = 0, lastPct = -1;
+      job.write({ status: "frames", progress: 0, totalFrames: total, completedFrames: 0 });
+      await Promise.all(stages.map(async ({ pg }, k) => {
+        for (let f = f0 + k; f <= f1; f += workers) {
+          checkCancel();
+          await pg.evaluate((t) => __stage.seek(t), f / fps);
+          await pg.screenshot({ path: join(frames, `${String(f - f0).padStart(6, "0")}.png`) });
+          const pct2 = Math.floor(++done / total * 80);
+          if (pct2 !== lastPct) {
+            lastPct = pct2;
+            job.write({ progress: pct2, completedFrames: done });
+            api.log(`frames ${done}/${total}`);
+          }
+        }
+      }));
+      checkCancel();
+      await browser.close();
+      browser = null;
+      const args = ["-y", "-loglevel", "error", "-progress", "pipe:1", "-framerate", String(fps), "-i", join(frames, "%06d.png")];
+      const tracks = flags2["no-audio"] ? [] : audioTracks(p.meta);
+      for (const a of tracks) if (!existsSync(join(dir, a.src))) throw new Error(`Audio file not found: ${a.src}`);
+      tracks.forEach((a) => args.push("-i", join(dir, a.src)));
+      if (tracks.length) {
+        const parts = tracks.map((a, i) => {
+          const shift = a.at - from;
+          return `[${i + 1}:a]${shift < 0 ? `atrim=start=${-shift},asetpts=PTS-STARTPTS,` : ""}${shift > 0 ? `adelay=${Math.round(shift * 1e3)}:all=1,` : ""}volume=${a.gain || 0}dB[a${i}]`;
+        });
+        const mix = tracks.length > 1 ? `;${tracks.map((_, i) => `[a${i}]`).join("")}amix=inputs=${tracks.length}:normalize=0[aout]` : "";
+        args.push("-filter_complex", parts.join(";") + mix, "-map", "0:v", "-map", tracks.length > 1 ? "[aout]" : "[a0]", "-c:a", "aac", "-b:a", flags2.abr || "256k");
+      }
+      args.push("-vf", `scale=trunc(iw*${scale}/2)*2:trunc(ih*${scale}/2)*2:flags=lanczos`, "-c:v", "libx264", "-preset", flags2.preset || "medium", "-crf", String(crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", String(total / fps));
+      mkdirSync(dirname(out), { recursive: true });
+      partial = out + `.partial-${process.pid}.mp4`;
+      args.push(partial);
+      job.write({ status: "encoding", progress: 80 });
+      await new Promise((ok, fail) => {
+        const child = spawn(ff, args, { stdio: ["ignore", "pipe", "pipe"] });
+        let errors = "", pending = "", killing = false;
+        const finish = (err) => {
+          clearInterval(cancelTimer);
+          cancelTimer = null;
+          err ? fail(err) : ok();
+        };
+        child.on("error", finish);
+        child.stderr.on("data", (b) => {
+          errors = (errors + b.toString()).slice(-4e3);
+        });
+        child.stdout.on("data", (b) => {
+          pending += b.toString();
+          const lines = pending.split("\n");
+          pending = lines.pop();
+          for (const line of lines) if (line.startsWith("out_time_us=")) {
+            const sec = Number(line.slice(12)) / 1e6;
+            job.write({ progress: Math.min(99, 80 + Math.floor(sec / (total / fps) * 19)) });
+          }
+        });
+        cancelTimer = setInterval(() => {
+          if (job.cancelled() && !killing) {
+            killing = true;
+            child.kill("SIGKILL");
+          }
+        }, 150);
+        child.on("close", (code) => {
+          if (job.cancelled()) {
+            const e = new Error("Render cancelled");
+            e.cancelled = true;
+            finish(e);
+          } else finish(code === 0 ? null : new Error(`Encoding failed: ${errors || code}`));
+        });
+      });
+      checkCancel();
+      if (flags2.job && existsSync(out)) throw new Error("Output was created by another render");
+      renameSync(partial, out);
+      partial = null;
+      job.write({ status: "done", progress: 100, bytes: statSync(out).size, duration: total / fps, output: out });
+      api.log(out);
+    } finally {
+      for (const stage of stages) rmSync(stage.tmp, { recursive: true, force: true });
+    }
+  } catch (e) {
+    job.write({ status: e.cancelled ? "cancelled" : "failed", error: String(e.message || e) });
+    throw e;
+  } finally {
+    clearInterval(cancelTimer);
+    await browser?.close().catch(() => {
+    });
+    if (partial) rmSync(partial, { force: true });
+    if (frames && !flags2["keep-frames"]) rmSync(frames, { recursive: true, force: true });
+  }
+}
 
 // src/cli/fvs.js
-var VERSION = "0.3.0";
+var VERSION = "0.4.0";
 var HELP = `fvs ${VERSION} \u2014 Forsion Video Studio
 
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project
@@ -619,6 +762,7 @@ var HELP = `fvs ${VERSION} \u2014 Forsion Video Studio
   fvs sheet <file> [--scenes | --every <sec>] [--out sheet.png]       contact sheet of frames
   fvs render <file> [--out f.mp4] [--from s] [--to s] [--scale 0.5] [--workers 3] [--crf 18]
                     [--keep-frames dir] [--no-audio]                 MP4 with the project's audio
+  fvs render-job <job.json>            export with real progress and a .cancel marker
   fvs sync <file> [--audio a.mp3]      do the hits land on accents of the score?
 
   Times: 12.5 (seconds), scene id (its start), scene:3 (its hit 3).
@@ -638,23 +782,24 @@ for (let i = 0; i < argv.length; i++) {
   } else pos.push(a);
 }
 var die = (msg, code = 1) => {
-  console.error(msg);
-  process.exit(code);
+  const error = new Error(msg);
+  error.exitCode = code;
+  throw error;
 };
 var log = (...a) => console.log(...a);
 function load(file) {
   if (!file) die("which project? (fvs <command> <file.fvs.md>)");
-  const path = resolve(file);
-  if (!existsSync(path)) die(`no such file: ${path}`);
-  const text = readFileSync(path, "utf8");
-  return { path, dir: dirname(path), text, p: parseProject(text) };
+  const path = resolve2(file);
+  if (!existsSync2(path)) die(`no such file: ${path}`);
+  const text = readFileSync2(path, "utf8");
+  return { path, dir: dirname2(path), text, p: parseProject(text) };
 }
 function report(p, { fail = true } = {}) {
   const errs = p.errors.filter((e) => e.level === "error"), warns = p.errors.filter((e) => e.level !== "error");
   for (const e of [...errs, ...warns]) console.error(`${e.level === "error" ? "error" : "warn "} line ${e.line}${e.scene ? ` [${e.scene}]` : ""}: ${e.message}`);
   if (errs.length && fail && !flags.force) die(`${errs.length} error(s); fix them or pass --force`);
 }
-var fileUrl = (dir, rel) => pathToFileURL(join(dir, rel)).href;
+var fileUrl = (dir, rel) => pathToFileURL(join2(dir, rel)).href;
 function timeArg(p, v) {
   if (v === void 0 || v === true) return null;
   if (/^-?\d+(\.\d+)?$/.test(String(v))) return +v;
@@ -666,7 +811,7 @@ function timeArg(p, v) {
   return s.hitTimes[+h];
 }
 async function chromium() {
-  const req = createRequire(join(process.cwd(), "x.js"));
+  const req = createRequire(join2(process.cwd(), "x.js"));
   const tries = ["playwright-core", "playwright"];
   let pw = null;
   for (const m of tries) {
@@ -700,14 +845,14 @@ Install Google Chrome or Microsoft Edge, or run: npx playwright install chromium
 }
 function globalRequire(m) {
   const root = spawnSync(platform() === "win32" ? "npm.cmd" : "npm", ["root", "-g"], { encoding: "utf8", shell: platform() === "win32" }).stdout.trim();
-  return createRequire(join(root, "x.js"))(m);
+  return createRequire(join2(root, "x.js"))(m);
 }
 function knownBrowsers() {
   const P = platform(), h = homedir();
   const list2 = P === "darwin" ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge", "/Applications/Chromium.app/Contents/MacOS/Chromium", `${h}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`] : P === "win32" ? [`${process.env["PROGRAMFILES"] || "C:\\Program Files"}\\Google\\Chrome\\Application\\chrome.exe`, `${process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)"}\\Microsoft\\Edge\\Application\\msedge.exe`, `${process.env.LOCALAPPDATA || ""}\\Google\\Chrome\\Application\\chrome.exe`] : ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser", "/opt/pw-browsers/chromium/chrome-linux/chrome", "/snap/bin/chromium"];
   return list2.filter((p) => {
     try {
-      return existsSync(p);
+      return existsSync2(p);
     } catch {
       return false;
     }
@@ -723,11 +868,11 @@ function ffmpegBin() {
   die("ffmpeg not found. Install it (macOS: brew install ffmpeg \xB7 Windows: winget install ffmpeg \xB7 Linux: apt install ffmpeg) or set FFMPEG=/path/to/ffmpeg");
 }
 async function openStage(ctx, browser, { scale = 1 } = {}) {
-  const tmp = mkdtempSync(join(tmpdir(), "fvs-"));
+  const tmp = mkdtempSync2(join2(tmpdir2(), "fvs-"));
   const payload = compile(ctx.p, { resolve: (rel) => fileUrl(ctx.dir, rel) });
   const html = buildHtml(payload, runtime_src_default, { mode: "capture" });
-  const page = join(tmp, "capture.html");
-  writeFileSync(page, html);
+  const page = join2(tmp, "capture.html");
+  writeFileSync2(page, html);
   const pg = await browser.newPage({ viewport: { width: payload.width, height: payload.height }, deviceScaleFactor: scale });
   const logs = [];
   pg.on("pageerror", (e) => logs.push(String(e.message || e)));
@@ -748,11 +893,11 @@ function runtimeErrors(st, logs) {
 var commands = {
   async new() {
     const file = pos[0] || die("fvs new <file.fvs.md>");
-    const path = resolve(file.endsWith(".fvs.md") ? file : `${file}.fvs.md`);
-    if (existsSync(path) && !flags.force) die(`${path} exists (pass --force to overwrite)`);
+    const path = resolve2(file.endsWith(".fvs.md") ? file : `${file}.fvs.md`);
+    if (existsSync2(path) && !flags.force) die(`${path} exists (pass --force to overwrite)`);
     const tpl = TEMPLATES[flags.template || "eva"] || die(`templates: ${Object.keys(TEMPLATES).join(", ")}`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, tpl({ title: flags.title || basename(path, ".fvs.md"), zh: flags.lang !== "en" }));
+    mkdirSync2(dirname2(path), { recursive: true });
+    writeFileSync2(path, tpl({ title: flags.title || basename(path, ".fvs.md"), zh: flags.lang !== "en" }));
     log(path);
   },
   async info() {
@@ -785,24 +930,24 @@ var commands = {
     report(p, { fail: false });
     const out = JSON.stringify(cueSheet(p), null, 2);
     if (flags.out) {
-      writeFileSync(resolve(flags.out), out + "\n");
-      log(resolve(flags.out));
+      writeFileSync2(resolve2(flags.out), out + "\n");
+      log(resolve2(flags.out));
     } else log(out);
   },
   async html() {
     const ctx = load(pos[0]);
     report(ctx.p);
-    const out = resolve(flags.out || ctx.path.replace(/\.fvs\.md$/i, "") + ".html");
-    const outDir = dirname(out);
+    const out = resolve2(flags.out || ctx.path.replace(/\.fvs\.md$/i, "") + ".html");
+    const outDir = dirname2(out);
     const mime = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf" };
     const resolveUrl = (rel) => {
-      const abs = join(ctx.dir, rel);
-      if (flags.inline && existsSync(abs)) return `data:${mime[extname(abs).toLowerCase()] || "application/octet-stream"};base64,${readFileSync(abs).toString("base64")}`;
+      const abs = join2(ctx.dir, rel);
+      if (flags.inline && existsSync2(abs)) return `data:${mime[extname(abs).toLowerCase()] || "application/octet-stream"};base64,${readFileSync2(abs).toString("base64")}`;
       return relative(outDir, abs).split(sep).join("/");
     };
     const payload = compile(ctx.p, { resolve: resolveUrl });
-    writeFileSync(out, buildHtml(payload, runtime_src_default, { mode: "player" }));
-    log(`${out} (${(statSync(out).size / 1024).toFixed(0)} KB)`);
+    writeFileSync2(out, buildHtml(payload, runtime_src_default, { mode: "player" }));
+    log(`${out} (${(statSync2(out).size / 1024).toFixed(0)} KB)`);
   },
   async still() {
     const ctx = load(pos[0]);
@@ -812,7 +957,7 @@ var commands = {
     const { pg, st, logs } = await openStage(ctx, browser, { scale: +flags.scale || 1 });
     runtimeErrors(st, logs);
     await pg.evaluate((x) => __stage.seek(x), t);
-    const out = resolve(flags.out || `${ctx.path.replace(/\.fvs\.md$/i, "")}-${t.toFixed(2)}s.png`);
+    const out = resolve2(flags.out || `${ctx.path.replace(/\.fvs\.md$/i, "")}-${t.toFixed(2)}s.png`);
     await pg.screenshot({ path: out });
     await browser.close();
     log(out);
@@ -840,7 +985,7 @@ var commands = {
     const cols = Math.min(6, Math.ceil(Math.sqrt(shots.length * 1.4)));
     const sheet = await browser.newPage({ viewport: { width: cols * 332 + 12, height: 400 } });
     await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},320px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><img style="display:block;width:320px" src="data:image/jpeg;base64,${b}"><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join("")}</div></body>`);
-    const out = resolve(flags.out || `${ctx.path.replace(/\.fvs\.md$/i, "")}-sheet.png`);
+    const out = resolve2(flags.out || `${ctx.path.replace(/\.fvs\.md$/i, "")}-sheet.png`);
     await sheet.screenshot({ path: out, fullPage: true });
     await browser.close();
     log(out);
@@ -848,64 +993,36 @@ var commands = {
   async render() {
     const ctx = load(pos[0]);
     report(ctx.p);
-    const p = ctx.p, fps = +flags.fps || +p.meta.fps;
-    const from = timeArg(p, flags.from) ?? 0, to = Math.min(p.length, timeArg(p, flags.to) ?? p.length);
-    const out = resolve(flags.out || ctx.path.replace(/\.fvs\.md$/i, "") + ".mp4");
-    const ff = ffmpegBin();
-    const frames = flags["keep-frames"] ? resolve(flags["keep-frames"]) : mkdtempSync(join(tmpdir(), "fvs-frames-"));
-    rmSync(frames, { recursive: true, force: true });
-    mkdirSync(frames, { recursive: true });
-    const browser = await chromium();
-    const workers = Math.max(1, Math.min(8, +flags.workers || 3));
-    const stages = await Promise.all([...Array(workers)].map(() => openStage(ctx, browser)));
-    if (runtimeErrors(stages[0].st, stages[0].logs) && !flags.force) {
-      await browser.close();
-      die("scene scripts failed (see above); fix them or pass --force");
-    }
-    const f0 = Math.round(from * fps), f1 = Math.max(f0, Math.round(to * fps) - 1);
-    const total = f1 - f0 + 1;
-    let done = 0, lastPct = -1;
-    const t0 = Date.now();
-    await Promise.all(stages.map(async ({ pg }, k) => {
-      for (let f = f0 + k; f <= f1; f += workers) {
-        await pg.evaluate((t) => __stage.seek(t), f / fps);
-        await pg.screenshot({ path: join(frames, `${String(f - f0).padStart(6, "0")}.png`) });
-        done++;
-        const pct2 = Math.floor(done / total * 20) * 5;
-        if (pct2 !== lastPct) {
-          lastPct = pct2;
-          log(`frames ${pct2}% (${done}/${total}, ${((Date.now() - t0) / 1e3).toFixed(0)} s)`);
-        }
+    return renderVideo(ctx, flags, { timeArg, ffmpegBin, chromium, openStage, runtimeErrors, log });
+  },
+  async "render-job"() {
+    const jobPath = resolve2(pos[0] || die("render-job requires a job JSON file"));
+    const job = renderJob(jobPath);
+    try {
+      const spec = JSON.parse(readFileSync2(jobPath, "utf8"));
+      if (spec.v !== 1 || !spec.project || !spec.out || !spec.options) die("Invalid render job");
+      if (["done", "failed", "cancelled"].includes(spec.status)) {
+        log(`Job already ${spec.status}`);
+        return;
       }
-    }));
-    await browser.close();
-    const args = ["-y", "-loglevel", "error", "-framerate", String(fps), "-i", join(frames, "%06d.png")];
-    const tracks = flags["no-audio"] ? [] : audioTracks(p.meta).filter((a) => existsSync(join(ctx.dir, a.src)));
-    for (const a of audioTracks(p.meta)) if (!existsSync(join(ctx.dir, a.src))) console.error(`warn audio not found, skipped: ${a.src}`);
-    tracks.forEach((a) => args.push("-i", join(ctx.dir, a.src)));
-    const vf = +flags.scale && +flags.scale !== 1 ? ["-vf", `scale=trunc(iw*${+flags.scale}/2)*2:-2:flags=lanczos`] : [];
-    if (tracks.length) {
-      const parts = tracks.map((a, i) => {
-        const shift = a.at - from;
-        const trim = shift < 0 ? `atrim=start=${-shift},asetpts=PTS-STARTPTS,` : "";
-        const delay = shift > 0 ? `adelay=${Math.round(shift * 1e3)}:all=1,` : "";
-        return `[${i + 1}:a]${trim}${delay}volume=${a.gain || 0}dB[a${i}]`;
-      });
-      const mix = tracks.length > 1 ? `;${tracks.map((_, i) => `[a${i}]`).join("")}amix=inputs=${tracks.length}:normalize=0[aout]` : "";
-      args.push("-filter_complex", parts.join(";") + mix, "-map", "0:v", "-map", tracks.length > 1 ? "[aout]" : "[a0]", "-c:a", "aac", "-b:a", flags.abr || "256k");
+      const ctx = load(spec.project);
+      if (spec.sourceSnapshot) {
+        ctx.text = readFileSync2(spec.sourceSnapshot, "utf8");
+        ctx.p = parseProject(ctx.text);
+      }
+      report(ctx.p);
+      return await renderVideo(ctx, { ...spec.options, out: spec.out, job: jobPath }, { timeArg, ffmpegBin, chromium, openStage, runtimeErrors, log });
+    } catch (e) {
+      job.write({ status: job.cancelled() ? "cancelled" : "failed", error: String(e.message || e) });
+      throw e;
     }
-    args.push(...vf, "-c:v", "libx264", "-preset", flags.preset || "slow", "-crf", String(flags.crf || 18), "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-t", String(total / fps), out);
-    const r = spawnSync(ff, args, { stdio: "inherit" });
-    if (!flags["keep-frames"]) rmSync(frames, { recursive: true, force: true });
-    if (r.status !== 0) die("ffmpeg failed");
-    log(`${out} \xB7 ${total} frames \xB7 ${(total / fps).toFixed(2)} s \xB7 ${(statSync(out).size / 1048576).toFixed(1)} MB`);
   },
   async sync() {
     const { p, dir } = load(pos[0]);
     report(p, { fail: false });
     const tracks = audioTracks(p.meta);
-    const src = flags.audio ? resolve(flags.audio) : tracks[0] && join(dir, tracks[0].src);
-    if (!src || !existsSync(src)) die(`no audio to check against (add one to the project's "audio" or pass --audio)`);
+    const src = flags.audio ? resolve2(flags.audio) : tracks[0] && join2(dir, tracks[0].src);
+    if (!src || !existsSync2(src)) die(`no audio to check against (add one to the project's "audio" or pass --audio)`);
     const at = flags.audio ? 0 : tracks[0].at || 0;
     const ff = ffmpegBin();
     const r = spawnSync(ff, ["-v", "error", "-i", src, "-ac", "1", "-ar", String(ONSET_SR), "-f", "f32le", "-"], { maxBuffer: 1 << 30 });
@@ -928,4 +1045,7 @@ if (!cmd || cmd === "help" || flags.help || !commands[cmd]) {
   log(HELP);
   process.exit(cmd && !commands[cmd] && cmd !== "help" ? 1 : 0);
 }
-commands[cmd]().catch((e) => die(e && e.stack || String(e)));
+commands[cmd]().catch((e) => {
+  console.error(e && e.stack || String(e));
+  process.exitCode = e.exitCode || 1;
+});

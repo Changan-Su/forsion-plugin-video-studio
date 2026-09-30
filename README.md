@@ -2,21 +2,22 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-本目录是独立 Git 仓库，版本 **0.3.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+本目录是独立 Git 仓库，版本 **0.4.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
-0.2.0 工作台：左侧搜索并定位场景，中间按视频比例预览，右侧分组编辑属性，下方查看场景和配乐时间线。预览下方可以播放、切换场景、逐帧检查和静音；支持专注预览、面板切换、时间线缩放与高度调整。窄窗口的场景列表可临时展开，属性面板独立滚动。
+工作台：左侧搜索并定位场景，中间按视频比例预览，右侧分组编辑属性，下方查看场景和配乐时间线。预览下方可以播放、切换场景、逐帧检查和静音；支持专注预览、面板切换、时间线缩放与高度调整。窄窗口的场景列表可临时展开，属性面板独立滚动。
 
 一段视频就是一份 `.fvs.md` 工程文件：每个场景是一页网页（HTML + CSS，加一点关键帧脚本），场景首尾相接地排在时间线上，时间线踩在音乐的拍子上。每个场景写着自己的**拍点**，画面在拍点上切，配乐也在拍点上给重音。
 
+- **分镜预览**：场景列表显示同一渲染器生成的真实缩略预览，可见行才加载，悬停播放；仍遵守工程脚本信任和减少动态效果设置。
 - **手动编辑**：实时预览、播放；时间线上拖场景右边缘改长度，拖拍点改切点；双击画面里的文字直接改；右侧面板改场景设置、全部文字、代码和工程设置。撤销、重做、自动保存。
 - **交给 AI**：「问 AI」「配乐」「导出 MP4」把任务交给内置的 **Video Studio 导演** Agent。它直接改这份文件，编辑器自动载入改动，而且可以撤销。文字面板里每一行都有「AI 改写」。
 - **卡点检查**：编辑器分析配乐的重音，时间线上的拍点绿色表示落在重音上，黄色表示没有，蓝色表示切到安静。
-- **导出**：「导出网页视频」立刻写出一个单文件 `.html`（素材和配乐都在里面，双击就能播放）；「导出 MP4」由导演 Agent 在本机渲染。
+- **导出**：「导出网页视频」立刻写出一个单文件 `.html`（素材和配乐都在里面，双击就能播放）；「导出 MP4」打开原生 Extend View 设置面板，选择尺寸、帧率、画质、区间和配乐，再由导演 Agent 在本机渲染。面板从 CLI 状态文件读取真实进度，支持取消、失败重试和预览成品。任务保存启动时的工程快照；导出过程中继续编辑不会改变这一份渲染。成功后才发布 MP4，失败不会覆盖已有成品。
 - **工程文件 AI 读得懂**：它就是 Markdown，里面是 JSON、HTML、CSS、JS 代码块。格式和场景 API 写在内置技能 `forsion-video-studio` 里。
 
 ## 原生工作室 Space
 
-插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；工程标题可以打开 Extend View 工程选择器，预览右上角的属性按钮打开原生 Extend View 属性面板，「问 AI」在 Extend View 中准备导演任务。关闭、切换 Space 或工程时，这些面板随主视图清理。
+插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；工程标题可以打开 Extend View 工程选择器，预览右上角的属性按钮打开原生 Extend View 属性面板，「问 AI」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
 
 主工作台的窗口按钮可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
 
@@ -30,7 +31,7 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 导出 MP4 和配乐在你的电脑上运行，需要：
 
-- **MP4**：Node 18+、Chrome 或 Edge（或 `npx playwright install chromium`）、`playwright-core`（`npm i -g playwright-core`）、ffmpeg。
+- **MP4**：Node 18+、Chrome 或 Edge（或 `npx playwright install chromium`）、`playwright-core`（例如在智库的 `Forsion Video Studio/.fvs-tools/` 目录运行 `npm i playwright-core`）、ffmpeg。
 - **配乐**：Python 3 和 `tools/music/requirements.txt` 里的包，外加 VSCO 2 CE 管弦乐采样（CC0，`python3 tools/music/fetch_samples.py` 下载）。
 
 缺什么，导演 Agent 会先装好或者告诉你。
@@ -108,13 +109,18 @@ npm run test:ui                  # Chromium：编辑、撤销、导出、导航�
 npm run install:dev              # 构建和自检后完整安装到 ~/.forsion-dev/plugins/
 npm run verify:dev               # 原生主题、播放、窄窗口和工程完整性
 npm run verify:space             # 真 Space / Extend / Mini / Floating / 待保存切换和生命周期
+npm run verify:render            # 真实 Chromium + ffmpeg：配乐、取消、错误区间、成品保护
+npm run verify:features          # 真缩略图、原生 Chat Box 草稿与模型选择、Extend 导出设置
+npm run verify:features -- --live # 临时工程的真模型修改、差异/恢复，以及由导演执行的 MP4 导出
 ```
 
 `install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
 
 真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在示例目录中创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
 
-提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐仍由导演 Agent 使用本机工具执行，本次工作台测试不代表它们的真模型验收。
+提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐由导演 Agent 使用本机工具执行。`verify:features -- --live` 会调用模型并产生两条可见导演会话，只操作临时工程；原始示例保持不变。它验证工程修改与 MP4 导出，不代表新曲创作已验收。
+
+模型和思考档位传递依赖宿主公开的 `ctx.tangu.chatSelection` / `startChat({ modelId, thinkingLevel })` 契约；旧宿主降级为普通提示输入。当前 dev 已同步这项宿主能力。缩略图与导出状态仍由插件自身管理，没有引入另一套 React 或独立执行服务。详细验收见 [ACCEPTANCE-0.4.md](ACCEPTANCE-0.4.md)。
 
 ---
 

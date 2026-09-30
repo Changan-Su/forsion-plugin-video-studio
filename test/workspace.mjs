@@ -46,6 +46,7 @@ export async function checkWorkspace(page, file, shot) {
   assert.equal(Number(await separator.getAttribute('aria-valuenow')), height + 20);
   await page.keyboard.press('ArrowDown');
   await page.locator('.fvs-zoom-controls input').fill('32');
+  await page.waitForFunction(() => document.querySelector('.fvs-clip[data-id="cards"]')?.getBoundingClientRect().width > 1);
   const clipWidth = await page.locator('.fvs-clip[data-id="cards"]').evaluate(e => e.getBoundingClientRect().width);
   await page.setViewportSize({ width: 1000, height: 900 });
   await page.waitForFunction(() => document.querySelector('.fvs-studio').classList.contains('medium'));

@@ -1,0 +1,143 @@
+diff --git a/desktop/frontend/src/amadeus/plugins/deskCtx.test.ts b/desktop/frontend/src/amadeus/plugins/deskCtx.test.ts
+index 3078ed3b..b1f265d9 100644
+--- a/desktop/frontend/src/amadeus/plugins/deskCtx.test.ts
++++ b/desktop/frontend/src/amadeus/plugins/deskCtx.test.ts
+@@ -112,6 +112,13 @@ describe('ctx.tangu.startChat 的放行规则', () => {
+   })
+   const lastArg = () => startChat.mock.calls.at(-1)![0]
+ 
++  it('原生 Chat Box 选择显式传给探针并声明兼容能力', async () => {
++    const ctx = ctxOf('p-selection')
++    expect(ctx.tangu!.chatSelection).toBe(true)
++    await ctx.tangu!.startChat!({ prompt: 'x', modelId: 'chosen', thinkingLevel: 'high' })
++    expect(lastArg()).toMatchObject({ modelId: 'chosen', thinkingLevel: 'high', send: false })
++  })
++
+   it('探针没有 startChat(旧台架)→ 方法不存在;有 → 注入', () => {
+     setTanguProbe(baseProbe())
+     expect(ctxOf('p-sc').tangu!.startChat).toBeUndefined()
+diff --git a/desktop/frontend/src/amadeus/plugins/pluginStore.ts b/desktop/frontend/src/amadeus/plugins/pluginStore.ts
+index 853203a4..f4b6b0d6 100644
+--- a/desktop/frontend/src/amadeus/plugins/pluginStore.ts
++++ b/desktop/frontend/src/amadeus/plugins/pluginStore.ts
+@@ -1293,7 +1315,8 @@ export const usePluginStore = create<PluginState>((set, get) => {
+             //     探针返回之后不再有副作用,不需要再判。
+             ...(readTangu()?.startChat
+               ? {
+-                  startChat: async (o: { agent?: string; prompt: string; send?: boolean; folder?: string }): Promise<TanguStartChatResult> => {
++                  chatSelection: true as const,
++                  startChat: async (o: { agent?: string; prompt: string; send?: boolean; folder?: string; modelId?: string; thinkingLevel?: import('../../../../shared/chatBox').ChatBoxSelection['thinkingLevel'] }): Promise<TanguStartChatResult> => {
+                     if (!ctxAlive) return { ok: false, error: 'plugin disabled' }
+                     const probe = readTangu()
+                     if (!probe?.startChat) return { ok: false, error: 'startChat is not available on this host' }
+@@ -1313,6 +1336,8 @@ export const usePluginStore = create<PluginState>((set, get) => {
+                       ...(agent ? { agent } : {}),
+                       prompt: String(o?.prompt ?? ''),
+                       send: !!o?.send && own,
++                      ...(o?.modelId ? { modelId: o.modelId } : {}),
++                      ...(o?.thinkingLevel ? { thinkingLevel: o.thinkingLevel } : {}),
+                       ...(cwd ? { cwd } : {}),
+                       alive: () => ctxAlive,
+                     })
+diff --git a/desktop/frontend/src/amadeus/plugins/tanguSeam.ts b/desktop/frontend/src/amadeus/plugins/tanguSeam.ts
+index c92d5e1a..bc376028 100644
+--- a/desktop/frontend/src/amadeus/plugins/tanguSeam.ts
++++ b/desktop/frontend/src/amadeus/plugins/tanguSeam.ts
+@@ -83,6 +83,9 @@ export interface TanguStartChatOptions {
+   /** true = 直接送出(只对**插件自己捆绑包里**的 Agent 生效,宿主在 pluginStore 那层把关);
+    *  false / 不给 = 只预填进输入框,由用户按回车。 */
+   send?: boolean
++  /** Explicit Chat Box selection; applied after Agent defaults and before draft/send. */
++  modelId?: string
++  thinkingLevel?: import('../../../../shared/chatBox').ChatBoxSelection['thinkingLevel']
+   /** 新会话的工作目录:**本机绝对路径**(pluginStore 已把插件给的库相对路径解析、钳在库内)。 */
+   cwd?: string
+   /** 宿主内部:调用方(pluginStore)的活性闸。探针在每个 await 之后、任何副作用之前复查,
+diff --git a/desktop/frontend/src/amadeus/plugins/types.ts b/desktop/frontend/src/amadeus/plugins/types.ts
+index 6be703c7..967c9768 100644
+--- a/desktop/frontend/src/amadeus/plugins/types.ts
++++ b/desktop/frontend/src/amadeus/plugins/types.ts
+@@ -968,7 +973,9 @@ export interface PluginContext {
+      *    「工作区外写入」的升级审批(仍按用户自己的审批档走)。
+      *  - 返回 `{ ok:false, error }` 而不抛:Agent 不存在、后端没连上、送出失败。
+      *  旧宿主没有:`ctx.tangu?.startChat?.(…)`,缺席时插件自己退化(把提示词复制到剪贴板之类)。 */
+-    startChat?(o: { agent?: string; prompt: string; send?: boolean; folder?: string }): Promise<import('./tanguSeam').TanguStartChatResult>
++    /** True when startChat accepts explicit modelId / thinkingLevel from the native Chat Box. */
++    chatSelection?: true
++    startChat?(o: { agent?: string; prompt: string; send?: boolean; folder?: string; modelId?: string; thinkingLevel?: import('../../../../shared/chatBox').ChatBoxSelection['thinkingLevel'] }): Promise<import('./tanguSeam').TanguStartChatResult>
+     /** 一次性文本补全(2026-09-28+,评审 G3-07):引擎 `POST /agent/inline`,无工具、不落库、不进任何会话。
+      *  **收编插件直连 `/agent/runs` 的做法** —— 那条是 Agent 的 run(带工具、落会话、8192 字符上限),拿来做
+      *  「改写这段」既重又危险。`prompt` 是给模型的指令;`selection` / `before` / `after` 是正文上下文(按数据对待,
+diff --git a/desktop/frontend/src/amadeusNav.ts b/desktop/frontend/src/amadeusNav.ts
+index 06943d72..4e82c42d 100644
+--- a/desktop/frontend/src/amadeusNav.ts
++++ b/desktop/frontend/src/amadeusNav.ts
+@@ -5,7 +5,7 @@ import { activePageScope, pageStoreFor, setActivePageScope, usePageStore } from
+ import { useWorkspace, activeMainPanel } from '@lcl/engine'
+ import { amadeus } from '@amadeus/api'
+ import { hasUnifiedInstance, unifiedFocusBody, unifiedHeadings, unifiedRevealBlock, unifiedRevealHeading, unifiedRevealText, unifiedScopeFor } from '@amadeus/unified/lifecycle'
+-import { findHeadingIndex } from '@amadeus-shared/pdfLink'
++import { findHeadingIndex, isMediaPath } from '@amadeus-shared/pdfLink'
+ import { askString } from '@amadeus/components/askString'
+ import { askNewDrawing } from '@amadeus/components/askNewDrawing'
+ import { BLANK_SCENE_JSON, blankDrawing, isDrawingPath } from '@amadeus-shared/excalidraw/format'
+@@ -384,6 +384,7 @@ export function openFile(path: string, opts?: { newTab?: boolean }): void {
+   if (extHit(path, 'amadeus-db')) { openDb(path, opts); return }
+   if (extHit(path, 'amadeus-pdf')) { openPdf(path, undefined, opts); return }
+   if (extHit(path, 'amadeus-image')) { openImage(path, opts); return }
++  if (isMediaPath(path)) { openMedia(path, undefined, opts); return }
+   // 本地库里的 .html → 内置浏览器(云端库没有本机路径 / 内置浏览器关着 → 照旧交系统默认程序)。
+   if (/\.html?$/i.test(path)) {
+     const ps0 = usePageStore.getState()
+diff --git a/desktop/frontend/src/tanguProbe.test.ts b/desktop/frontend/src/tanguProbe.test.ts
+index 1a3eaa22..176b571e 100644
+--- a/desktop/frontend/src/tanguProbe.test.ts
++++ b/desktop/frontend/src/tanguProbe.test.ts
+@@ -467,6 +467,24 @@ describe('startChat(ctx.tangu.startChat 的执行半;放行规则在 pluginStore
+     } as never)
+   })
+ 
++  it('Chat Box 的模型与思考档覆盖 Agent 默认,预填与送出使用同一选择', async () => {
++    useApp.setState({ modelsResp: { models: [{ id: 'chosen', name: 'Chosen', provider: 'x', source: 'forsion' }] } } as never)
++    expect(await readTangu()!.startChat!({ prompt: 'draft', modelId: 'chosen', thinkingLevel: 'high' })).toEqual({ ok: true })
++    expect(useApp.getState().newChatModel).toBe('chosen')
++    expect(useApp.getState().newChatCfg.thinkingLevel).toBe('high')
++    expect(useApp.getState().pendingDraft).toBe('draft')
++    expect(await readTangu()!.startChat!({ prompt: 'send', modelId: 'chosen', thinkingLevel: 'off', send: true })).toMatchObject({ ok: true })
++    expect(useApp.getState().newChatModel).toBe('chosen')
++    expect(useApp.getState().newChatCfg.thinkingLevel).toBe('off')
++    expect(send).toHaveBeenCalled()
++  })
++  it('无效模型或档位拒绝且不改变活动会话', async () => {
++    expect(await readTangu()!.startChat!({ prompt: 'x', modelId: 'missing' })).toMatchObject({ ok: false })
++    expect(await readTangu()!.startChat!({ prompt: 'x', thinkingLevel: 'invalid' as never })).toMatchObject({ ok: false })
++    expect(useApp.getState().activeId).toBe('old')
++    expect(openView).not.toHaveBeenCalled()
++  })
++
+   it('空 / 超长提示词 → ok:false,界面一动不动', async () => {
+     const p = readTangu()!
+     expect(await p.startChat!({ prompt: '   ' })).toMatchObject({ ok: false })
+diff --git a/desktop/frontend/src/tanguProbe.ts b/desktop/frontend/src/tanguProbe.ts
+index 021b6302..5129e46e 100644
+--- a/desktop/frontend/src/tanguProbe.ts
++++ b/desktop/frontend/src/tanguProbe.ts
+@@ -213,6 +213,9 @@ export async function startChat(o: TanguStartChatOptions): Promise<TanguStartCha
+   const prompt = typeof o?.prompt === 'string' ? o.prompt.trim() : ''
+   if (!prompt) return { ok: false, error: 'prompt is required' }
+   if (prompt.length > START_CHAT_MAX_PROMPT) return { ok: false, error: `prompt is too long (max ${START_CHAT_MAX_PROMPT} characters)` }
++  const modelId = typeof o.modelId === 'string' ? o.modelId.trim() : undefined
++  if (modelId && !readModels().some(m => m.id === modelId)) return { ok: false, error: `unknown model: ${modelId}` }
++  if (o.thinkingLevel !== undefined && !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(o.thinkingLevel)) return { ok: false, error: 'invalid thinking level' }
+   const agent = typeof o.agent === 'string' && o.agent.trim() ? o.agent.trim() : undefined
+   if (agent && !(await agentKnown(agent))) return { ok: false, error: `unknown agent: ${agent}` }
+   if (!alive()) return { ok: false, error: 'plugin disabled' }
+@@ -227,6 +230,8 @@ export async function startChat(o: TanguStartChatOptions): Promise<TanguStartCha
+   app.setNewChatCfg(() => ({}))
+   app.setNewChatModel(null)
+   if (agent) app.selectNewChatAgent(agent)
++  if (modelId) app.setNewChatModel(modelId)
++  if (o.thinkingLevel !== undefined) app.setNewChatCfg(c => ({ ...c, thinkingLevel: o.thinkingLevel }))
+   useWorkspace.getState().openView('chat', { followActive: true, reuseKey: 'primary' }, 'main')
+   if (!o.send) {
+     app.setPendingDraft(prompt)
