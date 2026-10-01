@@ -12,7 +12,7 @@
 2. `npm run test:ui`：模板插入、分割、复制 / 删除、拖动排序、修剪入点、转场、导入图片、导入视频后预览帧对齐播放头（误差 < 0.06 s）、拖动配乐、弹层焦点、专注预览、缩放、中等与窄窗口、英文。
 3. `node test/shots.mjs`：加载 Genesis 真 `base.css` + 配色 + 主题语言的亮暗、文件标签页、Space + Extend、窄窗英文截图，已人工查看。
 4. 真模型：gpt-5.6-luna 只读新版 SKILL.md，在临时工程上完成交叉淡化、按入点分割、插入视频场景、修剪开头；`fvs check --runtime` 无错，静帧确认视频画面与转场中点两层叠加。
-5. 真 Electron（自起 dev，持 devlock，CDP 9333）：`verify:dev`（亮暗、播放、专注、1180 / 780 px 下控件不越界）、`verify:space`（12 项：Space、原生工程列表、Extend 属性 / 工程选择 / 导演、Mini 与浮窗播放、切换工程前落盘、往返清理、工程字节不变）、`verify:features`（只渲染可见缩略图、原生 Chat Box 草稿与模型选择、导出面板）。
+5. 真 Electron（自起 dev，持 devlock，CDP 9333）：`verify:dev`（亮暗、播放、专注、1180 / 780 px 下控件不越界）、`verify:space`（12 项：Space、原生工程列表、Extend 属性 / 工程选择 / 导演、Mini 与浮窗播放、切换工程前落盘、往返清理、工程字节不变）、`verify:features -- --live`（9 项：只渲染可见缩略图、原生 Chat Box 草稿与模型选择、导出面板；codex/gpt-5.6-luna 导演真实改文件、改动对照与恢复、界面发起的 MP4 导出 360×270 / 24 fps / 48 帧带音轨、进度重连、原工程不变）。中等宽度下时间线工具条越界是在真机上发现的，已修并加进 `verify:dev` 的断言。
 6. Codex（gpt-6-sol high）三包评审：17 条中 16 条已修，1 条不改（长度落盘写 `2 bars` 是格式语法，不属于界面文案）。
 
 ## 证据
