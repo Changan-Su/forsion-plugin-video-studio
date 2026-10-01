@@ -65,6 +65,7 @@ button.fvs-project:hover{background:var(--fv-hover)}
 /* stage */
 .fvs-main{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0;min-width:0}
 .fvs-studio.medium .fvs-main{grid-template-columns:minmax(0,1fr) 272px}
+.fvs-studio.medium :is(.fvs-timeline-duration,.fvs-zoom-controls input,.fvs-snap-control > span){display:none}
 .fvs-studio.inspector-hidden .fvs-main{grid-template-columns:minmax(0,1fr)}
 .fvs-studio.inspector-hidden .fvs-side{display:none}
 .fvs-preview{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0}

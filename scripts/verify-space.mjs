@@ -64,7 +64,7 @@ try {
   await page.waitForSelector('.fvs-director-panel', { state: 'detached' });
 
   const miniEvent = context.waitForEvent('page');
-  await page.getByRole('button', { name: '更多', exact: true }).click();
+  await page.locator('.fvs-studio .fvs-bar').getByRole('button', { name: '更多', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Mini 视频预览' }).click();
   const mini = await miniEvent; windows.push(mini);
   mini.on('pageerror', e => errors.push(String(e)));
@@ -76,14 +76,14 @@ try {
   await mini.locator('.fvs-play').click(); await mini.waitForTimeout(700); await mini.locator('.fvs-play').click();
   assert.notEqual(await mini.textContent('.fvs-time'), miniTime, 'Mini really plays the engineering project');
   await mini.screenshot({ path: join(shots, '05-mini.png') });
-  await mini.getByRole('button', { name: '更多', exact: true }).click();
+  await mini.locator('.fvs-studio .fvs-bar').getByRole('button', { name: '更多', exact: true }).click();
   await mini.getByRole('menuitem', { name: '完整工作台' }).click();
   await page.waitForSelector('.fvs-studio:not(.compact)');
   assert.match(await page.textContent('.fvs-project-name'), /2\.12/);
   await mini.close();
 
   const floatEvent = context.waitForEvent('page');
-  await page.getByRole('button', { name: '更多', exact: true }).click();
+  await page.locator('.fvs-studio .fvs-bar').getByRole('button', { name: '更多', exact: true }).click();
   await page.getByRole('menuitem', { name: '独立窗口' }).click();
   const floating = await floatEvent; windows.push(floating);
   floating.on('pageerror', e => errors.push(String(e)));

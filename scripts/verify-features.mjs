@@ -23,7 +23,7 @@ try{
   original=join(root,'Forsion Video Studio/第 2.12 话/episode-2.12.fvs.md');before=await readFile(original);
   relative=`Forsion Video Studio/第 2.12 话/.features-${Date.now()}.fvs.md`;probe=join(root,relative);
   const source=before.toString().replaceAll('第 2.12 话 · 人类补完计划','FVS 0.4 原生验收');await writeFile(probe,source);await open();
-  await page.locator('.fvs-zoom-controls input').fill('60');
+  for (let i = 0; i < 4; i++) await page.locator('.fvs-zoom-controls').getByRole('button', { name: '放大', exact: true }).click(); // zoom in: only clips in view render
   await page.waitForSelector('.fvs-scene-thumb[data-rendered="true"] iframe');
   const thumbCount=await page.locator('.fvs-scene-thumb iframe').count();assert.ok(thumbCount>0&&thumbCount<20, 'only visible scenes render');
   await page.waitForTimeout(600);await page.screenshot({path:join(shots,'01-thumbnails.png')});

@@ -53,6 +53,8 @@ try {
     await page.waitForTimeout(400);
     await page.locator('.fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
     assert.equal(await page.getAttribute('.fvs-clip.on', 'data-id'), 'cards');
+    await page.waitForFunction(() => !!document.querySelector('.fvs-view iframe:not(.fvs-pending)') && document.querySelectorAll('.fvs-scene-thumb[data-rendered]').length >= 10, null, { timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(500);
     await page.screenshot({ path: join(shots, `studio-${mode}.png`) });
   }
   const time = await page.textContent('.fvs-time');
@@ -64,15 +66,26 @@ try {
   assert.equal(await page.locator('.fvs-side').isVisible(), false);
   await page.getByRole('button', { name: '返回编辑', exact: true }).click();
   const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  // every toolbar control stays inside the editor at the widths the workbench can give it
+  const inside = () => page.evaluate(() => {
+    const r = document.querySelector('.fvs-studio').getBoundingClientRect();
+    return [...document.querySelectorAll('.fvs-bar button,.fvs-transport button,.fvs-tl-bar button,.fvs-tl-bar select')]
+      .filter(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')
+      .filter(e => { const b = e.getBoundingClientRect(); return b.left < r.left - .5 || b.right > r.right + .5; })
+      .map(e => e.title || e.textContent);
+  });
   try {
-    await page.setViewportSize({ width: 780, height: 860 });
-    await page.waitForFunction(() => document.querySelector('.fvs-studio').classList.contains('narrow'));
+    for (const [width, name] of [[1180, 'studio-medium'], [780, 'studio-narrow']]) {
+      await page.setViewportSize({ width, height: 860 });
+      await page.waitForTimeout(600); // the stage refits on the frame after the resize
+      assert.deepEqual(await inside(), [], `controls stay inside the editor at ${width}px`);
+      await page.screenshot({ path: join(shots, `${name}.png`) });
+    }
     assert.equal(await page.locator('.fvs-side').isVisible(), false, 'Space keeps properties in the native Extend View');
-    await page.screenshot({ path: join(shots, 'studio-narrow.png') });
   } finally { await page.setViewportSize(size); }
   assert.deepEqual(await readFile(project), before, 'live checks preserve project bytes');
   assert.deepEqual(errors, [], 'no renderer exceptions during live checks');
-  await writeFile(join(shots, 'results.json'), JSON.stringify({ plugin, tests: ['disk discovery', '20 scenes', 'scene navigation', 'native light/dark', 'playback', 'focus', 'narrow window', 'unchanged project'], errors }, null, 2) + '\n');
+  await writeFile(join(shots, 'results.json'), JSON.stringify({ plugin, tests: ['disk discovery', '20 scenes', 'scene navigation', 'native light/dark', 'playback', 'focus', 'medium and narrow windows keep controls inside', 'unchanged project'], errors }, null, 2) + '\n');
   console.log(JSON.stringify({ plugin, screenshots: shots, errors }));
 } finally {
   if (originalTheme) await page.evaluate(async pref => { await (await import('/src/stores/themeStore.ts')).useTheme.getState().setModePref(pref); }, originalTheme).catch(() => {});
