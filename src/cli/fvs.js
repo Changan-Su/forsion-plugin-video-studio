@@ -6,14 +6,15 @@ import { pathToFileURL } from 'node:url';
 import { tmpdir, homedir, platform } from 'node:os';
 import { spawnSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { parseProject, cueSheet, sceneById, formatLength } from '../lib/project.js';
-import { compile, buildHtml, audioTracks } from '../lib/compile.js';
+import { parseProject, cueSheet, sceneById, formatLength, visibleHits, stageHtml } from '../lib/project.js';
+import { compile, buildHtml, audioTracks, isRelativeUrl } from '../lib/compile.js';
+import { scan, videos } from '../lib/html.js';
 import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
 
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project
@@ -143,6 +144,22 @@ function runtimeErrors(st, logs) {
   return st.errors.length + logs.length;
 }
 
+/** Audio and video files the project names that are not on disk (project-relative paths only). */
+function missingMedia({ p, dir }) {
+  const out = [];
+  const gone = rel => isRelativeUrl(rel) && !existsSync(join(dir, rel.trim()));
+  for (const a of audioTracks(p.meta)) if (gone(a.src)) out.push({ level: 'error', line: p.metaTok >= 0 ? p.toks[p.metaTok].line : 1, message: `audio file not found: ${a.src}` });
+  const inHtml = (html, line, scene) => {
+    for (const t of scan(html).tags) {
+      const refs = t.name === 'video' ? [t.attr('src'), t.attr('poster')] : t.name === 'source' ? [t.attr('src')] : [];
+      for (const r of refs) if (r && gone(r)) out.push({ level: 'error', line, scene, message: `${t.name === 'video' && r === t.attr('poster') ? 'poster image' : 'video file'} not found: ${r}` });
+    }
+  };
+  if (p.stageHtml >= 0) inHtml(stageHtml(p), p.toks[p.stageHtml].line, undefined);
+  for (const s of p.scenes) inHtml(s.html, s.htmlTok >= 0 ? p.toks[s.htmlTok].line : s.line, s.id);
+  return out;
+}
+
 /* ───────── commands ───────── */
 const commands = {
   async new() {
@@ -159,12 +176,21 @@ const commands = {
     const { p } = load(pos[0]);
     report(p, { fail: false });
     const tp = p.tempo;
+    const sec = x => `${+x.toFixed(3)} s`;
     log(`${p.meta.title || '(untitled)'} · ${p.meta.width}×${p.meta.height} @ ${p.meta.fps} fps · ${p.length.toFixed(2)} s${tp ? ` · ${tp.bpm} BPM ${tp.beatsPerBar}/4 (beat ${tp.beat.toFixed(3)} s, bar ${tp.bar.toFixed(3)} s)` : ''}`);
-    for (const a of audioTracks(p.meta)) log(`audio ${a.role}: ${a.src}${a.at ? ` at ${a.at}s` : ''}${a.gain ? ` ${a.gain} dB` : ''}`);
+    for (const a of audioTracks(p.meta)) log(`audio ${a.role}: ${a.src}${a.at ? ` at ${a.at}s` : ''}${a.gain ? ` ${a.gain} dB` : ''}${a.in ? ` from ${sec(a.in)} into the file` : ''}${a.dur != null ? ` for ${sec(a.dur)}` : ''}${a.mute ? ' (muted)' : ''}`);
     log('');
     log(`${'#'.padStart(3)}  ${'id'.padEnd(14)} ${'start'.padStart(7)} ${'end'.padStart(7)}  ${'length'.padEnd(10)} hits (${tp ? 'beats' : 's'} from scene start → absolute s)`);
+    if (p.scenes.some(s => s.in)) log(`     with "in", hits count from the content start (start − in); (h→t) = trimmed away, not on screen`);
     for (const s of p.scenes) {
-      log(`${String(s.index + 1).padStart(3)}  ${s.id.padEnd(14)} ${s.t0.toFixed(2).padStart(7)} ${s.t1.toFixed(2).padStart(7)}  ${String(s.meta.length ?? '?').padEnd(10)} ${s.hits.map((h, i) => `${h}→${s.hitTimes[i].toFixed(2)}`).join('  ')}${s.title ? `   # ${s.title}` : ''}`);
+      const shown = new Set(visibleHits(s).map(h => h.index));
+      const hits = s.hits.map((h, i) => (shown.has(i) ? `${h}→${s.hitTimes[i].toFixed(2)}` : `(${h}→${s.hitTimes[i].toFixed(2)})`)).join('  ');
+      log(`${String(s.index + 1).padStart(3)}  ${s.id.padEnd(14)} ${s.t0.toFixed(2).padStart(7)} ${s.t1.toFixed(2).padStart(7)}  ${String(s.meta.length ?? '?').padEnd(10)} ${hits}${s.title ? `   # ${s.title}` : ''}`);
+      const extra = [];
+      if (s.in) extra.push(`in ${s.meta.in} (${sec(s.in)}; content starts at ${s.t0v.toFixed(2)})`);
+      if (s.transition) extra.push(`transition ${s.transition.type} ${sec(s.transition.dur)} (with ${p.scenes[s.index - 1].id} on screen underneath)`);
+      if (extra.length) log(`${' '.repeat(5)}${extra.join(' · ')}`);
+      for (const v of videos(s.html)) log(`${' '.repeat(5)}video ${v.src || '(no src)'}${v.clipIn ? ` · from ${sec(v.clipIn)} into the file` : ''}${v.gain ? ` · ${v.gain} dB` : ''}${v.muted ? ' · muted' : ''}${v.loop ? ' · loop' : ''}`);
     }
   },
 
@@ -172,9 +198,14 @@ const commands = {
     const ctx = load(pos[0]);
     report(ctx.p, { fail: false });
     let n = ctx.p.errors.filter(e => e.level === 'error').length;
+    for (const e of missingMedia(ctx)) { console.error(`error line ${e.line}${e.scene ? ` [${e.scene}]` : ''}: ${e.message}`); n++; }
     if (flags.runtime) {
       const browser = await chromium();
-      const { st, logs } = await openStage(ctx, browser);
+      const { pg, st, logs } = await openStage(ctx, browser);
+      // let every scene with footage show a frame: clips that cannot be played are reported
+      const withVideo = ctx.p.scenes.filter(s => videos(s.html).length);
+      for (const s of withVideo) await pg.evaluate(x => __stage.seek(x), s.t0);
+      if (withVideo.length) st.errors = await pg.evaluate(() => __stage.errors);
       n += runtimeErrors(st, logs);
       await browser.close();
     }
@@ -194,7 +225,7 @@ const commands = {
     report(ctx.p);
     const out = resolve(flags.out || ctx.path.replace(/\.fvs\.md$/i, '') + '.html');
     const outDir = dirname(out);
-    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
+    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
     const resolveUrl = rel => {
       const abs = join(ctx.dir, rel);
       if (flags.inline && existsSync(abs)) return `data:${mime[extname(abs).toLowerCase()] || 'application/octet-stream'};base64,${readFileSync(abs).toString('base64')}`;
@@ -225,7 +256,7 @@ const commands = {
     const p = ctx.p;
     let times;
     if (flags.every) { const d = +flags.every; times = []; for (let t = 0; t < p.length; t += d) times.push(t); }
-    else times = p.scenes.map(s => Math.min(s.t1 - .05, (s.hitTimes.length ? s.hitTimes[s.hitTimes.length - 1] : s.t0) + .5));
+    else times = p.scenes.map(s => { const vis = visibleHits(s); return Math.max(s.t0, Math.min(s.t1 - Math.min(.05, s.dur / 2), (vis.length ? vis[vis.length - 1].t : s.t0) + .5)); });
     const labels = flags.every ? times.map(t => `${t.toFixed(1)}s`) : p.scenes.map(s => `${s.id} · ${s.t0.toFixed(1)}s`);
     const browser = await chromium();
     const scale = 320 / p.meta.width;
@@ -263,15 +294,20 @@ const commands = {
   async sync() {
     const { p, dir } = load(pos[0]);
     report(p, { fail: false });
-    const tracks = audioTracks(p.meta);
-    const src = flags.audio ? resolve(flags.audio) : tracks[0] && join(dir, tracks[0].src);
+    // the score: the first track that is not muted (its in / dur trim applies)
+    const tracks = audioTracks(p.meta), track = tracks.find(a => !a.mute) || tracks[0];
+    const src = flags.audio ? resolve(flags.audio) : track && join(dir, track.src);
     if (!src || !existsSync(src)) die('no audio to check against (add one to the project\'s "audio" or pass --audio)');
-    const at = flags.audio ? 0 : tracks[0].at || 0;
+    const at = flags.audio ? 0 : track.at || 0;
     const ff = ffmpegBin();
     const r = spawnSync(ff, ['-v', 'error', '-i', src, '-ac', '1', '-ar', String(ONSET_SR), '-f', 'f32le', '-'], { maxBuffer: 1 << 30 });
     if (r.status !== 0) die(`ffmpeg could not decode ${src}`);
     const buf = r.stdout;
-    const pcm = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 4));
+    let pcm = new Float32Array(buf.buffer, buf.byteOffset, Math.floor(buf.length / 4));
+    if (!flags.audio && (track.in > 0 || track.dur != null)) {
+      const a = Math.min(pcm.length, Math.round(track.in * ONSET_SR));
+      pcm = pcm.subarray(a, track.dur != null ? Math.min(pcm.length, a + Math.round(track.dur * ONSET_SR)) : pcm.length);
+    }
     const lead = new Float32Array(Math.round(at * ONSET_SR));
     const mono = at > 0 ? Float32Array.from([...lead, ...pcm]) : pcm;
     const rows = syncReport(p.scenes, onsetEnvelope(mono, ONSET_SR));

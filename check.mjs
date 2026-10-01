@@ -80,11 +80,14 @@ if (!src.includes("'fvs-director'") && !src.includes('"fvs-director"')) fail('th
 if (!existsSync(at('agents/fvs-director/SOUL.md'))) fail('agent SOUL.md missing');
 ok('skill and agent');
 
-// 4. unit tests
+// 4. unit tests, including test/runtime.test.mjs: transitions, in-points and video in a real Chromium, and a
+//    CLI render with video sound (it skips, and says why, without playwright-core, a Chromium or ffmpeg)
 const tests = readdirSync(at('test')).filter(f => f.endsWith('.test.mjs')).map(f => at(`test/${f}`));
 const t = spawnSync(process.execPath, ['--test', ...tests], { encoding: 'utf8' });
 if (t.status !== 0) { console.error(t.stdout, t.stderr); fail('unit tests failed'); }
-ok(`unit tests (${(t.stdout.match(/^# pass (\d+)/m) || [])[1]} passed)`);
+const skipped = +(t.stdout.match(/^# skipped (\d+)/m) || [])[1] || 0;
+const why = [...new Set(t.stdout.match(/SKIP [^\n]*/g) || [])].join('; ');
+ok(`unit tests (${(t.stdout.match(/^# pass (\d+)/m) || [])[1]} passed${skipped ? `, ${skipped} skipped: ${why || 'see node --test output'}` : ''})`);
 
 // 5. the CLI on the bundled example
 const ex = at('examples/episode-2.12/episode-2.12.fvs.md');

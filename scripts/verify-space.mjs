@@ -27,16 +27,16 @@ try {
       list: s.listSources.find(x => x.pluginId === 'forsion-video-studio')?.item.id,
       root: (await import('/src/amadeus/store/pageStore.ts')).usePageStore.getState().vaultRoot };
   }, spaceModule);
-  assert.equal(state.active, 'forsion-video-studio'); assert.equal(state.plugin, '0.4.0'); assert.equal(state.list, 'projects');
+  assert.equal(state.active, 'forsion-video-studio'); assert.equal(state.plugin, JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8')).version); assert.equal(state.list, 'projects');
   project = join(state.root, 'Forsion Video Studio/第 2.12 话/episode-2.12.fvs.md'); const before = await readFile(project);
   await page.waitForSelector('.fvs-studio .fvs-clip');
   await page.waitForFunction(() => !!document.querySelector('.fvs-view iframe:not(.fvs-pending)'));
-  await page.locator('.fvs-clip[data-id="cards"] .nm').click({ force: true });
+  await page.locator('.fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
   await page.waitForFunction(() => /85/.test(document.querySelector('.fvs-sync-sum')?.textContent || ''), null, { timeout: 30000 });
   await page.waitForTimeout(200);
   await page.screenshot({ path: join(shots, '01-space.png') });
 
-  const properties = page.getByRole('button', { name: '显示属性面板', exact: true });
+  const properties = page.getByRole('button', { name: '属性面板', exact: true });
   if (await properties.getAttribute('aria-pressed') === 'true') await properties.click();
   await properties.click();
   await page.waitForSelector('.fvs-native-properties .fvs-tabs');
@@ -46,25 +46,26 @@ try {
   await properties.click();
   await page.waitForSelector('.fvs-native-properties', { state: 'detached' });
 
-  await page.locator('.fvs-name').click();
+  await page.locator('.fvs-project').click();
   await page.waitForSelector('.fvs-library');
   await page.fill('.fvs-library input', 'episode');
   // Opening the same extension again focuses it and retains the search draft.
-  await page.locator('.fvs-name').click();
+  await page.locator('.fvs-project').click();
   assert.equal(await page.inputValue('.fvs-library input'), 'episode');
   await page.screenshot({ path: join(shots, '03-extend-projects.png') });
   await page.locator('.fvs-project-item').first().click();
   await page.waitForSelector('.fvs-library', { state: 'detached' });
 
-  await page.getByRole('button', { name: '问 AI', exact: true }).click();
-  await page.waitForSelector('.fvs-ai-panel');
-  await page.fill('.fvs-ai-panel textarea', '验收草稿：不发送');
+  await page.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await page.waitForSelector('.fvs-director-panel');
+  await page.fill('.fvs-director-panel textarea', '验收草稿：不发送');
   await page.screenshot({ path: join(shots, '04-extend-director.png') });
-  await page.getByRole('button', { name: '问 AI', exact: true }).click();
-  await page.waitForSelector('.fvs-ai-panel', { state: 'detached' });
+  await page.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await page.waitForSelector('.fvs-director-panel', { state: 'detached' });
 
   const miniEvent = context.waitForEvent('page');
-  await page.locator('.fvs-mini-action').click();
+  await page.getByRole('button', { name: '更多', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Mini 视频预览' }).click();
   const mini = await miniEvent; windows.push(mini);
   mini.on('pageerror', e => errors.push(String(e)));
   await mini.waitForSelector('.fvs-studio.compact', { timeout: 30000 });
@@ -75,13 +76,15 @@ try {
   await mini.locator('.fvs-play').click(); await mini.waitForTimeout(700); await mini.locator('.fvs-play').click();
   assert.notEqual(await mini.textContent('.fvs-time'), miniTime, 'Mini really plays the engineering project');
   await mini.screenshot({ path: join(shots, '05-mini.png') });
-  await mini.getByRole('button', { name: '完整工作台', exact: true }).click();
+  await mini.getByRole('button', { name: '更多', exact: true }).click();
+  await mini.getByRole('menuitem', { name: '完整工作台' }).click();
   await page.waitForSelector('.fvs-studio:not(.compact)');
-  assert.match(await page.textContent('.fvs-name'), /2\.12/);
+  assert.match(await page.textContent('.fvs-project-name'), /2\.12/);
   await mini.close();
 
   const floatEvent = context.waitForEvent('page');
-  await page.locator('.fvs-floating-action').click();
+  await page.getByRole('button', { name: '更多', exact: true }).click();
+  await page.getByRole('menuitem', { name: '独立窗口' }).click();
   const floating = await floatEvent; windows.push(floating);
   floating.on('pageerror', e => errors.push(String(e)));
   await floating.waitForSelector('.fvs-studio:not(.compact)', { timeout: 30000 });
@@ -90,7 +93,7 @@ try {
   await floating.locator('.fvs-play').click(); await floating.waitForTimeout(700); await floating.locator('.fvs-play').click();
   await floating.screenshot({ path: join(shots, '06-floating.png') });
   // Floating uses the inline picker; reopening the same project must restore the editor.
-  await floating.locator('.fvs-name').click();
+  await floating.locator('.fvs-project').click();
   await floating.waitForSelector('.fvs-library');
   await floating.locator('.fvs-project-item').filter({ hasText: 'episode-2.12.fvs.md' }).first().click();
   await floating.waitForSelector('.fvs-studio:not(.compact)');
@@ -105,8 +108,8 @@ try {
     const s = (await import('/src/amadeus/plugins/pluginStore.ts')).usePluginStore.getState();
     await s.commands.find(c => c.pluginId === 'forsion-video-studio' && c.item.id === 'fvs-open-project').item.invoke.run({ path });
   }, probePath);
-  await page.waitForFunction(() => document.querySelector('.fvs-name')?.textContent === 'FVS 原生保存验收');
-  const props = page.getByRole('button', { name: '显示属性面板', exact: true });
+  await page.waitForFunction(() => document.querySelector('.fvs-project-name')?.textContent === 'FVS 原生保存验收');
+  const props = page.getByRole('button', { name: '属性面板', exact: true });
   if (await props.getAttribute('aria-pressed') !== 'true') await props.click();
   await page.waitForSelector('.fvs-native-properties [data-key="stitle"]');
   await page.evaluate(async () => {
@@ -115,17 +118,17 @@ try {
     const s = (await import('/src/amadeus/plugins/pluginStore.ts')).usePluginStore.getState();
     await s.commands.find(c => c.pluginId === 'forsion-video-studio' && c.item.id === 'fvs-open-example').item.run();
   });
-  await page.waitForFunction(() => /2\.12/.test(document.querySelector('.fvs-name')?.textContent || ''));
+  await page.waitForFunction(() => /2\.12/.test(document.querySelector('.fvs-project-name')?.textContent || ''));
   assert.match(await readFile(probeProject, 'utf8'), /原生切换保存验收/, 'switching projects flushes the pending edit');
   await rm(probeProject); probeProject = null;
 
-  await page.getByRole('button', { name: '问 AI', exact: true }).click();
-  await page.waitForSelector('.fvs-ai-panel');
+  await page.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await page.waitForSelector('.fvs-director-panel');
   await page.evaluate(async spaceModule => {
     const { setActiveSpace } = await import(spaceModule);
     setActiveSpace('home');
   }, spaceModule);
-  await page.waitForSelector('.fvs-ai-panel', { state: 'detached' });
+  await page.waitForSelector('.fvs-director-panel', { state: 'detached' });
   await page.evaluate(async spaceModule => { (await import(spaceModule)).setActiveSpace('forsion-video-studio'); }, spaceModule);
   await page.waitForSelector('.fvs-studio .fvs-clip');
   assert.equal(await page.locator('.fvs-clip').count(), 20, 'Space round-trip restores its engineering entity');
@@ -139,7 +142,7 @@ try {
       const s = (await import('/src/amadeus/plugins/pluginStore.ts')).usePluginStore.getState();
       await s.commands.find(c => c.pluginId === 'forsion-video-studio' && c.item.id === 'fvs-open-example').item.run();
     }).catch(() => {});
-    await page.waitForFunction(() => /2\.12/.test(document.querySelector('.fvs-name')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => /2\.12/.test(document.querySelector('.fvs-project-name')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
     await rm(probeProject, { force: true });
   }
  for (const win of windows) if (!win.isClosed()) await win.close().catch(() => {}); await browser.close(); }

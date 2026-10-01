@@ -1,13 +1,35 @@
 // The runtime: mounts a compiled project (see lib/compile.js) as a stage and plays or captures it.
 // Loaded into every page the Studio makes: the preview, the HTML export and the renderer's capture page.
 import { createStage, grain, EASE, prog, clamp, lerp, rng } from './engine.js';
+import { ownVideos } from './media.js';
 
 const BASE_CSS = `
 .fvs-stage{position:relative;overflow:hidden;transform-origin:0 0}
 .fvs-scenes{position:absolute;inset:0}
 .fvs-scene{position:absolute;inset:0;overflow:hidden}
+.fvs-transition{position:absolute;inset:0}
 [data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 `;
+
+/*
+ * Transitions at the start of a scene B, over [t0, t0 + dur): p runs 0 → 1 (ease io). The previous scene A
+ * stays on screen underneath (and keeps animating) until the transition ends. Styles go on a wrapper
+ * (.fvs-transition) around each scene involved, never on the scene root a script may animate, and are
+ * cleared outside the window. a = the outgoing scene, b = the incoming one.
+ */
+const TRANSITION = {
+  fade: p => ({ b: { opacity: p } }),
+  dip: p => ({ a: { opacity: clamp(1 - 2 * p) }, b: { opacity: clamp(2 * p - 1) } }), // through the stage background
+  'slide-left': (p, W) => ({ b: { transform: `translateX(${(1 - p) * W}px)` } }),
+  'slide-up': (p, W, H) => ({ b: { transform: `translateY(${(1 - p) * H}px)` } }),
+  'push-left': (p, W) => ({ a: { transform: `translateX(${-p * W}px)` }, b: { transform: `translateX(${(1 - p) * W}px)` } }),
+  'wipe-left': p => ({ b: { clipPath: `inset(0 0 0 ${(1 - p) * 100}%)` } }), // revealed from the right edge, the edge travelling left
+  zoom: p => ({ b: { opacity: p, transform: `scale(${1.08 - .08 * p})` } }),
+  blur: p => ({ b: { opacity: p, filter: `blur(${12 * (1 - p)}px)` } }),
+};
+const OUTGOING = new Set(['dip', 'push-left']); // the ones that move the previous scene too
+const TX_PROPS = ['opacity', 'transform', 'clipPath', 'filter'];
+export const TRANSITION_TYPES = Object.keys(TRANSITION);
 
 /* ───────── time expressions: "h3", "h3+0.5", "2b", "1.5s", "end-1", "0.25" ───────── */
 const TIME = /^\s*(?:(h)(\d+)|(end|start))?\s*(?:([+-])?\s*(\d*\.?\d+)\s*(b|beats?|s|secs?)?)?\s*$/i;
@@ -24,8 +46,12 @@ export function timeExpr(expr, sc, unit, beat) {
   return t;
 }
 
-/** Mount a payload into `container`. Returns the controller the page, the Studio and the renderer drive. */
-export function mount(payload, container, { doc = document, onScene = null } = {}) {
+/**
+ * Mount a payload into `container`. Returns the controller the page, the Studio and the renderer drive.
+ * media: 'live' (preview, player) or 'capture' (the renderer: seek returns a promise when there are videos);
+ * onMediaError(scene, src) hears once about each video that fails to load.
+ */
+export function mount(payload, container, { doc = document, onScene = null, media = 'live', onMediaError = null } = {}) {
   const P = payload, errors = [];
   const tempo = P.tempo, beat = tempo ? 60 / tempo.bpm : .5, bar = beat * (tempo ? tempo.beatsPerBar : 4), unit = tempo ? beat : 1;
 
@@ -51,15 +77,47 @@ export function mount(payload, container, { doc = document, onScene = null } = {
   const assets = P.assets || {};
   const asset = rel => assets[String(rel).replace(/^\.\//, '')] || rel;
 
-  for (const s of P.scenes) {
+  // t0 / t1 are the visible window; t0v = t0 - in is where the scene's own timeline starts. A scene stays on
+  // screen past t1 for as long as the next scene's transition runs (its tail).
+  const list = P.scenes;
+  const transitionOf = s => (s && s.transition && TRANSITION[s.transition.type] && s.transition.dur > 0 ? s.transition : null);
+  const tails = list.map((s, i) => { const n = transitionOf(list[i + 1]); return n ? n.dur : 0; });
+  const layers = [], wraps = [];
+  for (const [i, s] of list.entries()) {
     const el = doc.createElement('div');
     el.className = `fvs-scene scene ${s.cls || ''}`.trim();
     el.dataset.scene = s.id;
     el.innerHTML = s.html || '';
-    box.append(el);
-    F.S(el, s.t0, s.t1);
-    scenes[s.id] = { id: s.id, title: s.title, t0: s.t0, t1: s.t1, dur: s.t1 - s.t0, hits: s.hits, beats: s.beats, el };
+    const next = transitionOf(list[i + 1]);
+    let layer = el;
+    if (transitionOf(s) || (next && OUTGOING.has(next.type))) {
+      layer = doc.createElement('div');
+      layer.className = 'fvs-transition';
+      layer.append(el);
+      wraps.push(layer);
+    }
+    layers.push(layer);
+    box.append(layer);
+    F.S(layer === el ? el : [el, layer], s.t0, s.t1 + tails[i]);
+    const t0v = typeof s.t0v === 'number' ? s.t0v : s.t0;
+    scenes[s.id] = { id: s.id, title: s.title, t0: s.t0, t1: s.t1, dur: s.t1 - s.t0, t0v, in: typeof s.in === 'number' ? s.in : s.t0 - t0v, hits: s.hits, beats: s.beats, el, transition: transitionOf(s) };
     if (onScene) onScene(scenes[s.id]);
+  }
+
+  // at most one transition runs at a time (each lies inside its own scene), so one hook paints them all
+  const txs = [];
+  list.forEach((s, i) => { const tr = transitionOf(s); if (tr && i > 0) txs.push({ t0: s.t0, d: tr.dur, fx: TRANSITION[tr.type], a: OUTGOING.has(tr.type) ? layers[i - 1] : null, b: layers[i] }); });
+  if (txs.length) {
+    F.H(t => {
+      const x = txs.find(x => t >= x.t0 && t < x.t0 + x.d);
+      const on = new Map();
+      if (x) {
+        const st = x.fx(prog(t, x.t0, x.t0 + x.d, 'io'), P.width, P.height);
+        if (st.a && x.a) on.set(x.a, st.a);
+        if (st.b) on.set(x.b, st.b);
+      }
+      for (const w of wraps) { const st = on.get(w); for (const k of TX_PROPS) w.style[k] = st && st[k] !== undefined ? String(st[k]) : ''; }
+    });
   }
 
   /* the API a script sees; string selectors resolve inside `scope` */
@@ -72,7 +130,8 @@ export function mount(payload, container, { doc = document, onScene = null } = {
     const cut = (sel, t, opt) => K(sel, [[t - .01, { o: 0 }], [t, { o: 1 }, 'step']], opt);
     const slide = (sel, t, from = { y: 20 }, opt) => K(sel, [[t - .01, { o: 0, ...from }], [t, { o: 1 }, 'step'], [t + .18, { x: 0, y: 0 }, 'out']], opt);
     const fade = (sel, t, d = beat / 2, opt) => K(sel, [[t, { o: 0 }], [t + d, { o: 1 }, 'out']], opt);
-    const seq = (sel, times, end = sc.t1) => q(sel).forEach((el, i) => i < times.length && F.S(el, times[i], times[i + 1] ?? end));
+    // the last item stays through the scene's tail (it is still on screen under the next scene's transition)
+    const seq = (sel, times, end = sc.t1 + (sc.tail || 0)) => q(sel).forEach((el, i) => i < times.length && F.S(el, times[i], times[i + 1] ?? end));
     return {
       t0: sc.t0, t1: sc.t1, dur: sc.t1 - sc.t0, hits: sc.hits || [], beat, bar, unit, at, hit,
       root: scope, stage: root, $: sel => scope.querySelector(sel), $$: sel => [...scope.querySelectorAll(sel)],
@@ -106,7 +165,7 @@ export function mount(payload, container, { doc = document, onScene = null } = {
       const kids = [...el.children], k = +m[1];
       const times = kids.map((_, i) => sc.hits[k + i]).filter(x => x !== undefined);
       if (times.length < kids.length) errors.push({ scene: sc.id, message: `data-seq has ${kids.length} items but only ${times.length} hits from h${k}` });
-      A.seq(kids, times, el.dataset.seqEnd ? t(el.dataset.seqEnd, el) : sc.t1);
+      A.seq(kids, times, el.dataset.seqEnd ? t(el.dataset.seqEnd, el) : sc.t1 + (sc.tail || 0));
     }
     for (const el of sc.el.querySelectorAll('[data-in], [data-out]')) {
       const each = el.dataset.each !== undefined ? +el.dataset.each * unit : null;
@@ -136,12 +195,14 @@ export function mount(payload, container, { doc = document, onScene = null } = {
     }
   }
 
-  for (const s of P.scenes) {
-    const sc = scenes[s.id];
-    const A = api(sc, sc.el);
+  // a scene's own script and declarative timing count from its content start: t0 = t0v, at(n), "2b", start
+  list.forEach((s, i) => {
+    const own = scenes[s.id];
+    const sc = { ...own, t0: own.t0v, dur: own.t1 - own.t0v, tail: tails[i] };
+    const A = api(sc, own.el);
     declarative(sc, A);
     run(s.js, A, `scene/${s.id}`, s.line);
-  }
+  });
   run(P.stage.js, api({ id: 'stage', t0: 0, t1: P.length, hits: [], el: root }, root), 'stage', P.stage.line);
 
   const flashEls = [...root.querySelectorAll('[data-fvs-flash]')];
@@ -150,11 +211,21 @@ export function mount(payload, container, { doc = document, onScene = null } = {
     F.H(t => { let o = 0; for (const [ft, fo] of flashes) if (t >= ft && t < ft + .18) o = Math.max(o, fo * (1 - (t - ft) / .18) ** 2); for (const el of flashEls) el.style.opacity = o; });
   }
 
+  // <video> belongs to the runtime: scene clips run on their scene's content time, stage clips on project time
+  const videos = ownVideos([
+    ...list.map((s, i) => ({ id: s.id, el: scenes[s.id].el, from: s.t0, to: s.t1 + tails[i], base: scenes[s.id].t0v })),
+    { id: 'stage', el: { querySelectorAll: sel => [...root.querySelectorAll(sel)].filter(v => !box.contains(v)) }, from: -Infinity, to: Infinity, base: 0 },
+  ], { mode: media, assets: P.assets, errors, onError: onMediaError });
+
   /* frame times and beat times are both exact on paper; the nudge keeps float error from pushing a cut one frame late */
-  const seek = t => F.render(t + 1e-4);
+  const seek = t => { const x = t + 1e-4; F.render(x); return videos ? videos.seek(x) : undefined; };
   return {
-    root, errors, scenes, seek, payload: P,
+    root, errors, scenes, seek, payload: P, videos,
     length: P.length, width: P.width, height: P.height, fps: P.fps,
-    destroy() { root.remove(); style.remove(); },
+    /** The host's play state (live mode): false pauses every video on its exact frame. */
+    transport: playing => { if (videos) videos.transport(playing); },
+    /** Resolves when every video has its first frame or has failed. */
+    ready: () => (videos ? videos.ready() : Promise.resolve()),
+    destroy() { if (videos) videos.destroy(); root.remove(); style.remove(); },
   };
 }

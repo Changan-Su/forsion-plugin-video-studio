@@ -35,7 +35,7 @@ try {
     await c.item.run();
     return { id: p.id, version: p.version, vault: usePageStore.getState().vaultRoot };
   }, spaceModule);
-  assert.equal(plugin.version, '0.4.0');
+  assert.equal(plugin.version, JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8')).version);
   await page.waitForSelector('.fvs-clip');
   const gate = page.locator('.fvs-gate button');
   if (await gate.count()) await gate.click();
@@ -51,10 +51,8 @@ try {
   for (const mode of ['light', 'dark']) {
     await page.evaluate(async mode => { await (await import('/src/stores/themeStore.ts')).useTheme.getState().setModePref(mode); }, mode);
     await page.waitForTimeout(400);
-    const scenes = page.getByRole('button', { name: '显示场景列表', exact: true });
-    if (!(await page.locator('.fvs-storyboard').isVisible())) await scenes.click();
-    await page.locator('.fvs-scene-item[data-scene-id="cards"]').click();
-    assert.equal(await page.inputValue('[data-key="sid"]'), 'cards');
+    await page.locator('.fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
+    assert.equal(await page.getAttribute('.fvs-clip.on', 'data-id'), 'cards');
     await page.screenshot({ path: join(shots, `studio-${mode}.png`) });
   }
   const time = await page.textContent('.fvs-time');
@@ -70,7 +68,6 @@ try {
     await page.setViewportSize({ width: 780, height: 860 });
     await page.waitForFunction(() => document.querySelector('.fvs-studio').classList.contains('narrow'));
     assert.equal(await page.locator('.fvs-side').isVisible(), false, 'Space keeps properties in the native Extend View');
-    assert.equal(await page.locator('.fvs-storyboard').isVisible(), false, 'narrow window leaves room for preview');
     await page.screenshot({ path: join(shots, 'studio-narrow.png') });
   } finally { await page.setViewportSize(size); }
   assert.deepEqual(await readFile(project), before, 'live checks preserve project bytes');

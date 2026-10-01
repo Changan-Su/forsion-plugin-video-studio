@@ -1,8 +1,32 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync, rmSync, mkdtempSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
-import { audioTracks } from '../lib/compile.js';
+import { spawn, spawnSync } from 'node:child_process';
+import { audioSegments, isRelativeUrl } from '../lib/compile.js';
+
+const num = x => +(+x).toFixed(6);
+
+/**
+ * ffmpeg inputs and filter graph for the audio segments (input 0 is the frames; `file(a)` gives a segment's
+ * path). Per segment: trim to [in, in + dur) of the file, place it at `at` relative to the export start
+ * `from`, apply its gain; several segments are summed. A plain track (in 0, no dur) gives the same graph as
+ * before segments existed.
+ */
+export function audioGraph(segments, from, file) {
+  const args = [], parts = [];
+  segments.forEach((a, i) => {
+    if (a.loop) args.push('-stream_loop', '-1');
+    args.push('-i', file(a));
+    const trim = a.in > 0 || a.dur != null ? `atrim=start=${num(a.in)}${a.dur != null ? `:duration=${num(a.dur)}` : ''},asetpts=PTS-STARTPTS,` : '';
+    const shift = a.at - from;
+    parts.push(`[${i + 1}:a]${trim}${shift < 0 ? `atrim=start=${-shift},asetpts=PTS-STARTPTS,` : ''}${shift > 0 ? `adelay=${Math.round(shift * 1000)}:all=1,` : ''}volume=${a.gain || 0}dB[a${i}]`);
+  });
+  const mix = segments.length > 1 ? `;${segments.map((_, i) => `[a${i}]`).join('')}amix=inputs=${segments.length}:normalize=0[aout]` : '';
+  return { args, filter: parts.join(';') + mix, out: segments.length > 1 ? '[aout]' : '[a0]' };
+}
+
+/** Does this media file carry sound? (ffmpeg lists its streams on stderr.) */
+const hasAudio = (ff, path) => /: Audio:/.test(spawnSync(ff, ['-hide_banner', '-i', path], { encoding: 'utf8' }).stderr || '');
 
 export function renderJob(file) {
   if (!file) return { write() {}, cancelled: () => false };
@@ -48,16 +72,18 @@ export async function renderVideo(ctx, flags, api) {
       }));
       checkCancel(); await browser.close(); browser = null;
       const args = ['-y', '-loglevel', 'error', '-progress', 'pipe:1', '-framerate', String(fps), '-i', join(frames, '%06d.png')];
-      const tracks = flags['no-audio'] ? [] : audioTracks(p.meta);
-      for (const a of tracks) if (!existsSync(join(dir, a.src))) throw new Error(`Audio file not found: ${a.src}`);
-      tracks.forEach(a => args.push('-i', join(dir, a.src)));
-      if (tracks.length) {
-        const parts = tracks.map((a, i) => {
-          const shift = a.at - from;
-          return `[${i + 1}:a]${shift < 0 ? `atrim=start=${-shift},asetpts=PTS-STARTPTS,` : ''}${shift > 0 ? `adelay=${Math.round(shift * 1000)}:all=1,` : ''}volume=${a.gain || 0}dB[a${i}]`;
-        });
-        const mix = tracks.length > 1 ? `;${tracks.map((_, i) => `[a${i}]`).join('')}amix=inputs=${tracks.length}:normalize=0[aout]` : '';
-        args.push('-filter_complex', parts.join(';') + mix, '-map', '0:v', '-map', tracks.length > 1 ? '[aout]' : '[a0]', '-c:a', 'aac', '-b:a', flags.abr || '256k');
+      // the project's audio tracks and the sound of its scene videos; muted ones and silent clips add nothing
+      const segments = [];
+      for (const a of flags['no-audio'] ? [] : audioSegments(p)) {
+        if (a.mute) continue;
+        if (a.kind === 'video' && !isRelativeUrl(a.src)) { api.log(`skipping the sound of ${a.src} (not a project file)`); continue; }
+        if (!existsSync(join(dir, a.src))) throw new Error(`${a.kind === 'video' ? 'Video' : 'Audio'} file not found: ${a.src}`);
+        if (a.kind === 'video' && !hasAudio(ff, join(dir, a.src))) continue;
+        segments.push(a);
+      }
+      if (segments.length) {
+        const g = audioGraph(segments, from, a => join(dir, a.src));
+        args.push(...g.args, '-filter_complex', g.filter, '-map', '0:v', '-map', g.out, '-c:a', 'aac', '-b:a', flags.abr || '256k');
       }
       args.push('-vf', `scale=trunc(iw*${scale}/2)*2:trunc(ih*${scale}/2)*2:flags=lanczos`, '-c:v', 'libx264', '-preset', flags.preset || 'medium', '-crf', String(crf), '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', String(total / fps));
       mkdirSync(dirname(out), { recursive: true }); partial = out + `.partial-${process.pid}.mp4`; args.push(partial);

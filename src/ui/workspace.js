@@ -2,6 +2,7 @@ import { mountStudio } from './studio.js';
 import { h } from './util.js';
 import { icon } from './icons.js';
 import { CSS } from './styles.js';
+import { parseProject } from '../lib/project.js';
 
 // Only public plugin contracts cross the host boundary. No host stores or second React runtime.
 export function registerWorkspace(ctx, t, { createProject, exampleProject, remember }) {
@@ -9,21 +10,38 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   let selected = null, paths = [], generation = 0;
   const emit = () => listeners.forEach(fn => fn());
   const valid = path => typeof path === 'string' && path.toLowerCase().endsWith('.fvs.md');
-  const rows = query => paths.filter(p => p.toLocaleLowerCase().includes((query || '').toLocaleLowerCase()))
-    .map(p => ({ key: p, title: p.split('/').pop().replace(/\.fvs\.md$/i, ''), hint: p.slice(0, p.lastIndexOf('/')), icon: 'layout' }));
+  // render jobs, Director snapshots and other dot-folders hold temporary copies, not projects
+  const listed = path => valid(path) && !path.split('/').some(part => part.startsWith('.'));
+  const titles = new Map(); // path → the project's own title, read once per path
+  const stemOf = p => p.split('/').pop().replace(/\.fvs\.md$/i, '');
+  const rows = query => paths.map(p => ({ key: p, title: titles.get(p) || stemOf(p), hint: p.slice(0, p.lastIndexOf('/')), icon: 'layout' }))
+    .filter(r => `${r.title} ${r.key}`.toLocaleLowerCase().includes((query || '').toLocaleLowerCase()));
+  async function readTitles(list) {
+    let changed = false;
+    for (const p of list) {
+      if (titles.has(p)) continue;
+      let title = '';
+      try { const text = await app.readFile(p); title = (text && parseProject(text).meta.title) || ''; } catch { title = ''; }
+      titles.set(p, String(title).trim()); changed = true;
+    }
+    if (changed) emit();
+  }
   async function refresh() {
+    if (selected) titles.delete(selected); // ponytail: only the open project re-reads its title; others refresh when opened
     const gen = ++generation, root = app.vaultRoot?.();
     let found = [];
     try { found = await app.listFiles?.() || []; } catch { /* no vault */ }
     if (gen !== generation || root !== app.vaultRoot?.()) return;
-    const next = [...new Set(found.filter(valid))].sort((a, b) => a.localeCompare(b)), active = selected;
+    const next = [...new Set(found.filter(listed))].sort((a, b) => a.localeCompare(b)), active = selected;
     if (active && !next.includes(active) && await app.readFile(active).catch(() => null) !== null) next.push(active);
     if (gen !== generation || root !== app.vaultRoot?.()) return;
     paths = next;
     emit();
+    void readTitles(next);
   }
   function open(path) {
     if (!valid(path)) return;
+    titles.delete(path);
     selected = path; remember(path); emit();
     for (const mount of mounts) if (!mount.compact) mount.show(path);
     if (ctx.openView) ctx.openView('studio'); else app.openFile?.(path);
@@ -97,7 +115,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     id: 'projects', title: t('projects'), items: filter => rows(filter?.query), search: true, activeKey: () => selected,
     subscribe(fn) { listeners.add(fn); void refresh(); const poll = setInterval(refresh, 8000); return () => { listeners.delete(fn); clearInterval(poll); }; },
     open: row => open(row.key),
-    actions: [{ id: 'new', label: t('new-project'), primary: true, run: newProject }, { id: 'example', label: t('open-example'), run: example }, { id: 'refresh', label: t('refresh-projects'), run: refresh }],
+    actions: [{ id: 'new', label: t('new-project-short'), primary: true, run: newProject }, { id: 'example', label: t('open-example'), run: example }, { id: 'refresh', label: t('refresh-projects'), run: refresh }],
   });
   ctx.registerCommand({ id: 'fvs-open-studio', title: t('open-workspace'), keywords: 'video studio space 视频工作室 空间', run: () => ctx.openView?.('studio') });
   return { open, newProject, example };

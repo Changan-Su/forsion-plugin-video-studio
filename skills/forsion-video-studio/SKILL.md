@@ -2,7 +2,7 @@
 name: forsion-video-studio
 description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when a .fvs.md file is involved, or when asked to render, score, re-time or check the sync of such a video.
 metadata:
-  version: 0.1.0
+  version: 0.2.0
   author: Forsion
   category: Forsion
 ---
@@ -54,7 +54,7 @@ After rendering, look at a few frames (`view_video` if you have it, or `still`) 
   "class": "my-film",                      // extra classes on the stage root
   "background": "#000",
   "fonts": ["https://fonts.googleapis.com/css2?family=…"],   // stylesheet URLs
-  "audio": [{ "src": "audio/score.mp3", "role": "score", "at": 0, "gain": 0 }],
+  "audio": [{ "src": "audio/score.mp3", "role": "score", "at": 0, "gain": 0 }],   // also "in", "dur", "mute" (below)
   "assets": ["assets/logo.png"]            // only files that scripts reference by string
 }
 ```
@@ -78,7 +78,7 @@ grain('.grain')
 ## intro · 开场            ← one scene: "## <id> · <title>"; id = [A-Za-z][\w-]*
 
 ```fvs
-{ "length": "2 bars", "hits": [0, 2, 4, 6], "class": "hud" }
+{ "length": "2 bars", "hits": [0, 2, 4, 6], "class": "hud" }   // optional: "in", "transition" (below)
 ```
 
 ```html
@@ -96,9 +96,28 @@ grain('.grain')
 
 - Scenes play **in document order, back to back**. A scene's start is the sum of the lengths before it.
 - `length`: `"4 bars"`, `"6 beats"`, `"2.5s"` or a number of seconds. Bars and beats need `tempo`.
-- `hits`: the scene's cut points, **in beats from the scene start** (seconds when there is no tempo).
+- `hits`: the scene's cut points, **in beats from the scene start** (its content start when it has an `in`;
+  seconds when there is no tempo).
   The picture cuts on them and the score accents them; `fvs cues` exports them. Keep them on the eighth-note
   grid (multiples of 0.5) unless there is a reason; 0.25 for sixteenth stabs.
+- `in` (optional, same syntax as `length`, default 0): trims the start of the scene like an editor's in-point.
+  The scene's own timeline (its keyframes, hits, `data-in`) starts at `t0v = t0 − in`; what shows is the window
+  `[t0, t0 + length)`. `length` stays the visible length and scenes still play back to back. Hits count from
+  the content start; hits before the in-point or past the end are simply not on screen (`fvs info` shows them
+  in parentheses; `cues` and `sync` skip them; their indices stay the same).
+- `transition` (optional): `"fade"` or `{ "type": "fade", "dur": "1 beat" }`, played at the start of this
+  scene. Types: `fade`, `dip` (through the stage background), `slide-left`, `slide-up`, `push-left`,
+  `wipe-left` (revealed from the right edge), `zoom`, `blur`. Default `dur` is 1 beat (0.5 s without a tempo),
+  clamped to this scene's length. For `dur` the previous scene stays on screen
+  underneath and keeps animating (its `data-seq` keeps its last item); ignored on the first scene. Hard cuts on
+  hits are the house style: use transitions for section changes, not everywhere.
+- Audio tracks also take `"in"` (where in the file to start, seconds or a length), `"dur"` (how long to play;
+  default to the file's end) and `"mute": true`. A track plays file time `in + (t − at)` from project time `at`.
+- **Splitting a scene** (the Studio's split, or by hand): copy the scene right after itself with a new id;
+  the first keeps its start and gets `length` = split point − its start; the copy gets
+  `in` = old `in` + that length, `length` = the rest, and no `transition`. Same hits, html, css and js: the
+  content plays on uninterrupted and later scenes do not move. Moving the cut between the halves moves the
+  second half's `in` with it.
 - Everything outside the recognised blocks is kept byte for byte. Edit surgically: change the block you
   mean to change, keep the rest of the file exactly as it is (the user may be editing it too).
 - Relative paths (`assets/…`, `audio/…`) resolve against the project file's folder.
@@ -109,9 +128,9 @@ Times are **absolute seconds**. Selectors are strings scoped to the scene (or el
 
 | name | meaning |
 |---|---|
-| `t0`, `t1`, `dur` | scene start, end, length |
+| `t0`, `t1`, `dur` | the scene's content start (`t0v`: its start minus `in`), its visible end, `t1 − t0`. Without `in`: start, end, length |
 | `hits` | the scene's hits in absolute seconds; `hit(i, beats=0)` = `hits[i]` plus an offset in beats |
-| `beat`, `bar`, `at(n)` | seconds per beat / bar; `at(n)` = `t0 + n` beats |
+| `beat`, `bar`, `at(n)` | seconds per beat / bar; `at(n)` = `t0 + n` beats (from the content start) |
 | `root`, `stage`, `$`, `$$` | scene element, stage element, `querySelector`, `querySelectorAll` (array) |
 | `K(sel, [[t, props, ease], …], {stagger})` | keyframes. props: `o` opacity, `x y z` px, `s sx sy` scale, `r rx ry` deg, `b` blur px, `br` brightness, `ct cr cb cl` clip inset %, `'--var'` any CSS custom property. Props carry forward. ease: `lin in out io expo back step` |
 | `S(sel, a, b)` | shown (display) only in [a, b) — a hard cut |
@@ -124,23 +143,41 @@ Times are **absolute seconds**. Selectors are strings scoped to the scene (or el
 | `H(fn)` / `on(fn)` | a hook `fn(t)` run every frame — for canvas drawing, counters, blinking |
 | `grain(sel)` | animated film grain on the selected layers |
 | `prog(t, a, b, ease)`, `ease`, `clamp`, `lerp`, `rng(seed)` | helpers; `rng` is the only randomness allowed |
-| `scenes` | every scene by id: `{ t0, t1, dur, hits, el }` (stage scripts use it for spans) |
+| `scenes` | every scene by id: `{ t0, t1, dur, t0v, in, hits, el }`; here `t0`/`t1` are the **visible** window (stage scripts use it for spans) |
 | `during([...ids or [a, b]])`, `inside(t, spans)` | spans of scenes, membership test |
 | `asset(path)`, `width`, `height`, `fps`, `length`, `project` | asset URL, stage size and settings |
 
 **Declarative timing** (no script needed; the Studio edits these):
 
-- `data-in="h2"` — appears at hit 2. Also `h2+0.5` / `h2-1` (beats), `2b` (beats from scene start), `1.5s`, `end-1`.
+- `data-in="h2"` — appears at hit 2. Also `h2+0.5` / `h2-1` (beats), `2b` (beats from the content start), `1.5s`, `end-1`.
 - `data-fx="cut|fade|up|down|left|right|pop|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
 - `data-out="h4"` — gone at hit 4 (`data-fx-out="fade"` to fade).
 - `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart.
 - `data-seq="h0"` on a container — its children show one after another on hits h0, h1, h2 … (last one to the scene end). The EVA intertitle pattern.
 
+**Video** — every `<video>` in a scene is owned by the runtime, which shows the right frame for t (the
+renderer waits for it):
+
+```html
+<video src="assets/shot.mp4" data-clip-in="12.5" data-gain="-6" poster="assets/shot.jpg"></video>
+```
+
+- File time = `data-clip-in` (seconds, default 0) + (t − the scene's content start), so `in` and splits trim
+  footage too. Past the file's end it holds the last frame; `loop` wraps instead. It only runs while its scene
+  is on screen. `<source src>` children work; paths resolve like images.
+- Sound: the clip's audio is mixed into renders and HTML exports while the scene is on screen, at `data-gain`
+  dB; `muted` = no sound. (The element itself always plays muted; autoplay and controls are removed.)
+- Size, crop and animate it like any element (CSS, `K`). Never call `play()`, `pause()` or set `currentTime`.
+- MP4 (H.264/AAC) needs Google Chrome or Edge for `render` when the bundled Chromium cannot decode it
+  (`FVS_CHROMIUM=/path`); WebM (VP9) plays everywhere. `check --runtime` reports clips that cannot be played;
+  `check` reports missing audio and video files. Videos in the `html stage` block run on project time and are silent.
+
 ## Rules that keep a video renderable and editable
 
 1. **Every frame is a pure function of t.** No `Date.now`, `setTimeout`, `requestAnimationFrame`, CSS
-   `animation`/`transition`, video elements, `Math.random` or network in scripts. Use `K`, `H`, `rng`.
-   The renderer seeks to each frame; anything time-based outside the API will stutter or freeze.
+   `animation`/`transition`, self-driven media (use runtime-owned `<video>`, above), `Math.random` or network in
+   scripts. Use `K`, `H`, `rng`. The renderer seeks to each frame; anything time-based outside the API will
+   stutter or freeze.
 2. **Text lives in the HTML**, not in JS strings, so the user can edit it in the Studio (double-click in
    the picture, or the Text tab). Generate only geometry in JS (graph paths, grids).
 3. **Cut on the hits.** Put visual changes on `hits` (declaratively or `hits[i]` in scripts); add or move
@@ -161,7 +198,8 @@ Check, look at the contact sheet, iterate. Then score it.
 
 **Change pacing.** Lengths and hits live in each scene's `fvs` block. Shortening a scene moves every later
 scene earlier and breaks sync with an existing score; either re-score, or move the cut between two scenes
-(shorten one, lengthen the next by the same amount) so later scenes stay put.
+(shorten one, lengthen the next by the same amount) so later scenes stay put. To drop the start of a scene
+without re-timing its animation, raise its `in` and shorten its `length` by the same amount.
 
 **Score.** Read `music/README.md`. `fvs cues`, then write a Python score from `music/score_template.py`
 (or the worked example `score_episode_212.py`): accents on hits, bigger hits on scene starts, a
@@ -172,7 +210,7 @@ it to `audio`. Run `fvs sync` and fix misses. Melodies must be original — a re
 move the picture-only hit onto the accent (nearest eighth) or change the score.
 
 **Render.** `fvs render <project> --out <name>.mp4 --workers 3` (about real time ×5–10 on a laptop). Uses the
-project's audio. For a quick preview use `--scale 0.5` or `--from/--to`.
+project's audio tracks and the sound of its videos. For a quick preview use `--scale 0.5` or `--from/--to`.
 
 The bundled example `examples/episode-2.12/episode-2.12.fvs.md` (the Forsion 2.12 promo, 94 s, 20 scenes) shows
 every feature: declarative intertitles, HUD scenes with scripts, canvas hooks, backdrops in the stage script.

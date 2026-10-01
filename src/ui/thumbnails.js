@@ -1,51 +1,75 @@
 import { h } from './util.js';
 
-// Real sandboxed scene renders. Only visible rows run; no second renderer or same-origin access.
-export function sceneThumbnails(container, htmlFor, state) {
-  const records = new Map();
-  let revision = '', disposed = false;
-  const stop = r => { cancelAnimationFrame(r.raf); r.raf = 0; r.frame?.remove(); r.frame = null; r.ready = false; delete r.el.dataset.rendered; r.gen++; };
+// Real sandboxed scene renders, used as poster frames on the timeline clips. Only clips in view run one,
+// at most MAX at a time, and a scene re-renders only when its own source or the shared layers change
+// (moving an iframe in the DOM reloads it, so each scene keeps one element for its whole life).
+// ponytail: fixed cap of live iframes; switch to one renderer + cached bitmaps if projects grow past ~50 scenes.
+const MAX = 24;
+
+export function sceneThumbnails(scrollRoot, htmlFor, state, { onMediaError } = {}) {
+  const records = new Map(), queue = new Set();
+  let disposed = false, active = 0, shared = '';
+  const poster = s => s.t0 + Math.min(s.dur * .5, Math.max(.8, s.dur * .3));
   const seek = (r, time) => r.frame?.contentWindow?.postMessage({ fvs: 'seek', t: time }, '*');
-  const poster = r => r.scene.t0 + Math.min(r.scene.dur * .5, Math.max(.8, r.scene.dur * .3));
+  const stop = r => {
+    queue.delete(r);
+    if (r.frame) { r.frame.remove(); r.frame = null; active--; }
+    r.ready = false; delete r.el.dataset.rendered; r.gen++;
+  };
   async function start(r) {
     if (disposed || r.frame || !state().trusted) return;
     const gen = ++r.gen;
-    let html; try { html = await htmlFor(r.scene); } catch { return; }
-    if (disposed || gen !== r.gen || !r.visible || !r.el.isConnected) return;
+    active++;
+    let html = null;
+    try { html = await htmlFor(r.scene); } catch { html = null; }
+    if (disposed || gen !== r.gen || !html || !r.visible || !r.el.isConnected) { active--; pump(); return; }
     r.frame = h('iframe', { sandbox: 'allow-scripts', title: r.scene.title || r.scene.id, tabindex: '-1', 'aria-hidden': 'true' });
     r.frame.srcdoc = html; r.el.append(r.frame);
   }
+  function pump() { for (const r of [...queue]) { if (active >= MAX) break; queue.delete(r); void start(r); } }
   const observer = new IntersectionObserver(entries => {
     for (const e of entries) {
       const r = records.get(e.target.dataset.scene);
       if (!r) continue;
       r.visible = e.isIntersecting;
-      if (r.visible) void start(r); else stop(r);
+      if (r.visible) { if (!r.frame) queue.add(r); } else stop(r);
     }
-  }, { root: container, rootMargin: '40px' });
+    pump();
+  }, { root: scrollRoot, rootMargin: '0px 160px' });
   const message = e => {
-    if (e.data?.fvs !== 'ready') return;
+    const m = e.data || {};
+    if (m.fvs !== 'ready' && m.fvs !== 'media-error') return;
     for (const r of records.values()) if (r.frame?.contentWindow === e.source) {
-      r.ready = true; r.el.dataset.rendered = 'true'; seek(r, poster(r)); break;
+      if (m.fvs === 'ready') { r.ready = true; r.el.dataset.rendered = 'true'; seek(r, poster(r.scene)); }
+      // the host swapped an unseekable stream for an inline copy: render this scene again with it
+      else if (m.src && onMediaError?.(m.src)) { stop(r); if (r.visible) queue.add(r); pump(); }
+      break;
     }
   };
   window.addEventListener('message', message);
+  const sceneSig = s => JSON.stringify([s.html, s.css, s.js, s.meta, s.t0, s.dur, s.in || 0]);
   return {
-    update(text) { if (text === revision) return; revision = text; for (const r of records.values()) { stop(r); observer.unobserve(r.el); } records.clear(); },
-    get(scene, fallback) {
+    /** Re-render only what changed. `globals` is everything every scene shares (css, stage, settings). */
+    sync(p, globals) {
+      const wipe = globals !== shared; shared = globals;
+      const ids = new Set(p.scenes.map(s => s.id));
+      for (const [id, r] of records) if (!ids.has(id)) { stop(r); observer.unobserve(r.el); records.delete(id); }
+      for (const s of p.scenes) {
+        const r = records.get(s.id); if (!r) continue;
+        const sig = sceneSig(s);
+        r.scene = s;
+        if (wipe || sig !== r.sig) { r.sig = sig; stop(r); if (r.visible) queue.add(r); }
+      }
+      pump();
+    },
+    get(scene) {
       const old = records.get(scene.id); if (old) return old.el;
-      const el = h('span', { class: 'fvs-scene-thumb', 'data-scene': scene.id, 'aria-hidden': 'true' }, h('span', { text: fallback }));
-      const r = { el, scene, gen: 0, frame: null, raf: 0, visible: false }; records.set(scene.id, r); observer.observe(el);
-      el.addEventListener('pointerenter', () => {
-        if (!r.ready || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-        const begin = performance.now();
-        const loop = () => { if (!r.frame || disposed) return; seek(r, scene.t0 + ((performance.now() - begin) / 1000) % scene.dur); r.raf = requestAnimationFrame(loop); };
-        r.raf = requestAnimationFrame(loop);
-      });
-      el.addEventListener('pointerleave', () => { cancelAnimationFrame(r.raf); r.raf = 0; if (r.ready) seek(r, poster(r)); });
+      const el = h('span', { class: 'fvs-scene-thumb', 'data-scene': scene.id, 'aria-hidden': 'true' });
+      const r = { el, scene, sig: sceneSig(scene), gen: 0, frame: null, visible: false, ready: false };
+      records.set(scene.id, r); observer.observe(el);
       return el;
     },
-    refresh() { for (const r of records.values()) if (r.visible) void start(r); },
+    refresh() { for (const r of records.values()) if (r.visible && !r.frame) queue.add(r); pump(); },
     dispose() { disposed = true; observer.disconnect(); window.removeEventListener('message', message); for (const r of records.values()) stop(r); records.clear(); },
   };
 }

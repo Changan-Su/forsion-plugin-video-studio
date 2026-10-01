@@ -1,5 +1,6 @@
 // Where the music accents are, and whether the picture's hits land on them. DOM-free, so the Studio
 // (WebAudio-decoded samples) and the CLI (ffmpeg-decoded samples) share one answer.
+import { visibleHits } from './project.js';
 
 export const ONSET_SR = 22050;
 const N = 1024, HOP = 128, BLOCK = 110; // 46 ms windows every 5.8 ms; levels in 5 ms blocks
@@ -103,16 +104,20 @@ export function onsetEnvelope(mono, sr = ONSET_SR) {
 
 const pct = (arr, q) => { const s = [...arr].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * q))] : 0; };
 
+/** A parsed scene's on-screen hits (original indices kept); a bare { hitTimes } list is taken whole. */
+const hitsOf = s => (s.hitTimes && s.t0 !== undefined && s.t1 !== undefined ? visibleHits(s) : (s.hitTimes || s.hits || []).map((t, index) => ({ index, t })));
+
 /**
- * For each hit of each scene: the strongest accent from a frame before it to just after it, where it is, and how strong it
+ * For each visible hit of each scene: the strongest accent from a frame before it to just after it, where it is, and how strong it
  * is next to the loudest accents in the surrounding second (1 = as strong as the strongest there).
  * A hit where the music drops by 6 dB or more is on the music too: the drop is the accent.
+ * Hits trimmed away by a scene's in-point or its end are not on screen and are not checked; `hit` keeps the hit's index.
  */
 export function syncReport(scenes, { env, rms, block, hop, offset }, { before = .065, after = .03, weak = .6 } = {}) {
   const at = t => Math.round((t - offset) / hop);
   const rows = [];
   for (const s of scenes) {
-    (s.hitTimes || s.hits || []).forEach((t, i) => {
+    hitsOf(s).forEach(({ index: i, t }) => {
       const a = Math.max(0, at(t - before)), b = Math.min(env.length - 1, at(t + after));
       let best = -1, bi = a;
       for (let k = a; k <= b; k++) if (env[k] > best) { best = env[k]; bi = k; }

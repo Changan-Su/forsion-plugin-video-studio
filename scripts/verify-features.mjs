@@ -13,8 +13,8 @@ const errors=[], runs=[];page.on('pageerror',e=>errors.push(String(e)));
 page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/agent/runs')){const v=r.postDataJSON();runs.push({sessionId:v.session_id,modelId:v.model_id,thinking:v.agent_config?.thinkingLevel});}});
 let root, original, before, probe, relative, ownSession, originalAgents;
 const command=async(id,args)=>page.evaluate(async({id,args})=>{const s=(await import(performance.getEntriesByType('resource').map(x=>x.name).filter(x=>x.includes('/src/amadeus/plugins/pluginStore.ts')).at(-1)||'/src/amadeus/plugins/pluginStore.ts')).usePluginStore.getState();const c=s.commands.find(c=>c.pluginId==='forsion-video-studio'&&c.item.id===id);return args?c.item.invoke.run(args):c.item.run();},{id,args});
-const open=async()=>{await command('fvs-open-project',{path:relative});await page.waitForFunction(()=>document.querySelector('.fvs-name')?.textContent==='FVS 0.4 原生验收');const gate=page.locator('.fvs-gate button');if(await gate.count())await gate.click();await page.waitForFunction(()=>!!document.querySelector('.fvs-view iframe:not(.fvs-pending)'));};
-const ai=async()=>{await page.getByRole('button',{name:'问 AI',exact:true}).click();await page.waitForSelector('.fvs-native-chatbox textarea');};
+const open=async()=>{await command('fvs-open-project',{path:relative});await page.waitForFunction(()=>document.querySelector('.fvs-project-name')?.textContent==='FVS 0.4 原生验收');const gate=page.locator('.fvs-gate button');if(await gate.count())await gate.click();await page.waitForFunction(()=>!!document.querySelector('.fvs-view iframe:not(.fvs-pending)'));};
+const ai=async()=>{await page.getByRole('button',{name:'AI 导演',exact:true}).click();await page.waitForSelector('.fvs-native-chatbox textarea');};
 const exportPanel=async()=>{await page.getByRole('button',{name:'导出',exact:true}).click();await page.getByRole('menuitem',{name:/导出 MP4/}).click();await page.waitForSelector('.fvs-export-panel');};
 const waitFile=async(path,test,timeout=240000)=>{const end=Date.now()+timeout;while(Date.now()<end){try{const v=await readFile(path,'utf8');if(test(v))return v;}catch{}await new Promise(r=>setTimeout(r,1000));}throw new Error('Timed out waiting for '+path);};
 try{
@@ -23,19 +23,19 @@ try{
   original=join(root,'Forsion Video Studio/第 2.12 话/episode-2.12.fvs.md');before=await readFile(original);
   relative=`Forsion Video Studio/第 2.12 话/.features-${Date.now()}.fvs.md`;probe=join(root,relative);
   const source=before.toString().replaceAll('第 2.12 话 · 人类补完计划','FVS 0.4 原生验收');await writeFile(probe,source);await open();
-  const toggle=page.getByRole('button',{name:'显示场景列表',exact:true});if(await toggle.getAttribute('aria-pressed')!=='true')await toggle.click();
+  await page.locator('.fvs-zoom-controls input').fill('60');
   await page.waitForSelector('.fvs-scene-thumb[data-rendered="true"] iframe');
   const thumbCount=await page.locator('.fvs-scene-thumb iframe').count();assert.ok(thumbCount>0&&thumbCount<20, 'only visible scenes render');
   await page.waitForTimeout(600);await page.screenshot({path:join(shots,'01-thumbnails.png')});
-  await ai();await page.locator('.fvs-ai-panel textarea').fill('验收草稿：不发送');
-  await page.getByRole('button',{name:'问 AI',exact:true}).click();await ai();assert.equal(await page.locator('.fvs-ai-panel textarea').inputValue(),'验收草稿：不发送');
-  await page.locator('.fvs-ai-panel .model-pill-btn').click();await page.locator('[data-pane-trigger="model"]').click();
+  await ai();await page.locator('.fvs-director-panel textarea').fill('验收草稿：不发送');
+  await page.getByRole('button',{name:'AI 导演',exact:true}).click();await ai();assert.equal(await page.locator('.fvs-director-panel textarea').inputValue(),'验收草稿：不发送');
+  await page.locator('.fvs-director-panel .model-pill-btn').click();await page.locator('[data-pane-trigger="model"]').click();
   await page.locator('.cm-sub [title$=" · codex/gpt-5.6-luna"]').click();
-  await page.locator('.fvs-ai-panel .model-pill-btn').click();await page.getByRole('slider',{name:'思考档位',exact:true}).fill('2');await page.locator('.fvs-ai-panel .model-pill-btn').click();
+  await page.locator('.fvs-director-panel .model-pill-btn').click();await page.getByRole('slider',{name:'思考档位',exact:true}).fill('2');await page.locator('.fvs-director-panel .model-pill-btn').click();
   await page.screenshot({path:join(shots,'02-native-director.png')});
   if(live){
-    await page.locator('.fvs-ai-panel textarea').fill('只把 cards 场景的 Markdown 标题从「标题卡」改成「原生验收标题」。保持其余字节不变，不要改文件名或配乐，不要渲染全片。使用提供的 CLI 检查修改后的工程。完成后简要说明。');
-    await page.locator('.fvs-ai-panel').getByRole('button',{name:'发送',exact:true}).click();
+    await page.locator('.fvs-director-panel textarea').fill('只把 cards 场景的 Markdown 标题从「标题卡」改成「原生验收标题」。保持其余字节不变，不要改文件名或配乐，不要渲染全片。使用提供的 CLI 检查修改后的工程。完成后简要说明。');
+    await page.locator('.fvs-director-panel').getByRole('button',{name:'发送',exact:true}).click();
     await waitFile(probe,v=>v.includes('## cards · 原生验收标题'));
     const history=join(dirname(probe),`.fvs-history/${probe.split('/').pop().replace(/\.fvs\.md$/,'')}.director.json`);
     const record=JSON.parse(await waitFile(history,v=>!!JSON.parse(v).sessionId));ownSession=record.sessionId;
@@ -44,9 +44,9 @@ try{
     await open();await ai();await page.waitForSelector('[data-director="restore"]');
     await page.screenshot({path:join(shots,'03-director-changes.png')});
     await page.locator('[data-director="restore"]').click();await waitFile(probe,v=>v===source);ownSession=null;
-    await page.getByRole('button',{name:'问 AI',exact:true}).click();
-  }else await page.getByRole('button',{name:'问 AI',exact:true}).click();
-  await exportPanel();await page.locator('[data-export="scale"]').selectOption('0.25');await page.locator('[data-export="fps"]').selectOption('24');await page.locator('[data-export="from"]').fill('8');await page.locator('[data-export="to"]').fill('10');
+    await page.getByRole('button',{name:'AI 导演',exact:true}).click();
+  }else await page.getByRole('button',{name:'AI 导演',exact:true}).click();
+  await exportPanel();await page.locator('[data-export="scale"] [data-value="0.25"]').click();await page.locator('[data-export="fps"]').selectOption('24');await page.locator('[data-export="range"] [data-value="custom"]').click();await page.locator('[data-export="from"]').fill('8');await page.locator('[data-export="to"]').fill('10');
   await page.screenshot({path:join(shots,'04-native-export-settings.png')});
   let output;
   if(live){
@@ -69,6 +69,6 @@ try{
 }finally{
   if(originalAgents)await page.evaluate(async agentDefs=>(await import(performance.getEntriesByType('resource').map(x=>x.name).filter(x=>x.includes('/src/stores/appStore.ts')).at(-1)||'/src/stores/appStore.ts')).useApp.setState({agentDefs}),originalAgents);
   if(ownSession)await page.evaluate(async sid=>(await import(performance.getEntriesByType('resource').map(x=>x.name).filter(x=>x.includes('/src/stores/appStore.ts')).at(-1)||'/src/stores/appStore.ts')).useApp.getState().stop(sid),ownSession).catch(()=>{});
-  if(root){await command('fvs-open-example').catch(()=>{});await page.waitForFunction(()=>/2\.12/.test(document.querySelector('.fvs-name')?.textContent||''),null,{timeout:5000}).catch(()=>{});}
+  if(root){await command('fvs-open-example').catch(()=>{});await page.waitForFunction(()=>/2\.12/.test(document.querySelector('.fvs-project-name')?.textContent||''),null,{timeout:5000}).catch(()=>{});}
   if(probe)await rm(probe,{force:true});await browser.close();
 }

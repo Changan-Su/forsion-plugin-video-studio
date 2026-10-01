@@ -2,11 +2,11 @@
   "id": "forsion-video-studio",
   "name": "Forsion Video Studio",
   "nameEn": "Forsion Video Studio",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "apiVersion": 1,
   "author": "Forsion",
-  "description": "AI 辅助的网页动画视频编辑器。视频就是一份 .fvs.md 工程文件：场景是网页，时间线踩在音乐的拍子上。可以手动改文字、内容和时间线，让 AI 写场景、配乐和检查卡点，再导出网页视频或 MP4。",
-  "descriptionEn": "An AI-assisted editor for videos made of animated web pages. A video is one .fvs.md project file: scenes are web pages and the timeline sits on the music's beat grid. Edit text, content and timing by hand, have the AI write scenes, compose the score and check the sync, then export a web video or an MP4.",
+  "description": "AI 辅助的网页动画视频编辑器，也能做基础剪辑。视频就是一份 .fvs.md 工程文件：场景是网页，时间线踩在音乐的拍子上；图片和视频素材可以直接拖进时间线，分割、修剪、调整顺序、加转场。可以手动改文字和时间线，让 AI 导演写场景、配乐和检查卡点，再导出网页视频或 MP4。",
+  "descriptionEn": "An AI-assisted editor for videos made of animated web pages, with the basics of clip editing. A video is one .fvs.md project file: scenes are web pages and the timeline sits on the music's beat grid; drop pictures and video clips onto the timeline, then split, trim, reorder and add transitions. Edit text and timing by hand, have the AI Director write scenes, score the video and check the sync, then export a web video or an MP4.",
   "main": "main.js",
   "fileExtensions": [
     ".fvs.md"
@@ -16,19 +16,19 @@
     "steps": [
       {
         "title": "新建工程",
-        "description": "文件树右键「新建视频工程」，或命令面板「Video Studio：新建视频工程」。也可以先看示例：命令面板「Video Studio：打开示例 · 第 2.12 话」。"
+        "description": "文件树右键「新建视频工程」，或命令面板「Video Studio：新建视频工程」。想先看看，可以运行「Video Studio：打开示例 · 第 2.12 话」。"
       },
       {
-        "title": "手动编辑",
-        "description": "点时间线上的场景选中它；双击画面里的文字直接改；拖场景的右边缘改长度（相邻场景一起让位，后面的切点不动），拖拍点改切点。右侧面板可以改场景设置、全部文字和代码。"
+        "title": "搭场景、放素材",
+        "description": "时间线工具条的「新场景」从模板里挑版式；「导入素材」或直接把图片、视频、音乐拖进时间线。双击画面里的文字直接改。"
       },
       {
-        "title": "交给 AI",
-        "description": "顶栏「问 AI」把工程交给 Video Studio 导演：写新场景、改节奏、生成配乐、检查卡点。它直接改这份文件，编辑器会自动载入改动。"
+        "title": "剪辑",
+        "description": "S 在播放头处分割，拖片段两端修剪，拖片段本身调整顺序，属性面板里加转场。相邻场景会让位，后面的切点不动；按住 Alt 则推移后面所有场景。"
       },
       {
-        "title": "导出",
-        "description": "「导出网页视频」立刻在同一文件夹写出一个可以单独打开的 .html；「导出 MP4」由导演 Agent 在本机渲染，完成后视频出现在工程旁边。"
+        "title": "交给 AI 导演，然后导出",
+        "description": "「AI 导演」写新场景、改节奏、配乐和检查卡点，它直接改这份文件，编辑器会自动载入。「导出」可以立刻写出网页视频，或由导演在本机渲染 MP4。"
       }
     ],
     "en": {
@@ -39,16 +39,16 @@
           "description": "Right-click in the file tree and choose New video project, or run \"Video Studio: New video project\" from the command palette. To look around first, run \"Video Studio: Open the 2.12 example\"."
         },
         {
-          "title": "Edit by hand",
-          "description": "Click a scene on the timeline to select it. Double-click text in the picture to change it. Drag a scene's right edge to change its length (the next scene gives way, so later cuts stay put) and drag hit markers to move cuts. The side panel edits scene settings, all text and the code."
+          "title": "Build scenes and add media",
+          "description": "New scene on the timeline toolbar offers ready-made layouts; Import media, or drag pictures, video and music onto the timeline. Double-click text in the picture to change it."
         },
         {
-          "title": "Hand it to the AI",
-          "description": "Ask AI in the top bar gives the project to the Video Studio Director: new scenes, pacing, a score, a sync check. It edits this file directly and the editor reloads its changes."
+          "title": "Edit",
+          "description": "Press S to split at the playhead, drag a clip's ends to trim it, drag the clip itself to reorder, and add transitions in Properties. The neighbouring scene gives way so later cuts stay put; hold Alt to push everything after it."
         },
         {
-          "title": "Export",
-          "description": "Export web video writes a standalone .html next to the project at once. Export MP4 has the Director render on this computer; the video appears next to the project when it is done."
+          "title": "Hand it to the AI Director, then export",
+          "description": "The AI Director writes scenes, changes the pacing, scores the video and checks the sync by editing this file; the editor reloads its changes. Export writes a web video at once, or has the Director render an MP4 on this computer."
         }
       ]
     }

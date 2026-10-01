@@ -9,6 +9,8 @@ import { parseProject } from '../lib/project.js';
 import { notify } from './ai.js';
 import EXAMPLE from '../generated/example-src.js';
 import { registerWorkspace } from './workspace.js';
+import { EMBED_CSS } from './styles.js';
+import { icon } from './icons.js';
 
 const t = makeT(ctx);
 const EXT = '.fvs.md';
@@ -124,10 +126,11 @@ if (registered !== false) {
     mount(el, embed) {
       let disposed = false, raf = 0, frame = null, playing = false, time = 0, start = 0;
       const title = h('b', { text: embed.target.split('/').pop() });
-      const playBtn = h('button', { disabled: true }, '▶');
-      const open = h('button', {}, t('embed-open'));
+      const playBtn = h('button', { type: 'button', disabled: true, 'aria-label': t('play'), title: t('play') }, icon('Play'));
+      const setPlaying = on => { playBtn.replaceChildren(icon(on ? 'Pause' : 'Play')); playBtn.setAttribute('aria-label', t(on ? 'pause' : 'play')); playBtn.title = t(on ? 'pause' : 'play'); };
+      const open = h('button', { type: 'button' }, t('embed-open'));
       const box = h('div', { class: 'fvs-embed' });
-      box.append(h('style', { text: '.fvs-embed{position:relative;border:1px solid var(--border,#333);border-radius:8px;overflow:hidden;background:#111}.fvs-embed iframe{display:block;width:100%;border:0;background:#111}.fvs-embed .bar{display:flex;gap:8px;align-items:center;padding:6px 10px;font-size:12px;color:var(--text-muted,#999);background:var(--bg-card,#1b1b1b)}.fvs-embed .bar b{color:var(--text,#eee);font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.fvs-embed button{font:inherit;border:1px solid var(--border,#333);background:none;color:inherit;border-radius:5px;padding:2px 8px;cursor:pointer}' }));
+      box.append(h('style', { text: EMBED_CSS }));
       box.append(h('div', { class: 'bar' }, playBtn, title, open));
       el.append(box);
       (async () => {
@@ -147,8 +150,8 @@ if (registered !== false) {
         const poster = p.scenes[1] ? p.scenes[1].t0 + .5 : 0;
         const post = x => frame.contentWindow && frame.contentWindow.postMessage({ fvs: 'seek', t: x }, '*');
         window.addEventListener('message', function ready(e) { if (e.source === frame.contentWindow && e.data && e.data.fvs === 'ready') { window.removeEventListener('message', ready); post(poster); playBtn.disabled = false; } });
-        const tick = () => { if (disposed || !playing) return; time = (performance.now() - start) / 1000; if (time >= p.length) { playing = false; playBtn.textContent = '▶'; post(poster); return; } post(time); raf = requestAnimationFrame(tick); };
-        playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? '❚❚' : '▶'; if (playing) { start = performance.now() - (time >= p.length ? 0 : time) * 1000; tick(); } };
+        const tick = () => { if (disposed || !playing) return; time = (performance.now() - start) / 1000; if (time >= p.length) { playing = false; setPlaying(false); post(poster); return; } post(time); raf = requestAnimationFrame(tick); };
+        playBtn.onclick = () => { playing = !playing; setPlaying(playing); frame.contentWindow?.postMessage({ fvs: 'transport', playing }, '*'); if (playing) { start = performance.now() - (time >= p.length ? 0 : time) * 1000; tick(); } };
       })();
       return () => { disposed = true; cancelAnimationFrame(raf); box.remove(); };
     },

@@ -104,6 +104,30 @@ export function setAttr(html, index, name, value) {
 /** Images in source order: { tag, src }. */
 export const images = html => scan(html).tags.filter(t => t.name === 'img').map(t => ({ tag: t.index, src: t.attr('src') || '' }));
 
+const num = (v, d) => { const x = parseFloat(v); return Number.isFinite(x) ? x : d; };
+
+/**
+ * Videos in source order, numbered like images() so setAttr(html, tag, …) edits them:
+ * { tag, src, clipIn, gain, muted, loop }. `src` falls back to the first <source src> inside the element;
+ * clipIn (data-clip-in, s) is the file time at the scene's content start, gain (data-gain) is in dB,
+ * muted means the clip adds nothing to the mix, loop wraps the file time.
+ */
+export function videos(html) {
+  const { tags } = scan(html);
+  const lower = html.toLowerCase();
+  return tags.filter(t => t.name === 'video').map(t => {
+    const selfClosed = html[t.end - 2] === '/';
+    const close = selfClosed ? -1 : lower.indexOf('</video', t.end);
+    const end = close < 0 ? t.end : close;
+    const source = tags.find(x => x.name === 'source' && x.start >= t.end && x.start < end && x.attr('src'));
+    const has = k => t.attrs.some(a => a.name === k);
+    return {
+      tag: t.index, src: t.attr('src') || (source ? source.attr('src') : '') || '',
+      clipIn: Math.max(0, num(t.attr('data-clip-in'), 0)), gain: num(t.attr('data-gain'), 0), muted: has('muted'), loop: has('loop'),
+    };
+  });
+}
+
 /** Elements with declarative timing, with the first text inside them as a label. */
 export function timedElements(html) {
   const { texts, tags } = scan(html);

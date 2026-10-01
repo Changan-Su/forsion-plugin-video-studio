@@ -2,6 +2,9 @@ import { h, dirOf, joinPath, randomId } from './util.js';
 import { handOff, TASKS, AGENT } from './ai.js';
 import { parseProject, cssBlocks, stageHtml, stageJs } from '../lib/project.js';
 import { CSS } from './styles.js';
+import { icon } from './icons.js';
+
+const clock = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 
 export function sceneChanges(before, after) {
   const a = parseProject(before), b = parseProject(after), changes = [];
@@ -53,35 +56,52 @@ export function directorController(ctx, state, t, flush) {
     finally { submitting = false; }
   }
   function mount(body) {
-    const root = h('section', { class: 'fvs-extension fvs-ai-panel fvs-director-panel' }, h('style', { text: CSS }));
-    const summary = h('div', { class: 'fvs-director-summary', role: 'status', 'aria-live': 'polite' });
+    const root = h('section', { class: 'fvs-extension fvs-director-panel' }, h('style', { text: CSS }));
+    const phase = h('div', { class: 'fvs-phase', role: 'status', 'aria-live': 'polite' });
     const changes = h('div', { class: 'fvs-director-changes' });
     const input = h('div', { class: 'fvs-native-chatbox' });
-    const context = h('p', { class: 'fvs-hint', text: `${state().p.scenes.find(s => s.id === state().sel)?.title || ''} · ${state().time.toFixed(2)} s` });
+    // what travels with every request: the selected scene and the playhead (kept current while the panel is open)
+    const context = h('div', { class: 'fvs-chip-row', 'aria-label': t('director-context') });
+    let shown = '';
+    const paintContext = () => {
+      const s = state(), scene = s.p.scenes.find(x => x.id === s.sel);
+      const key = `${scene ? `${scene.index}|${scene.title || scene.id}` : ''}|${clock(s.time)}`;
+      if (key === shown) return; shown = key;
+      context.replaceChildren(
+        scene ? h('span', { class: 'fvs-chip', title: t('director-context') }, icon('Film'), `${String(scene.index + 1).padStart(2, '0')} · ${scene.title || scene.id}`) : '',
+        h('span', { class: 'fvs-chip', title: t('director-context') }, icon('Play'), clock(s.time)));
+    };
+    paintContext();
+    const contextTimer = setInterval(paintContext, 400);
     let chat, textarea;
     const render = () => {
-      summary.textContent = task ? t(`director-${task.phase}`) : t('director-intro'); changes.replaceChildren();
+      phase.dataset.phase = task ? task.phase : 'none';
+      phase.textContent = task ? t(`director-${task.phase}`) : t('director-intro');
+      changes.replaceChildren();
       if (!task?.changes?.length) return;
       changes.append(h('h4', { text: t('director-changes', { n: task.changes.length }) }));
       for (const row of task.changes) changes.append(h('details', {}, h('summary', { text: `${row.title || row.id} · ${t('director-' + row.kind)}` }),
         h('div', { class: 'fvs-change-columns' }, h('pre', { text: row.before.slice(0, 8000) || '—' }), h('pre', { text: row.after.slice(0, 8000) || '—' }))));
       const reviewed = after;
-      changes.append(h('button', { class: 'fvs-btn', 'data-director': 'restore', text: t('director-restore'), disabled: !['idle', 'done', 'error'].includes(task.phase), onclick: async () => {
+      changes.append(h('button', { type: 'button', class: 'fvs-btn', 'data-director': 'restore', disabled: !['idle', 'done', 'error'].includes(task.phase), onclick: async () => {
         try {
           if (!await flush() || await app.readFile(path) !== reviewed) throw new Error(t('director-stale'));
           const snapshot = await app.readFile(task.beforePath); if (snapshot === null) throw new Error(t('director-no-snapshot'));
           await app.writeFile(base + `.${randomId()}.reverted.txt`, reviewed);
           await app.writeFile(path, snapshot); await refresh();
         } catch (e) { ctx.notify?.(String(e.message || e), { level: 'warning' }); }
-      } }));
+      } }, icon('Undo2'), t('director-restore')));
     };
     const chips = [['ai-chip-scene'], ['ai-chip-pace'], ['ai-chip-copy'], ['ai-chip-score', TASKS.score], ['ai-chip-sync', TASKS.sync], ['ai-chip-review', TASKS.review]];
     const choose = (key, taskFn) => {
       if (taskFn) void submit({ ...draft, text: t(key) }, taskFn());
       else { draft.text = t(key) + (t.en() ? ': ' : '：'); if (chat) { chat.update({ value: draft.text }); chat.focus(); } else { textarea.value = draft.text; textarea.focus(); } }
     };
-    root.append(h('h3', { text: t('ai-title') }), context, summary, changes,
-      h('div', { class: 'fvs-chips' }, ...chips.map(([key, fn]) => h('button', { text: t(key), onclick: () => choose(key, fn) }))), input);
+    root.append(h('div', { class: 'fvs-panel-shell' },
+      h('div', { class: 'fvs-panel-scroll' }, context, phase,
+        h('div', { class: 'fvs-section' }, h('h4', { text: t('director-quick') }), h('div', { class: 'fvs-chip-row' }, ...chips.map(([key, fn]) => h('button', { type: 'button', class: 'fvs-chip', onclick: () => choose(key, fn) }, t(key))))),
+        changes),
+      h('div', { class: 'fvs-form-actions fvs-director-input' }, input)));
     body.append(root);
     // Older startChat hosts cannot honour the native model picker. Keep their plain prompt adapter.
     if (ctx.ui?.mountChatBox && ctx.tangu?.chatSelection) {
@@ -92,10 +112,10 @@ export function directorController(ctx, state, t, flush) {
       textarea.oninput = () => { draft.text = textarea.value; };
       const send = async () => { if (await submit({ ...draft, text: textarea.value })) textarea.value = ''; };
       textarea.onkeydown = e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } };
-      input.append(textarea, h('button', { class: 'fvs-btn primary', text: t('ai-send'), onclick: send })); textarea.focus();
+      input.append(textarea, h('div', { class: 'fvs-row fvs-send-row' }, h('small', { class: 'fvs-hint', text: t('ai-send-hint') }), h('button', { type: 'button', class: 'fvs-btn primary', onclick: send }, t('ai-send')))); textarea.focus();
     }
     listeners.add(render); render(); void refresh();
-    return () => { listeners.delete(render); chat?.dispose(); root.remove(); };
+    return () => { clearInterval(contextTimer); listeners.delete(render); chat?.dispose(); root.remove(); };
   }
   return { mount, dispose() { disposed = true; clearInterval(timer); listeners.clear(); } };
 }

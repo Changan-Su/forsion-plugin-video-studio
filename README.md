@@ -2,24 +2,26 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-本目录是独立 Git 仓库，版本 **0.4.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+本目录是独立 Git 仓库，版本 **0.5.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
-工作台：左侧搜索并定位场景，中间按视频比例预览，右侧分组编辑属性，下方查看场景和配乐时间线。预览下方可以播放、切换场景、逐帧检查和静音；支持专注预览、面板切换、时间线缩放与高度调整。窄窗口的场景列表可临时展开，属性面板独立滚动。
+工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，下面是时间线。场景只在时间线上出现一次，片段直接显示缩略图；属性、AI 导演和导出在 Space 里用原生 Extend View 打开，在文件标签页和浮窗里是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
 
 一段视频就是一份 `.fvs.md` 工程文件：每个场景是一页网页（HTML + CSS，加一点关键帧脚本），场景首尾相接地排在时间线上，时间线踩在音乐的拍子上。每个场景写着自己的**拍点**，画面在拍点上切，配乐也在拍点上给重音。
 
-- **分镜预览**：场景列表显示同一渲染器生成的真实缩略预览，可见行才加载，悬停播放；仍遵守工程脚本信任和减少动态效果设置。
-- **手动编辑**：实时预览、播放；时间线上拖场景右边缘改长度，拖拍点改切点；双击画面里的文字直接改；右侧面板改场景设置、全部文字、代码和工程设置。撤销、重做、自动保存。
-- **交给 AI**：「问 AI」「配乐」「导出 MP4」把任务交给内置的 **Video Studio 导演** Agent。它直接改这份文件，编辑器自动载入改动，而且可以撤销。文字面板里每一行都有「AI 改写」。
-- **卡点检查**：编辑器分析配乐的重音，时间线上的拍点绿色表示落在重音上，黄色表示没有，蓝色表示切到安静。
-- **导出**：「导出网页视频」立刻写出一个单文件 `.html`（素材和配乐都在里面，双击就能播放）；「导出 MP4」打开原生 Extend View 设置面板，选择尺寸、帧率、画质、区间和配乐，再由导演 Agent 在本机渲染。面板从 CLI 状态文件读取真实进度，支持取消、失败重试和预览成品。任务保存启动时的工程快照；导出过程中继续编辑不会改变这一份渲染。成功后才发布 MP4，失败不会覆盖已有成品。
+- **时间线**：片段显示同一渲染器生成的真实缩略图（只渲染看得见的片段，遵守脚本信任）；每条音轨一条轨道并画出波形，可拖动改起点；时间线缩放、吸附、高度可调。
+- **手动编辑**：实时预览、播放；双击画面里的文字直接改；属性面板改场景设置（长度可选小节、拍、秒）、全部文字、代码和工程设置。撤销、重做、自动保存。
+- **剪辑**：导入图片、视频、音频（按钮或拖进时间线）；在播放头处分割（S / ⌘B）；拖左边缘修剪入点、拖右边缘改长度，相邻场景让位、后面的切点不动，按住 Alt 推移后面全部；拖动片段调整顺序；⌘D 复制、Delete 删除。视频由运行时接管，预览、网页导出和 MP4 逐帧对齐并混入原声。
+- **转场与模板**：八种转场（交叉淡化、经背景色、滑入、推入、擦除、缩放、模糊等）；「新场景」提供十个声明式模板，用当前工程的样式实时预览，横屏竖屏都能用。
+- **交给 AI**：「AI 导演」打开原生 Chat Box，把任务交给内置的 **Video Studio 导演** Agent，选中场景和播放位置会一起发送。它直接改这份文件，编辑器自动载入改动；面板显示任务前后的改动，可以恢复。文字面板里每一行都有「AI 改写」。
+- **卡点检查**：编辑器分析配乐的重音，时间线上的拍点绿色表示落在重音上，黄色表示没有，空心表示切到安静处；「卡点检查」弹层列出偏离的拍点，可以交给 AI 修正。
+- **导出**：「导出网页视频」立刻写出一个单文件 `.html`（图片和配乐内嵌，视频按相对路径引用）；「导出 MP4」打开导出面板，选择尺寸、帧率、画质、区间和声音，再由导演 Agent 在本机渲染。面板从 CLI 状态文件读取真实进度，支持取消、失败重试和预览成品。任务保存启动时的工程快照；导出过程中继续编辑不会改变这一份渲染。成功后才发布 MP4，失败不会覆盖已有成品。
 - **工程文件 AI 读得懂**：它就是 Markdown，里面是 JSON、HTML、CSS、JS 代码块。格式和场景 API 写在内置技能 `forsion-video-studio` 里。
 
 ## 原生工作室 Space
 
-插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；工程标题可以打开 Extend View 工程选择器，预览右上角的属性按钮打开原生 Extend View 属性面板，「问 AI」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
+插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；片名可以打开 Extend View 工程选择器，走带右侧的属性按钮（或双击片段）打开原生 Extend View 属性面板，「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
 
-主工作台的窗口按钮可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
+主工作台的「更多」菜单可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
 
 默认文件名 `新视频` 和示例目录 `第 2.12 话` 固定，界面文字随语言变化，避免切语言后出现两份示例目录。
 
@@ -105,7 +107,9 @@ forsion-video-studio/
 npm ci && npm run build           # src/ → main.js、runtime/fvs-runtime.js、tools/fvs.mjs
 npm run check                    # 宿主契约、单元测试和完整示例 CLI 检查
 npx playwright-core install chromium  # 首次运行界面测试时安装浏览器
-npm run test:ui                  # Chromium：编辑、撤销、导出、导航、缩放、深浅/窄窗口和英文
+npm run test:ui                  # Chromium：编辑、撤销、导出、分割/修剪/排序/转场/导入、窄窗口和英文
+node test/i18n.test.mjs          # 界面文案中英成对、英文不含汉字
+node test/shots.mjs              # 加载 Genesis 真实 token 的亮暗 / Space / 窄窗截图（人工看）
 npm run install:dev              # 构建和自检后完整安装到 ~/.forsion-dev/plugins/
 npm run verify:dev               # 原生主题、播放、窄窗口和工程完整性
 npm run verify:space             # 真 Space / Extend / Mini / Floating / 待保存切换和生命周期
@@ -130,7 +134,8 @@ An AI-assisted editor for videos made of animated web pages; the Forsion 2.12 pr
 is one `.fvs.md` project file: scenes are web pages, they play back to back on a timeline that sits on the
 music's beat grid, and each scene lists its **hits** — the picture cuts on them and the score accents them.
 
-Edit by hand (live preview, drag scene edges and hits on the timeline, double-click text in the picture,
-panels for scene settings, text, code and project), hand work to the bundled **Video Studio Director** agent
+Edit by hand (live preview, double-click text in the picture, panels for scene settings, text, code and project),
+cut like a clip editor (import pictures, video and sound, split at the playhead, trim either end, reorder by dragging,
+crossfades and other transitions, ten scene templates), hand work to the bundled **Video Studio Director** agent
 (write scenes, score, check sync, render MP4), and export a single-file web video or an MP4. The format and
 the scene API are documented in the bundled skill; `examples/episode-2.12` is a complete project.

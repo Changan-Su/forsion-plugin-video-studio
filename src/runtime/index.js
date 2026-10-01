@@ -1,6 +1,7 @@
 // Page bootstrap for the three page modes (see lib/compile.js buildHtml).
 import { mount, timeExpr } from './player.js';
 import { EASE, prog, rng, createStage } from './engine.js';
+import { payloadSegments } from '../lib/compile.js';
 
 const PLAYER_CSS = `
 html,body{margin:0;background:#0b0b0b;color:#e8e6e1;font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif}
@@ -28,16 +29,23 @@ function payloadFromPage() {
   return JSON.parse(el.textContent);
 }
 
-/** A clock that runs on its own and keeps the audio tracks in step with it. */
+/**
+ * A clock that runs on its own and keeps the audio segments (lib/compile.js audioSegments) in step with it:
+ * a segment plays file time in + (t - at) while at ≤ t < at + dur.
+ */
 function makeClock(P, audios, length, onEnd) {
   let playing = false, base = 0, startedAt = 0;
   const now = () => (playing ? Math.min(length, base + (performance.now() - startedAt) / 1000) : base);
   const sync = force => {
     const t = now();
-    for (const { el, at } of audios) {
-      const want = t - at;
-      if (!playing || want < 0 || want > (el.duration || Infinity)) { if (!el.paused) el.pause(); if (want < 0 && el.currentTime) el.currentTime = 0; continue; }
-      if (force || Math.abs(el.currentTime - want) > .08) el.currentTime = want;
+    for (const a of audios) {
+      const { el } = a, D = el.duration, looping = a.loop && D > 0 && Number.isFinite(D);
+      let want = t - a.at + a.in;
+      if (looping) want = ((want % D) + D) % D;
+      const off = a.dur != null && t >= a.at + a.dur;
+      if (!playing || t < a.at || off || want > (D || Infinity)) { if (!el.paused) el.pause(); if (t < a.at && el.currentTime !== a.in) el.currentTime = a.in; continue; }
+      const d = Math.abs(el.currentTime - want);
+      if (force || (looping ? Math.min(d, D - d) : d) > .08) el.currentTime = want;
       if (el.paused) el.play().catch(() => {});
     }
   };
@@ -71,7 +79,10 @@ function bootPlayer(P) {
   frame.setAttribute('aria-label', P.title || 'video');
   const stage = mount(P, frame);
   fit(stage, frame, P);
-  const audios = P.audio.map(a => { const el = new Audio(a.url); el.preload = 'auto'; el.volume = Math.min(1, 10 ** ((a.gain || 0) / 20)); return { el, at: a.at || 0 }; });
+  const audios = payloadSegments(P).filter(a => !a.mute).map(a => {
+    const el = new Audio(a.url); el.preload = 'auto'; el.loop = !!a.loop; el.volume = Math.min(1, 10 ** ((a.gain || 0) / 20));
+    return { el, at: a.at, in: a.in, dur: a.dur, loop: !!a.loop };
+  });
   const btn = app.querySelector('.fvs-play'), seekEl = app.querySelector('input'), out = app.querySelector('output');
   seekEl.max = P.length;
   const clock = makeClock(P, audios, P.length);
@@ -91,13 +102,14 @@ function bootPlayer(P) {
     if (e.code === 'ArrowRight') clock.seek(clock.now() + 2);
     if (e.code === 'ArrowLeft') clock.seek(clock.now() - 2);
   });
-  let last = -1;
+  let last = -1, rolling = null;
   const poster = P.scenes.length ? Math.min(P.length, (P.scenes[Math.min(1, P.scenes.length - 1)].t0 + .8)) : 0;
   let started = false;
   const loop = () => {
     clock.tick();
     const t = started || clock.playing ? clock.now() : poster;
     if (clock.playing) started = true;
+    if (clock.playing !== rolling) { rolling = clock.playing; stage.transport(rolling); }
     if (t !== last) { stage.seek(t); last = t; }
     seekEl.value = t; out.textContent = `${fmt(t)} / ${fmt(P.length)}`;
     btn.textContent = clock.playing ? '❚❚ 暂停' : '▶ 播放';
@@ -109,16 +121,21 @@ function bootPlayer(P) {
   window.__fvs = { stage, clock };
 }
 
+/**
+ * The renderer's page: the bare stage at 1:1. window.__stage.seek(t) returns a promise when the project has
+ * videos (it resolves once each on-screen clip shows its exact frame); ready() waits for fonts, images and
+ * the videos' first frames. Failures land in __stage.errors.
+ */
 function bootCapture(P) {
   document.documentElement.style.background = '#000';
   document.body.style.margin = '0';
-  const stage = mount(P, document.body);
+  const stage = mount(P, document.body, { media: 'capture' });
   stage.root.style.transform = 'none';
   stage.seek(0);
   window.__stage = {
-    w: P.width, h: P.height, dur: P.length, fps: P.fps, errors: stage.errors, audio: P.audio,
+    w: P.width, h: P.height, dur: P.length, fps: P.fps, errors: stage.errors, audio: P.audio, media: P.media || [],
     seek: t => stage.seek(t),
-    ready: () => document.fonts.ready.then(() => Promise.all([...document.images].map(i => (i.complete ? 0 : i.decode().catch(() => 0))))),
+    ready: () => document.fonts.ready.then(() => Promise.all([...[...document.images].map(i => (i.complete ? 0 : i.decode().catch(() => 0))), stage.ready()])),
   };
 }
 
@@ -126,10 +143,13 @@ const RAW_PARENT = /^(SCRIPT|STYLE|TEXTAREA|TITLE)$/i;
 
 /**
  * The Studio's preview: a sandboxed iframe (no same-origin), driven over postMessage.
- *   in:  { fvs: 'seek', t } · { fvs: 'outline', scene, text?, img? } · { fvs: 'mode', edit }
+ *   in:  { fvs: 'seek', t } · { fvs: 'transport', playing } · { fvs: 'outline', scene, text?, img? } · { fvs: 'mode', edit }
  *   out: { fvs: 'ready', length, errors, texts: {scene: n}, imgs: {scene: n} } · { fvs: 'pick', scene, text?, img?, rect, dbl }
+ *        { fvs: 'media-error', scene, src } once per video that fails (src = the project-relative path)
  * Text runs are numbered right after each scene's markup is parsed, before its script runs, in the same
  * order lib/html.js scans the source, so a pick names a run the Studio can rewrite in the file.
+ * Videos play natively while seeks step forward (≤ 0.3 s) and hold their exact frame otherwise; send
+ * transport { playing: false } when playback stops so they pause at once.
  */
 function bootEmbed(P) {
   document.documentElement.style.cssText = 'background:#141414;height:100%;overflow:hidden';
@@ -153,10 +173,10 @@ function bootEmbed(P) {
     imgs.forEach((im, k) => imgOf.set(im, k));
     index[sc.id] = { texts, imgs };
   };
-  const stage = mount(P, frame, { onScene });
+  const post = m => parent.postMessage({ fvs: m.type, ...m, type: undefined }, '*');
+  const stage = mount(P, frame, { onScene, onMediaError: (scene, src) => post({ type: 'media-error', scene, src }) });
   const fit = () => { stage.root.style.transform = `scale(${frame.clientWidth / P.width})`; };
   new ResizeObserver(fit).observe(frame); fit();
-  const post = m => parent.postMessage({ fvs: m.type, ...m, type: undefined }, '*');
   let now = 0;
   stage.seek(0);
 
@@ -188,6 +208,7 @@ function bootEmbed(P) {
   window.addEventListener('message', e => {
     const m = e.data || {};
     if (m.fvs === 'seek') { now = m.t; stage.seek(m.t); }
+    else if (m.fvs === 'transport') stage.transport(!!m.playing);
     else if (m.fvs === 'outline') {
       const ix = index[m.scene];
       const el = !ix ? null : m.img != null ? ix.imgs[m.img] : m.text != null && ix.texts[m.text] ? ix.texts[m.text].el : null;
