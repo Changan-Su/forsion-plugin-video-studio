@@ -117,5 +117,7 @@ export function directorController(ctx, state, t, flush) {
     listeners.add(render); render(); void refresh();
     return () => { clearInterval(contextTimer); listeners.delete(render); chat?.dispose(); root.remove(); };
   }
-  return { mount, dispose() { disposed = true; clearInterval(timer); listeners.clear(); } };
+  // text the next mount starts with (an idea from the launchpad); nothing is sent until the person sends it
+  const seed = text => { draft = { ...draft, text: String(text) }; };
+  return { mount, seed, dispose() { disposed = true; clearInterval(timer); listeners.clear(); } };
 }

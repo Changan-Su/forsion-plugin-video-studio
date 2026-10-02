@@ -26,8 +26,8 @@ async function remember(path) {
 
 /** Create a project from the starter template in `folder` and (by default) open it. */
 async function createProject(folder, open = true) {
-  // Persisted default names stay identical when the user changes UI language.
-  const base = '新视频';
+  // a name written to disk follows the interface language (新视频 / New video), like the rest of Forsion
+  const base = t('default-name');
   let path = joinPath(folder || '', `${base}${EXT}`);
   for (let k = 2; await exists(path); k++) path = joinPath(folder || '', `${base} ${k}${EXT}`);
   await app.writeFile(path, evaTemplate({ title: base, zh: !t.en() }));

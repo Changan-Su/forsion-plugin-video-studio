@@ -21,7 +21,9 @@ export { h, dirOf, joinPath, mimeOf, b64 };
 const fmtTime = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 const typing = e => { const x = e.target; return x && (x.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(x.tagName)); };
 const STREAM = /\.(mp4|m4v|webm|mov|ogv)$/i;
-const KIND = name => (/\.(mp4|m4v|webm|mov)$/i.test(name) ? 'video' : /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(name) ? 'image' : /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name) ? 'audio' : /\.(srt|vtt)$/i.test(name) ? 'captions' : null);
+// a file dragged out of the media bin (the Space's left side): { path } in the vault
+export const BIN_MIME = 'application/x-fvs-media';
+export const KIND = name => (/\.(mp4|m4v|webm|mov)$/i.test(name) ? 'video' : /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(name) ? 'image' : /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name) ? 'audio' : /\.(srt|vtt)$/i.test(name) ? 'captions' : null);
 const MOD = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent || '') ? '⌘' : 'Ctrl+';
 const RULER_H = 24, CAPTION_H = 32, VIDEO_H = 64, AUDIO_H = 44; // track order: what sits on the picture is drawn above it
 // In a Space the properties panel opens with each project until the person closes it (for this session).
@@ -1202,10 +1204,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     }
     throw new Error(`no free name for ${name}`);
   }
-  function mediaDuration(file) {
+  /** Seconds of a clip: a File being imported, or the URL of one in the vault. */
+  function mediaDuration(source) {
+    if (!source) return Promise.resolve(0);
     return new Promise(resolve => {
-      const url = URL.createObjectURL(file), v = document.createElement('video');
-      const done = x => { clearTimeout(timer); URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(x); };
+      const local = typeof source !== 'string', url = local ? URL.createObjectURL(source) : source, v = document.createElement('video');
+      const done = x => { clearTimeout(timer); if (local) URL.revokeObjectURL(url); v.removeAttribute('src'); resolve(x); };
       const timer = setTimeout(() => done(0), 8000);
       v.preload = 'metadata'; v.muted = true;
       v.onloadedmetadata = () => done(Number.isFinite(v.duration) ? v.duration : 0);
@@ -1213,17 +1217,37 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       v.src = url;
     });
   }
+  /** Put a file of the project (`rel`, relative to it) into the cut: a picture or clip becomes a scene after
+   *  `after`, a sound an audio track starting at `at` seconds. The new scene's id, 'track', or null. */
+  async function placeMedia(rel, kind, { after = insertAfter(), at = 0, title = rel.split('/').pop().replace(/\.[^.]+$/, ''), duration = () => 0 } = {}) {
+    if (kind === 'audio') {
+      const list = rawTracks(), track = { src: rel, role: list.length ? 'track' : 'score', ...(at > 0 ? { at: Math.round(at * 1000) / 1000 } : {}) };
+      return tryCommit(src => P.setProjectMeta(src, { audio: [...list, track] })) ? 'track' : null;
+    }
+    const seconds = kind === 'video' ? await duration() : 0;
+    const id = P.freeId(S.p, kind === 'video' ? 'clip' : 'picture');
+    const scene = mediaScene({ id, title, src: rel, kind, seconds: seconds || 5, tempo: S.p.tempo });
+    return tryCommit(src => P.insertScene(src, after, scene)) ? id : null;
+  }
+  /** A file from the media bin (vault path `vp`): dropped at a cut, or double-clicked to the playhead. */
+  async function placeFromBin(vp, after, at) {
+    const dir = dirOf(path), rel = !dir ? vp : vp.startsWith(`${dir}/`) ? vp.slice(dir.length + 1) : '', kind = KIND(rel);
+    if (!['image', 'video', 'audio'].includes(kind)) { notify(ctx, t('bin-outside'), 'warn'); return; }
+    const got = await placeMedia(rel, kind, { after, at, duration: () => mediaDuration(app.assetUrl?.(vp)) });
+    if (got && got !== 'track') selectScene(got);
+  }
   let imports = Promise.resolve();
-  function importFiles(files, afterId) {
-    const job = imports.then(() => importBatch(files, afterId));
+  function importFiles(files, afterId, place = true) {
+    const job = imports.then(() => importBatch(files, afterId, place));
     imports = job.catch(() => {});
     return job;
   }
-  async function importBatch(files, afterId) {
+  /** Copy files into the project's media/ or audio/ folder and, unless `place` is false, into the cut. */
+  async function importBatch(files, afterId, place = true) {
     if (!files.length || S.disposed) return;
     let existing = null;
     try { const list = await app.listFiles?.(); existing = list ? new Set(list) : null; } catch { existing = null; }
-    let after = afterId !== undefined ? afterId : insertAfter(), added = null, tracks = 0;
+    let after = afterId !== undefined ? afterId : insertAfter(), added = null, tracks = 0, stored = 0;
     for (const file of files) {
       const kind = KIND(file.name);
       if (!kind) { notify(ctx, t('import-skip', { name: file.name }), 'warn'); continue; }
@@ -1233,28 +1257,23 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         const rel = await freeRel(kind === 'audio' ? 'audio' : 'media', sanitize(file.name), existing);
         await app.writeBytes(joinPath(dirOf(path), rel), new Uint8Array(await file.arrayBuffer()));
         existing?.add(joinPath(dirOf(path), rel));
-        if (kind === 'audio') {
-          const list = rawTracks();
-          if (tryCommit(src => P.setProjectMeta(src, { audio: [...list, { src: rel, role: list.length ? 'track' : 'score' }] }))) tracks++;
-          continue;
-        }
-        const seconds = kind === 'video' ? await mediaDuration(file) : 0;
-        const id = P.freeId(S.p, kind === 'video' ? 'clip' : 'picture');
-        const scene = mediaScene({ id, title: file.name.replace(/\.[^.]+$/, ''), src: rel, kind, seconds: seconds || 5, tempo: S.p.tempo });
-        if (tryCommit(src => P.insertScene(src, after, scene))) { after = id; added = id; }
+        if (!place) { stored++; continue; }
+        const got = await placeMedia(rel, kind, { after, title: file.name.replace(/\.[^.]+$/, ''), duration: () => mediaDuration(file) });
+        if (got === 'track') tracks++; else if (got) { after = got; added = got; }
       } catch (e) { notify(ctx, String(e && e.message || e), 'warn'); }
     }
     if (added) selectScene(added);
-    if (added || tracks) notify(ctx, t('imported'));
+    if (added || tracks || stored) notify(ctx, t('imported'));
   }
   /* files dropped on the stage or the timeline; on the timeline they land at the nearest cut */
   let dropHint = null;
-  const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
+  // files from the computer, or one from the media bin
+  const dragged = e => { const types = [...(e.dataTransfer?.types || [])]; return types.includes(BIN_MIME) ? 'bin' : types.includes('Files') ? 'files' : null; };
   // on the editor and, while the timeline is docked, on the bottom panel that holds it; returns the unbinder
   function acceptDrops(box) {
     const endDrop = () => { box.classList.remove('dropping'); dropHint?.remove(); dropHint = null; };
     const over = e => {
-      if (!hasFiles(e) || opts.compact) return;
+      if (!dragged(e) || opts.compact) return;
       e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
       box.classList.add('dropping');
       if (scroller.contains(e.target)) {
@@ -1267,12 +1286,16 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     };
     const leave = e => { if (!box.contains(e.relatedTarget)) endDrop(); };
     const drop = e => {
-      if (!hasFiles(e) || opts.compact) return;
+      const from = dragged(e);
+      if (!from || opts.compact) return;
       e.preventDefault();
       const k = dropHint ? +dropHint.dataset.index : null;
       endDrop();
       const afterId = k === null ? undefined : k === 0 ? '' : S.p.scenes[k - 1].id;
-      void importFiles([...e.dataTransfer.files], afterId);
+      if (from === 'files') { void importFiles([...e.dataTransfer.files], afterId); return; }
+      let vp = ''; try { vp = JSON.parse(e.dataTransfer.getData(BIN_MIME)).path || ''; } catch { vp = ''; }
+      // a sound starts at the cut it was dropped on (on the stage: at the playhead)
+      if (vp) void placeFromBin(vp, afterId, k === null ? S.time : k < S.p.scenes.length ? S.p.scenes[k].t0 : S.p.length);
     };
     box.addEventListener('dragover', over); box.addEventListener('dragleave', leave); box.addEventListener('drop', drop);
     return () => { endDrop(); box.removeEventListener('dragover', over); box.removeEventListener('dragleave', leave); box.removeEventListener('drop', drop); };
@@ -1348,6 +1371,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       !opts.compact && opts.openFloating ? { icon: 'AppWindow', label: t('floating-workspace'), run: opts.openFloating } : null,
       { icon: 'Music2', label: t('score'), hint: t('score-hint'), run: () => void handOff(ctx, S, TASKS.score(), t) },
       { icon: 'Eye', label: t('ai-chip-review'), run: () => void handOff(ctx, S, TASKS.review(), t) },
+      ...(opts.closeProject ? ['-', { icon: 'X', label: t('close-project'), run: () => void opts.closeProject() }] : []),
     ], { label: t('more'), align: 'end' });
   }
   async function exportWeb() {
@@ -1752,7 +1776,11 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   // The bottom panel's timeline view borrows `timeline` while it is mounted (shell = its container), else the strip shows.
   let dockShell = null, dockKeys = null, dockDrops = null;
   const undock = opts.dock?.studio({
-    timeline,
+    timeline, path,
+    // the media bin's side of the link
+    text: () => S.text,
+    store: files => importFiles(files, undefined, false),
+    place: vp => { const s = sceneUnderPlayhead(); return placeFromBin(vp, s ? s.id : '', S.time); },
     attach(shell) {
       // the panel closing takes the focused timeline with it: give the keys back to the editor, not to the page
       const a = document.activeElement, lost = !!dockShell && (!a || a === document.body || dockShell.contains(a));
@@ -1778,7 +1806,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   ro.observe(root); ro.observe(viewport); ro.observe(scroller); // (the scroller: the bottom panel resizes on its own)
   layout();
 
-  load();
+  // a project made from the launchpad with an idea: the idea waits in the Director for the person to send
+  void load().then(() => { if (opts.idea && !S.disposed && S.p.scenes.length) { director.seed(opts.idea); openAsk(); opts.ideaTaken?.(); } });
   raf = requestAnimationFrame(loop);
   const dispose = () => {
     commitFocusedField();

@@ -88,7 +88,7 @@ for (const dark of [false, true]) {
   if (errors.length) console.log('page errors:', errors);
   await page.close();
 }
-// 2. Space (the plugin's own space.json): projects left, stage in main, properties right, timeline in the bottom panel
+// 2. Space (the plugin's own space.json): media bin left, stage in main, properties right, timeline in the bottom panel
 const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/space.json'), 'utf8')).layout;
 for (const dark of [true]) {
   const { page, errors } = await open({ width: 1600, height: 960 }, { dark, text: CAPTIONED });
@@ -109,6 +109,18 @@ for (const dark of [true]) {
   await page.click('.fvs-export-action'); await page.click('.fvs-menu button'); await shot(page, '10-space-export');
   await page.keyboard.press('Escape');
   await page.click('.host-bottom-close'); await shot(page, '10b-space-timeline-closed');
+  if (errors.length) console.log('page errors:', errors);
+  await page.close();
+}
+// 2b. no project: the Space's launch layout (navigation, project list) and the create page, dark and in English
+for (const [dark, locale] of [[true, 'zh'], [false, 'en']]) {
+  const { page, errors } = await open({ width: 1600, height: 960 }, { dark, locale });
+  await page.evaluate(() => HOST.ctx.saveData({ ...HOST.data, last: null }));
+  await page.evaluate(r => HOST.space(null, r), RECIPE);
+  await page.waitForSelector('.fvs-launch-row');
+  await shot(page, `12-launch-${dark ? 'dark' : locale}`);
+  await page.click('.fvs-nav [data-nav="create"]'); await page.waitForSelector('.fvs-launch-card');
+  await shot(page, `13-create-${dark ? 'dark' : locale}`);
   if (errors.length) console.log('page errors:', errors);
   await page.close();
 }

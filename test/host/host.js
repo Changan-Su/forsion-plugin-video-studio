@@ -14,6 +14,7 @@ window.HOST = (() => {
     writeFile: async (p, t) => { files.set(p, String(t)); },
     readBytes: async p => { const v = files.get(p); return v === undefined ? null : typeof v === 'string' ? enc.encode(v) : v; },
     writeBytes: async (p, b) => { files.set(p, b instanceof Uint8Array ? b : new Uint8Array(b)); },
+    listFiles: async () => [...files.keys()],
     assetUrl: p => `${location.origin}/vault/${encodeURIComponent(p)}`,
     hostPath: p => `/home/me/Vault/${p}`,
     vaultRoot: () => '/home/me/Vault',
@@ -55,9 +56,11 @@ window.HOST = (() => {
    * 'replace'), the same id refocuses it, × and Escape dismiss, a hidden owner closes it ('owner') and refuses
    * to open one, and a freshly shown panel focuses its first control once rendering settles.
    * With a recipe (the plugin's space.json `layout`) it is a newer host: the main view gets the recipe's params,
-   * `layout.bottom` mounts in a bottom panel under the main area (closing it unmounts the view, as the
-   * host's collapse does), ctx.viewLocations includes 'bottom' and ctx.openView docks there. `oldHost` is a
-   * host from before that: it passes the main params but ignores layout.bottom and has neither of the two.
+   * `layout.left` mounts in the left side, `layout.bottom` in a bottom panel under the main area (closing it
+   * unmounts the view, as the host's collapse does), ctx.viewLocations includes 'bottom', ctx.openView docks there,
+   * and ctx.replaceView / ctx.closeView swap or close the plugin's own views in place (one view per side here).
+   * `oldHost` is a host from before that: it passes the main params and mounts layout.left, but ignores
+   * layout.bottom and has none of the rest. `file` null: the Space opens with no project in its params.
    */
   let space = null;
   function openSpace(file, recipe = null, { oldHost = false } = {}) {
@@ -65,10 +68,10 @@ window.HOST = (() => {
     const shell = document.createElement('div');
     shell.className = 'host-space';
     shell.style.cssText = 'position:fixed;inset:0;display:grid;grid-template-columns:220px minmax(0,1fr) auto;grid-template-rows:minmax(0,1fr) auto;gap:6px;padding:6px;background:var(--bg)';
-    shell.innerHTML = '<nav style="grid-area:1/1/3/2;border-radius:var(--radius-lg,12px);background:var(--sidebar-bg,var(--bg));padding:14px;font:13px var(--font-ui,sans-serif);color:var(--text-muted)"><button class="host-list-row" style="all:unset;cursor:pointer">视频工程</button></nav><main style="grid-area:1/2/2/3;position:relative;border-radius:var(--radius-lg,12px);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden"></main><aside class="host-extend" style="grid-area:1/3/3/4;display:none;width:340px;border-radius:var(--radius-lg,12px);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden;grid-template-rows:auto minmax(0,1fr)"></aside>'
+    shell.innerHTML = '<section class="host-left" style="grid-area:1/1/3/2;display:grid;grid-template-rows:auto minmax(0,1fr);border-radius:var(--radius-lg,12px);background:var(--sidebar-bg,var(--bg));overflow:hidden"><div style="padding:8px 14px 0;font:12px var(--font-ui,sans-serif);color:var(--text-muted)"><button class="host-list-row" style="all:unset;cursor:pointer">侧栏</button></div><div class="host-left-body" style="min-height:0;overflow:hidden"></div></section><main style="grid-area:1/2/2/3;position:relative;border-radius:var(--radius-lg,12px);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden"></main><aside class="host-extend" style="grid-area:1/3/3/4;display:none;width:340px;border-radius:var(--radius-lg,12px);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden;grid-template-rows:auto minmax(0,1fr)"></aside>'
       + '<section class="host-bottom" style="grid-area:2/2/3/3;display:none;height:290px;border-radius:var(--radius-lg,12px);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden;grid-template-rows:auto minmax(0,1fr)"><div style="display:flex;align-items:center;gap:8px;padding:6px 10px 2px 14px;font:500 12px var(--font-ui,sans-serif);color:var(--text)"><span class="host-bottom-tab"></span><span style="flex:1"></span><button class="host-bottom-close" aria-label="收起底部面板" style="border:0;background:none;color:var(--text-muted);font-size:15px">×</button></div><div class="host-bottom-body" style="min-height:0;overflow:hidden"></div></section>';
     document.body.append(shell);
-    const main = shell.querySelector('main'), side = shell.querySelector('aside'), bottom = shell.querySelector('.host-bottom');
+    const main = shell.querySelector('main'), side = shell.querySelector('aside'), bottom = shell.querySelector('.host-bottom'), left = shell.querySelector('.host-left-body');
     let entry = null, visible = true;
     const log = [];
     const close = reason => {
@@ -129,16 +132,43 @@ window.HOST = (() => {
       log.push(`bottom:${id}:open`);
     };
     bottom.querySelector('.host-bottom-close').onclick = closeBottom;
+    // the left side: one plugin view at a time (enough for the Space's navigation ⇄ media bin)
+    let leftView = null;
+    const closeLeft = () => {
+      const d = leftView; if (!d) return;
+      leftView = null;
+      try { d.cleanup?.(); } catch (e) { console.error(e); }
+      left.replaceChildren(); log.push(`left:${d.id}:close`);
+    };
+    const openLeft = id => {
+      if (leftView?.id === id) return;
+      closeLeft();
+      const v = reg.views.find(x => x.id === id); if (!v) return;
+      leftView = { id, cleanup: v.mount(left, { surface: 'main', getParams: () => ({}), setParams() {}, onParamsChanged: () => () => {} }) || null };
+      log.push(`left:${id}:open`);
+    };
     const bottomPanel = !!recipe && !oldHost;
     ctx.viewLocations = bottomPanel ? ['main', 'left', 'right', 'bottom'] : undefined;
-    ctx.openView = (id, o) => { if (o?.location === 'bottom' && bottomPanel) openBottom(id); };
-    let params = { ...(recipe?.main?.[0]?.params || {}), filePath: file };
+    ctx.openView = (id, o) => { if (o?.location === 'bottom' && bottomPanel) openBottom(id); else if (o?.location === 'left') openLeft(id); };
+    if (bottomPanel) {
+      ctx.replaceView = (from, to) => {
+        let n = 0;
+        if (leftView?.id === from) { openLeft(to); n++; }
+        if (docked?.id === from) { openBottom(to); n++; }
+        return n;
+      };
+      ctx.closeView = id => { if (docked?.id === id) closeBottom(); if (leftView?.id === id) closeLeft(); };
+    } else { delete ctx.replaceView; delete ctx.closeView; }
+    let params = { ...(recipe?.main?.[0]?.params || {}), ...(file ? { filePath: file } : {}) };
     const view = reg.views.find(v => v.id === 'studio');
     view.mount(main, { surface: 'main', extendView, getParams: () => params, setParams: p => { params = { ...params, ...p }; }, onParamsChanged: () => () => {}, showInMainPanel() {} });
-    if (bottomPanel) for (const item of recipe.bottom || []) openBottom(viewId(item.type)); // the host builds main first, then the panels
+    // the host builds main first, then the panels
+    for (const item of recipe?.left || []) openLeft(viewId(item.type));
+    if (bottomPanel) for (const item of recipe.bottom || []) openBottom(viewId(item.type));
     space = {
-      log, main, side, bottom, current: () => entry?.options.id || null,
+      log, main, side, bottom, left, current: () => entry?.options.id || null, get params() { return params; },
       openBottom, closeBottom, get docked() { return docked?.id || null; },
+      openLeft, closeLeft, get leftView() { return leftView?.id || null; },
       // keepSize: hidden without a size change (visibility), so only an interaction shows the editor is back
       hide({ keepSize = false } = {}) { visible = false; if (keepSize) main.style.visibility = 'hidden'; else main.style.display = 'none'; close('owner'); },
       show() { visible = true; main.style.display = ''; main.style.visibility = ''; },

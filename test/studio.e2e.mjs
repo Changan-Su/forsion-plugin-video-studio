@@ -195,9 +195,9 @@ await shot(page, '10-new');
 // 12. A new English workspace localizes both controls and project filename.
 await page.evaluate(() => { HOST.locale = 'en'; return HOST.reg.creators[0].run('Videos'); });
 await ready();
-assert.match(await page.evaluate(() => HOST.calls.openFile.at(-1)), /新视频(?: \d+)?\.fvs\.md$/);
+assert.match(await page.evaluate(() => HOST.calls.openFile.at(-1)), /\/New video(?: \d+)?\.fvs\.md$/, 'the default name follows the interface language');
 const chromeText = await page.locator('.fvs-bar').innerText();
-assert.doesNotMatch(chromeText.replace(/新视频(?: \d+)?/g, ''), /[\u4e00-\u9fff]/);
+assert.doesNotMatch(chromeText, /[\u4e00-\u9fff]/);
 assert.equal(await page.getByRole('button', { name: 'Next scene', exact: true }).count(), 1);
 await shot(page, '13-english');
 
@@ -233,6 +233,7 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 10000 });
   assert.equal(await sp.locator('.fvs-studio .fvs-tl').count(), 1, 'without a bottom panel the editor keeps its timeline');
   assert.equal(await sp.locator('.fvs-dock-strip').count(), 0);
+  assert.equal(await sp.locator('.host-left .fvs-nav').count(), 1, 'an older host keeps the navigation on the left (no replaceView, no bin)');
   await settled();
   assert.equal(await sp.evaluate(() => document.activeElement?.className), 'host-list-row', 'opening by itself leaves the keyboard where it was');
   const toggle = sp.getByRole('button', { name: '属性面板', exact: true });
@@ -314,6 +315,8 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, recipe]);
   await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
   await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 10000 });
+  await sp.waitForSelector('.host-left .fvs-bin', { timeout: 5000 }).catch(() => assert.fail('the left side shows the media bin'));
+  assert.equal(await sp.locator('.host-left .fvs-nav').count(), 0, 'with a project open the navigation gave way to the media bin');
   assert.equal(await sp.locator('.host-space main .fvs-tl').count(), 0, 'the editor keeps no timeline of its own');
   assert.equal(await sp.locator('.fvs-dock-strip').isVisible(), false);
   assert.equal(await sp.locator('.fvs-dock-empty').isVisible(), false);
@@ -459,6 +462,146 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.evaluate(() => { const el = document.querySelector('#note .fvs-embed'), at = el.parentElement; el.remove(); at.append(el); });
   const after = await poster();
   assert.ok(after.includes('boot'), `a moved embed shows its poster again (on screen: ${after.join() || 'nothing'})`);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
+// 16. Like Coding Studio: with no project the Space shows its navigation on the left and the launchpad in the main
+// area, and no timeline; creating (or opening) a project jumps to the project layout — the media bin on the left,
+// the timeline at the bottom — and closing the project jumps back.
+{
+  const { sp, serr } = await spacePage();
+  await sp.evaluate(() => HOST.ctx.saveData({ ...HOST.data, last: null }));
+  await sp.evaluate(r => HOST.space(null, r), RECIPE);
+  await sp.waitForSelector('.host-left .fvs-nav');
+  await sp.waitForSelector(`.fvs-launch .fvs-launch-row[data-project-path="${FILE}"]`, { timeout: 10000 });
+  assert.equal(await sp.evaluate(() => HOST.spaceState.docked), null, 'no project, no timeline at the bottom');
+  assert.equal(await sp.getAttribute('.fvs-nav [data-nav="projects"]', 'aria-current'), 'page');
+  assert.equal(await sp.locator('.fvs-studio').count(), 0);
+  assert.match(await sp.locator(`.fvs-launch-row[data-project-path="${FILE}"]`).innerText(), /1440 × 1080[\s\S]*1:34/, 'a row shows the frame and the length');
+  await shot(sp, '19-launch');
+  // the navigation turns the page, and the keyboard goes with it
+  await sp.click('.fvs-nav [data-nav="create"]');
+  await sp.waitForSelector('.fvs-launch-card');
+  assert.equal(await sp.getAttribute('.fvs-nav [data-nav="create"]', 'aria-current'), 'page');
+  assert.ok(await sp.evaluate(() => document.activeElement?.classList.contains('fvs-launch-idea')), 'turning the page moves the keyboard to it');
+  // names that break a folder, and a folder that exists, are refused before anything is written
+  const count = () => sp.evaluate(() => HOST.files.size);
+  await sp.evaluate(() => HOST.files.set('Forsion Video Studio/宣传片/notes.md', '# notes'));
+  const files0 = await count();
+  await sp.fill('.fvs-launch-name input', 'a/b');
+  await sp.click('.fvs-launch-create');
+  await sp.waitForSelector('.fvs-launch-error:not([hidden])');
+  assert.equal(await sp.getAttribute('.fvs-launch-name input', 'aria-invalid'), 'true');
+  await sp.fill('.fvs-launch-name input', '宣传片');
+  assert.equal(await sp.locator('.fvs-launch-error').isVisible(), false, 'typing clears the error');
+  await sp.click('.fvs-launch-create');
+  await sp.waitForFunction(() => /同名/.test(document.querySelector('.fvs-launch-error:not([hidden])')?.textContent || ''));
+  assert.equal(await count(), files0, 'nothing written');
+  // a portrait project with an idea: its own folder, the frame picked, the idea waiting in the Director
+  await sp.fill('.fvs-launch-name input', '新品发布');
+  await sp.click('.fvs-launch-aspect:has-text("竖屏")');
+  await sp.fill('.fvs-launch-idea', '一支 15 秒的竖屏新品预告');
+  assert.match(await sp.locator('.fvs-launch-note').first().innerText(), /Forsion Video Studio\/新品发布\//, 'the page says where it goes');
+  await shot(sp, '20-create');
+  await sp.click('.fvs-launch-create');
+  const made = 'Forsion Video Studio/新品发布/新品发布.fvs.md';
+  await sp.waitForSelector('.host-left .fvs-bin', { timeout: 10000 }).catch(() => assert.fail('creating a project jumps to the media bin'));
+  const madeText = await sp.evaluate(p => HOST.text(p), made);
+  assert.match(madeText, /"title": "新品发布"/);
+  assert.match(madeText, /"width": 1080/); assert.match(madeText, /"height": 1920/);
+  assert.ok((await sp.evaluate(() => HOST.data.trusted)).includes(made), 'its preview may run');
+  assert.equal(await sp.evaluate(() => HOST.data.last), made);
+  assert.equal(await sp.locator('.host-left .fvs-nav').count(), 0, 'the navigation gave way to the media bin');
+  assert.equal(await sp.evaluate(() => HOST.spaceState.docked), 'timeline', 'the timeline came to the bottom');
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip');
+  await sp.waitForSelector('.host-extend .fvs-director-panel textarea', { timeout: 5000 });
+  assert.equal(await sp.inputValue('.host-extend .fvs-director-panel textarea'), '一支 15 秒的竖屏新品预告', 'the Director holds the idea');
+  assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent by itself');
+  await shot(sp, '21-created');
+  // closing the project jumps back: navigation, launchpad, no timeline, nothing to reopen next time
+  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
+  await sp.getByRole('menuitem', { name: '关闭工程' }).click();
+  await sp.waitForSelector('.host-left .fvs-nav');
+  await sp.waitForSelector(`.fvs-launch-row[data-project-path="${made}"]`);
+  assert.equal(await sp.evaluate(() => HOST.spaceState.docked), null, 'closing the project closes its timeline');
+  assert.equal(await sp.evaluate(() => HOST.data.last), null);
+  assert.equal(await sp.locator('.host-left .fvs-bin').count(), 0);
+  assert.equal(await sp.getAttribute('.fvs-nav [data-nav="projects"]', 'aria-current'), 'page', 'back on the list');
+  await shot(sp, '22-closed');
+  // a row of the list jumps again
+  await sp.click(`.fvs-launch-row[data-project-path="${FILE}"]`);
+  await sp.waitForSelector('.host-left .fvs-bin');
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]');
+  console.log('launch log:', (await sp.evaluate(() => HOST.spaceState.log)).join(' '));
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
+// 17. The media bin: the project's pictures, clips and sounds; importing into it copies without placing; a
+// double-click adds a file after the scene at the playhead (a sound: a track from the playhead), a drag drops it at
+// a cut on the timeline; "used" follows the project text.
+{
+  const { sp, serr } = await spacePage();
+  // a short sound the project does not use yet (the 2 MB score would be analysed on load, which only slows this down)
+  const n = 800, wav = Buffer.alloc(44 + n, 128);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + n, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(8000, 28); wav.writeUInt16LE(1, 32); wav.writeUInt16LE(8, 34); wav.write('data', 36); wav.writeUInt32LE(n, 40);
+  await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/audio/tick.wav`, Array.from(wav)]);
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await sp.waitForSelector('.host-left .fvs-bin .fvs-bin-item', { timeout: 10000 })
+    .catch(async () => assert.fail(`the bin lists the project's media: ${JSON.stringify(await sp.evaluate(() => ({ left: document.querySelector('.host-left-body')?.innerText, log: HOST.spaceState.log })))} ${serr}`));
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  const text = () => sp.evaluate(p => HOST.text(p), FILE);
+  const before = await text();
+  const tiles = await sp.$$eval('.fvs-bin-item', els => els.map(e => [e.dataset.rel, e.dataset.kind, !e.querySelector('.fvs-bin-used').hidden]));
+  assert.deepEqual(tiles.map(x => x[0]), ['assets/aria.jpg', 'assets/arioso.jpg', 'assets/recita.jpg', 'audio/tick.wav']);
+  assert.deepEqual(tiles.map(x => x[1]), ['image', 'image', 'image', 'audio']);
+  // the badges follow the editor's text, which loads a moment after the bin has listed the files
+  await sp.waitForFunction(text => [...document.querySelectorAll('.fvs-bin-item')].every(e => e.querySelector('.fvs-bin-used').hidden === !text.includes(e.dataset.rel)), before, { timeout: 3000 })
+    .catch(() => assert.fail(`"used" follows the project text: ${JSON.stringify(tiles)}`));
+  await sp.waitForFunction(() => [...document.querySelectorAll('.fvs-bin-thumb img')].every(i => i.complete && i.naturalWidth > 0), null, { timeout: 5000 })
+    .catch(() => assert.fail('the pictures show thumbnails'));
+  await shot(sp, '23-bin');
+  // importing into the bin copies the file under media/ and leaves the cut alone
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await sp.setInputFiles('.fvs-bin input[type=file]', { name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+  const logo = '.fvs-bin-item[data-rel="media/logo.png"]';
+  await sp.waitForSelector(logo, { timeout: 5000 });
+  assert.ok(await sp.evaluate(p => HOST.files.has(p), `${DIR}/media/logo.png`));
+  assert.equal(await text(), before, 'importing into the bin does not touch the cut');
+  assert.equal(await sp.locator(`${logo} .fvs-bin-used`).isVisible(), false);
+  const undo = async label => {
+    await sp.locator('.fvs-studio').focus();
+    await sp.keyboard.press('Control+z');
+    await sp.waitForFunction(([p, b]) => HOST.text(p) === b, [FILE, before], { timeout: 4000 }).catch(() => assert.fail(`undo restores the file after ${label}`));
+  };
+  // clips sit at their times: the DOM order is the order they were drawn in
+  const order = () => sp.$$eval('.host-bottom .fvs-clip', els => els.sort((a, b) => a.offsetLeft - b.offsetLeft).map(e => e.dataset.id));
+  // double-click: after the scene under the playhead
+  await sp.locator('.host-bottom .fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
+  await sp.dblclick(logo);
+  await sp.waitForFunction(p => /^## picture · logo$/m.test(HOST.text(p)), FILE, { timeout: 5000 });
+  let ids = await order();
+  assert.equal(ids[ids.indexOf('cards') + 1], 'picture', `added after the scene at the playhead (${ids.join(' ')} · ${await sp.textContent('.fvs-time')})`);
+  assert.equal(await sp.getAttribute('.host-bottom .fvs-clip.on', 'data-id'), 'picture', 'and selected');
+  await sp.waitForFunction(s => !document.querySelector(s).hidden, `${logo} .fvs-bin-used`, { timeout: 3000 }).catch(() => assert.fail('"used" shows once the project uses it'));
+  await undo('a double-click');
+  // a drag onto the timeline: placed at the cut the insert line showed
+  ids = await order();
+  const at = ids[3], clip = await sp.locator(`.host-bottom .fvs-clip[data-id="${at}"]`).boundingBox(), lane = await sp.locator('.host-bottom .fvs-tl-scroll').boundingBox();
+  await sp.dragAndDrop(logo, '.host-bottom .fvs-tl-scroll', { targetPosition: { x: clip.x - lane.x + 4, y: clip.y - lane.y + 12 } });
+  await sp.waitForFunction(p => /^## picture · logo$/m.test(HOST.text(p)), FILE, { timeout: 5000 }).catch(() => assert.fail('a file dragged from the bin onto the timeline is placed'));
+  ids = await order();
+  assert.equal(ids[ids.indexOf(at) - 1], 'picture', `placed at the cut before ${at}`);
+  assert.equal(await sp.locator('.fvs-tl-insert').count(), 0, 'the insert line is gone');
+  await undo('a drag from the bin');
+  // a sound: one more track, starting at the playhead
+  await sp.locator('.host-bottom .fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
+  await sp.dblclick('.fvs-bin-item[data-rel="audio/tick.wav"]');
+  await sp.waitForFunction(p => /"role": "track",\s*"at": [\d.]+/.test(HOST.text(p)), FILE, { timeout: 5000 }).catch(async () => assert.fail(`a sound becomes a track from the playhead: ${(await text()).match(/"audio"[\s\S]*?\]/)?.[0]}`));
+  await undo('a sound from the bin');
+  console.log('bin log:', (await sp.evaluate(() => HOST.spaceState.log)).join(' '));
   assert.deepEqual(serr, []);
   await sp.close();
 }

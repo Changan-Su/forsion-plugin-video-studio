@@ -4,7 +4,7 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 本目录是独立 Git 仓库，版本 **0.7.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
-工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，时间线在下方。场景只在时间线上出现一次，片段直接显示缩略图。在视频工作室 Space 里，界面全部用原生面板：工程列表在左栏，时间线在底部面板，属性、AI 导演和导出用右侧的 Extend View；在文件标签页、浮窗和不支持底部面板的旧版 Forsion 里，时间线画在编辑器下方，属性等是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
+工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，时间线在下方。场景只在时间线上出现一次，片段直接显示缩略图。在视频工作室 Space 里，界面全部用原生面板：没打开工程时左栏是导航、主区是启动台（照 Coding Studio），打开工程后左栏换成素材区，时间线在底部面板，属性、AI 导演和导出用右侧的 Extend View；在文件标签页、浮窗和不支持底部面板的旧版 Forsion 里，时间线画在编辑器下方，属性等是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
 
 一段视频就是一份 `.fvs.md` 工程文件：每个场景是一页网页（HTML + CSS，加一点关键帧脚本），场景首尾相接地排在时间线上，时间线踩在音乐的拍子上。每个场景写着自己的**拍点**，画面在拍点上切，配乐也在拍点上给重音。
 
@@ -20,7 +20,12 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 ## 原生工作室 Space
 
-插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；片名可以打开 Extend View 工程选择器，原生 Extend View 属性面板随工程默认打开（不抢键盘焦点；AI 导演、导出或工程选择器临时占用右侧，关掉后它自动回来；用走带右侧的属性按钮、面板的 × 或 Esc 关掉后，本次会话不再自动打开），「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
+插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。
+
+- **启动布局**：左栏是导航（新建视频、我的工程、第 2.12 话示例），主区是启动台，底部收起。「我的工程」列出全部工程（片名、路径、画幅、时长），可搜索；「新建视频」一页写想法（可选）、选画幅、起名字，工程建在 `<工作文件夹>/<名字>/` 里。写了想法的，创建后想法填进 AI 导演等你发送。
+- **项目布局**：打开工程后左栏原地换成素材区（工程文件夹里 `media/`、`audio/`、`assets/` 的缩略图，用到的标「已用」；导入只复制不放进时间线，拖到时间线落在切点，双击加到播放头所在场景之后），底部开出时间线。「更多 → 关闭工程」回到启动布局。工程之间切换不动底部面板。
+
+主区域是 Video Studio；片名可以打开 Extend View 工程选择器，原生 Extend View 属性面板随工程默认打开（不抢键盘焦点；AI 导演、导出或工程选择器临时占用右侧，关掉后它自动回来；用走带右侧的属性按钮、面板的 × 或 Esc 关掉后，本次会话不再自动打开），「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
 
 主工作台的「更多」菜单可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
 
@@ -98,7 +103,7 @@ node tools/fvs.mjs captions my-video.fvs.md --out my-video.srt   # 字幕轨导�
 ```
 forsion-video-studio/
 ├── manifest.json · main.js · icon.png      桌面插件：.fvs.md 编辑器、新建入口、笔记嵌入
-├── spaces/forsion-video-studio/space.json   原生 Space：Workspace 列表、主工作台和 Mini 配方
+├── spaces/forsion-video-studio/space.json   原生 Space：导航 / 素材区、主工作台、底部时间线和 Mini 配方
 ├── runtime/fvs-runtime.js                  播放运行时：预览、网页导出和渲染都用它
 ├── tools/fvs.mjs                           命令行
 ├── tools/music/                            配乐工具包（Python）
@@ -128,7 +133,7 @@ npm run verify:features -- --live # 临时工程的真模型修改、差异/恢�
 
 `install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
 
-`npm run verify:docked` 用 Genesis 自带的隔离台架（`desktop/scripts/lib/uiux-electron.cjs`：桩引擎、临时 home 和笔记库，不碰你的 dev，也不杀进程）启动构建好的 `out/`，把本插件装进临时目录，验证 Space 里的时间线停在原生底部面板、快捷键和缩放、⌘J 收起与展开后画面照常显示、重载后布局还在；截图写入 `artifacts/docked/`。需要支持 `ctx.viewLocations` 的宿主：先在该检出的 `desktop/` 跑 `npx electron-vite build`，再用 `FVS_DESKTOP_ROOT` 指过去。
+`npm run verify:docked` 用 Genesis 自带的隔离台架（`desktop/scripts/lib/uiux-electron.cjs`：桩引擎、临时 home 和笔记库，不碰你的 dev，也不杀进程）启动构建好的 `out/`，把本插件装进临时目录，验证启动布局与项目布局来回跳转（新建页、关闭工程、切换工程后 ⌘J 仍作数）、素材区的双击与拖放、Space 里的时间线停在原生底部面板、快捷键和缩放、⌘J 收起与展开后画面照常显示、重载后布局还在；截图写入 `artifacts/docked/`。需要支持 `ctx.viewLocations` 和 `ctx.replaceView` 的宿主：先在该检出的 `desktop/` 跑 `npx electron-vite build`，再用 `FVS_DESKTOP_ROOT` 指过去。
 
 真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在示例目录中创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
 
