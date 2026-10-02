@@ -100,6 +100,20 @@
   - Genesis 主检出当时停在另一个会话的分支 `codex/custom-startup-appearance` 上。
   - 所以只把本地 `main` 引用快进到 `cca3abee`，没动那个分支和它的工作树。
 
+## 时间线通栏（10-02 晚，插件 `9271692`）
+
+用户：「刚更新的 Space 的 Panel 布局，Video Studio 使用 full 布局。」
+
+- Genesis main `a0084b8b` 让 Space 声明底部面板横跨哪几列（`layout.bottomSpan`）。配方改为 `"full"`：时间线通栏，素材区、编辑器、属性都坐在它上方。
+- 不升配方版本：宿主每次切 Space、还原布局都会按定义里的 `bottomSpan` 重摆，用户调过的布局得以保留。
+- 旧宿主的配方解析只按名字读 `main` / `left` / `right` / `bottom`，会忽略这一项，按缺省摆（已核对 `cca3abee` 与用户 dev 分支的解析器）。
+- `check.mjs` 只遍历 `layout` 里的视图列表，因为 `bottomSpan` 是字符串。
+- 真 Electron `verify:docked`（Genesis main `000ecd7d` 的 `out/`，持锁）全绿。
+  - 新断言：底部组的左边界与素材区的组对齐，素材区底边正好是时间线顶边。实测素材区 x 44，时间线 x 44、宽 1396，分界线 435；reload 后相同。
+  - 负对照：去掉 `bottomSpan` 实跑变红，时间线退回 x 311，素材区满高。
+  - 截图 02、04、05 看过。
+- 观感一条：通栏时宿主给底部的默认高约占窗口一半（465 / 900，缺省布局是 376），轨道下方留有空白，可以拖矮。
+
 ## 未验证 / 已知
 
 - **dev 还差一步。** 宿主已合 main，但跑 dev 的 Genesis 主检出眼下停在另一个会话的分支上（见上），不含这次的宿主改动。
