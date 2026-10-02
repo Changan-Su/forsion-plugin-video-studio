@@ -3835,6 +3835,12 @@
       const m = e.data || {};
       if (pending && e.source === pending.contentWindow && m.fvs === "ready") return swap(m);
       if (!current2 || e.source !== current2.contentWindow) return;
+      if (m.fvs === "ready") {
+        lastPosted = -1;
+        post({ fvs: "seek", t: S.time });
+        post({ fvs: "transport", playing: S.playing });
+        return;
+      }
       if (m.fvs === "pick") onPick(m);
       if (m.fvs === "media-error" && fallbackMedia(m.src)) schedulePreview();
     }
@@ -6174,7 +6180,7 @@
       id: "fvs-embed",
       match: (target) => target.toLowerCase().endsWith(EXT),
       mount(el, embed) {
-        let disposed = false, raf = 0, frame = null, playing = false, time = 0, start = 0;
+        let disposed = false, raf = 0, frame = null, playing = false, time = 0, start = 0, offReady = null;
         const title = h("b", { text: embed.target.split("/").pop() });
         const playBtn = h("button", { type: "button", disabled: true, "aria-label": t("play"), title: t("play") }, icon("Play"));
         const setPlaying = (on) => {
@@ -6203,13 +6209,14 @@
           box.prepend(frame);
           const poster = p.scenes[1] ? p.scenes[1].t0 + 0.5 : 0;
           const post = (x) => frame.contentWindow && frame.contentWindow.postMessage({ fvs: "seek", t: x }, "*");
-          window.addEventListener("message", function ready(e) {
-            if (e.source === frame.contentWindow && e.data && e.data.fvs === "ready") {
-              window.removeEventListener("message", ready);
-              post(poster);
-              playBtn.disabled = false;
-            }
-          });
+          const ready = (e) => {
+            if (e.source !== frame.contentWindow || !e.data || e.data.fvs !== "ready") return;
+            post(playing || time > 0 && time < p.length ? time : poster);
+            if (playing) frame.contentWindow.postMessage({ fvs: "transport", playing }, "*");
+            playBtn.disabled = false;
+          };
+          window.addEventListener("message", ready);
+          offReady = () => window.removeEventListener("message", ready);
           const tick = () => {
             if (disposed || !playing) return;
             time = (performance.now() - start) / 1e3;
@@ -6234,6 +6241,7 @@
         })();
         return () => {
           disposed = true;
+          offReady?.();
           cancelAnimationFrame(raf);
           box.remove();
         };

@@ -326,6 +326,21 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   const t0 = await timeAt();
   await sp.keyboard.press('ArrowRight');
   assert.notEqual(await timeAt(), t0, 'arrow keys step the playhead from the bottom panel');
+  // the host moves views in the DOM (dockview re-hangs the main column when the bottom panel opens or closes);
+  // a moved iframe reloads its srcdoc and boots at 0, so the stage must be told the time again, not stay black
+  const luma = async () => sp.evaluate(async b64 => {
+    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const g = new OffscreenCanvas(img.width, img.height).getContext('2d'); g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, img.width, img.height).data; let s = 0;
+    for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
+    return s / (d.length / 4) / 3;
+  }, (await sp.locator('.fvs-view').screenshot()).toString('base64'));
+  await sp.waitForTimeout(300);
+  const lit = await luma();
+  await sp.evaluate(() => { const el = document.querySelector('.fvs-studio'), at = el.parentElement, next = el.nextSibling; el.remove(); at.insertBefore(el, next); });
+  let relit = 0;
+  for (let i = 0; i < 20 && !(relit > lit * .6); i++) { await sp.waitForTimeout(150); relit = await luma(); }
+  assert.ok(lit > 40 && relit > lit * .6, `a moved stage repaints the same frame (brightness ${Math.round(lit)} → ${Math.round(relit)})`);
   const width = () => sp.locator('.host-bottom .fvs-clip[data-id="cards"]').evaluate(e => e.getBoundingClientRect().width);
   const fitWidth = await width();
   await sp.keyboard.press('=');
@@ -388,6 +403,25 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(() => document.querySelector('.fvs-project-name')?.textContent === '第二个工程');
   await sp.waitForFunction(() => { const tl = document.querySelectorAll('.fvs-dock-timeline .fvs-tl'); return tl.length === 1 && !tl[0].dataset.old && tl[0].querySelector('.fvs-clip'); });
   console.log('docked log:', (await sp.evaluate(() => HOST.spaceState.log)).join(' '));
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
+// 15. A video embedded in a note keeps its poster when the host moves the note in the DOM (⌘J re-hangs the main
+// column): the moved iframe reloads at 0 and must be told the time again, not left on the first scene.
+{
+  const { sp, serr } = await spacePage();
+  await sp.evaluate(p => { const d = document.createElement('div'); d.id = 'note'; document.body.append(d); HOST.reg.embeds[0].mount(d, { target: p, pagePath: '' }); }, FILE);
+  await sp.waitForSelector('#note .fvs-embed button:not([disabled])', { timeout: 15000 });
+  const onScreen = async () => {
+    try { return await (await (await sp.$('#note iframe')).contentFrame()).evaluate(() => [...document.querySelectorAll('.fvs-scene')].filter(e => getComputedStyle(e).display !== 'none').map(e => e.dataset.scene)); }
+    catch { return []; } // between unload and the reloaded document
+  };
+  const poster = async () => { let s = []; for (let i = 0; i < 40 && !s.includes('boot'); i++) { await sp.waitForTimeout(75); s = await onScreen(); } return s; };
+  assert.ok((await poster()).includes('boot'), 'the embed shows its poster (the second scene)');
+  await sp.evaluate(() => { const el = document.querySelector('#note .fvs-embed'), at = el.parentElement; el.remove(); at.append(el); });
+  const after = await poster();
+  assert.ok(after.includes('boot'), `a moved embed shows its poster again (on screen: ${after.join() || 'nothing'})`);
   assert.deepEqual(serr, []);
   await sp.close();
 }

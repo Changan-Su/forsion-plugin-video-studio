@@ -124,7 +124,7 @@ if (registered !== false) {
     id: 'fvs-embed',
     match: target => target.toLowerCase().endsWith(EXT),
     mount(el, embed) {
-      let disposed = false, raf = 0, frame = null, playing = false, time = 0, start = 0;
+      let disposed = false, raf = 0, frame = null, playing = false, time = 0, start = 0, offReady = null;
       const title = h('b', { text: embed.target.split('/').pop() });
       const playBtn = h('button', { type: 'button', disabled: true, 'aria-label': t('play'), title: t('play') }, icon('Play'));
       const setPlaying = on => { playBtn.replaceChildren(icon(on ? 'Pause' : 'Play')); playBtn.setAttribute('aria-label', t(on ? 'pause' : 'play')); playBtn.title = t(on ? 'pause' : 'play'); };
@@ -149,11 +149,19 @@ if (registered !== false) {
         box.prepend(frame);
         const poster = p.scenes[1] ? p.scenes[1].t0 + .5 : 0;
         const post = x => frame.contentWindow && frame.contentWindow.postMessage({ fvs: 'seek', t: x }, '*');
-        window.addEventListener('message', function ready(e) { if (e.source === frame.contentWindow && e.data && e.data.fvs === 'ready') { window.removeEventListener('message', ready); post(poster); playBtn.disabled = false; } });
+        // every ready, not only the first: the host can move the note in the DOM (⌘J), which reloads the frame at 0
+        const ready = e => {
+          if (e.source !== frame.contentWindow || !e.data || e.data.fvs !== 'ready') return;
+          post(playing || (time > 0 && time < p.length) ? time : poster);
+          if (playing) frame.contentWindow.postMessage({ fvs: 'transport', playing }, '*');
+          playBtn.disabled = false;
+        };
+        window.addEventListener('message', ready);
+        offReady = () => window.removeEventListener('message', ready);
         const tick = () => { if (disposed || !playing) return; time = (performance.now() - start) / 1000; if (time >= p.length) { playing = false; setPlaying(false); post(poster); return; } post(time); raf = requestAnimationFrame(tick); };
         playBtn.onclick = () => { playing = !playing; setPlaying(playing); frame.contentWindow?.postMessage({ fvs: 'transport', playing }, '*'); if (playing) { start = performance.now() - (time >= p.length ? 0 : time) * 1000; tick(); } };
       })();
-      return () => { disposed = true; cancelAnimationFrame(raf); box.remove(); };
+      return () => { disposed = true; offReady?.(); cancelAnimationFrame(raf); box.remove(); };
     },
   });
 }

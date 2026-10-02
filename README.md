@@ -128,6 +128,8 @@ npm run verify:features -- --live # 临时工程的真模型修改、差异/恢�
 
 `install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
 
+`npm run verify:docked` 用 Genesis 自带的隔离台架（`desktop/scripts/lib/uiux-electron.cjs`：桩引擎、临时 home 和笔记库，不碰你的 dev，也不杀进程）启动构建好的 `out/`，把本插件装进临时目录，验证 Space 里的时间线停在原生底部面板、快捷键和缩放、⌘J 收起与展开后画面照常显示、重载后布局还在；截图写入 `artifacts/docked/`。需要支持 `ctx.viewLocations` 的宿主：先在该检出的 `desktop/` 跑 `npx electron-vite build`，再用 `FVS_DESKTOP_ROOT` 指过去。
+
 真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在示例目录中创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
 
 提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐由导演 Agent 使用本机工具执行。`verify:features -- --live` 会调用模型并产生两条可见导演会话，只操作临时工程；原始示例保持不变。它验证工程修改与 MP4 导出，不代表新曲创作已验收。

@@ -29,7 +29,7 @@ try {
   }, spaceModule);
   assert.equal(state.active, 'forsion-video-studio'); assert.equal(state.plugin, JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8')).version); assert.equal(state.list, 'projects');
   project = join(state.root, 'Forsion Video Studio/第 2.12 话/episode-2.12.fvs.md'); const before = await readFile(project);
-  await page.waitForSelector('.fvs-studio .fvs-clip');
+  await page.waitForSelector('.fvs-clip'); // in the editor, or in the bottom panel on a host that docks it
   await page.waitForFunction(() => !!document.querySelector('.fvs-view iframe:not(.fvs-pending)'));
   await page.locator('.fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
   await page.waitForFunction(() => /85/.test(document.querySelector('.fvs-sync-sum')?.textContent || ''), null, { timeout: 30000 });
@@ -137,7 +137,7 @@ try {
   }, spaceModule);
   await page.waitForSelector('.fvs-director-panel', { state: 'detached' });
   await page.evaluate(async spaceModule => { (await import(spaceModule)).setActiveSpace('forsion-video-studio'); }, spaceModule);
-  await page.waitForSelector('.fvs-studio .fvs-clip');
+  await page.waitForSelector('.fvs-clip'); // in the editor, or in the bottom panel on a host that docks it
   assert.equal(await page.locator('.fvs-clip').count(), 20, 'Space round-trip restores its engineering entity');
   await page.waitForSelector('.fvs-native-properties .fvs-tabs', { timeout: 10000 });
   await page.screenshot({ path: join(shots, '07-space-settled.png') });

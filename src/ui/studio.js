@@ -501,6 +501,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const m = e.data || {};
     if (pending && e.source === pending.contentWindow && m.fvs === 'ready') return swap(m);
     if (!current || e.source !== current.contentWindow) return;
+    // the host moved this view in the DOM (⌘J, a tab dragged to another group): a moved iframe reloads its srcdoc
+    // and boots again at 0, black until it is told where we are
+    if (m.fvs === 'ready') { lastPosted = -1; post({ fvs: 'seek', t: S.time }); post({ fvs: 'transport', playing: S.playing }); return; }
     if (m.fvs === 'pick') onPick(m);
     if (m.fvs === 'media-error' && fallbackMedia(m.src)) schedulePreview();
   }
