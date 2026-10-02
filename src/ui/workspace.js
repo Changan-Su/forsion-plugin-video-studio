@@ -45,10 +45,9 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   }
   async function refresh() {
     if (selected) titles.delete(selected); // ponytail: only the open project re-reads its title; others refresh when opened
-    const gen = ++generation;
+    // waits overlap instead of superseding each other: the list source polls every 8 s, longer waits never ended
     await libraryReady();
-    if (gen !== generation) return;
-    const root = app.vaultRoot?.();
+    const gen = ++generation, root = app.vaultRoot?.();
     let found = [];
     try { found = await app.listFiles?.() || []; } catch { /* no vault */ }
     if (gen !== generation || root !== app.vaultRoot?.()) return;
@@ -307,10 +306,11 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const unsubscribe = view.onParamsChanged?.(params => { if (valid(params.filePath)) void show(params.filePath); });
     (async () => {
       let last = null; try { last = (await ctx.loadData?.())?.last; } catch { /* no data */ }
-      await libraryReady(); // the project to reopen is a file in the library
+      const initial = () => view.getParams?.().filePath || selected || last;
+      // the project to reopen is a file in the library; with nothing to reopen the launchpad shows at once
+      if (valid(initial())) await libraryReady();
       if (disposed || path) return;
-      const initial = view.getParams?.().filePath || selected || last;
-      if (valid(initial)) await show(initial, { initial: true });
+      if (valid(initial())) await show(initial(), { initial: true });
       if (!disposed && !path) launch();
     })();
     return () => { disposed = true; request++; mounts.delete(record); unsubscribe?.(); view.extendView?.close(); disposeContent?.(); holder.remove(); };

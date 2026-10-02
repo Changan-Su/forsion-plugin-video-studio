@@ -6015,10 +6015,8 @@
     }
     async function refresh() {
       if (selected) titles.delete(selected);
-      const gen = ++generation;
       await libraryReady();
-      if (gen !== generation) return;
-      const root = app2.vaultRoot?.();
+      const gen = ++generation, root = app2.vaultRoot?.();
       let found = [];
       try {
         found = await app2.listFiles?.() || [];
@@ -6430,10 +6428,10 @@
           last = (await ctx2.loadData?.())?.last;
         } catch {
         }
-        await libraryReady();
+        const initial = () => view.getParams?.().filePath || selected || last;
+        if (valid(initial())) await libraryReady();
         if (disposed || path) return;
-        const initial = view.getParams?.().filePath || selected || last;
-        if (valid(initial)) await show(initial, { initial: true });
+        if (valid(initial())) await show(initial(), { initial: true });
         if (!disposed && !path) launch();
       })();
       return () => {

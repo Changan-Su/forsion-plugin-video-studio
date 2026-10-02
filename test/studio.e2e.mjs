@@ -624,6 +624,29 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.close();
 }
 
+// 18. No notes library (someone who never opened one: the host's vaultRoot() stays null). With nothing to reopen
+// the launchpad shows at once rather than after the library wait; creating says why it cannot instead of the
+// host's raw error; and the list still finishes loading while the host polls it (every 8 s, inside the 15 s wait).
+{
+  const { sp, serr } = await spacePage();
+  await sp.evaluate(() => {
+    const none = async () => { throw new Error('No vault is open'); };
+    Object.assign(HOST.ctx.app, { vaultRoot: () => null, listFiles: none, writeFile: none });
+    return HOST.ctx.saveData({ ...HOST.data, last: null });
+  });
+  const t0 = Date.now();
+  await sp.evaluate(r => { HOST.space(null, r); HOST.reg.lists.find(l => l.id === 'projects').subscribe(() => {}); }, RECIPE);
+  await sp.waitForSelector('.fvs-launch', { timeout: 3000 }).catch(() => assert.fail('with nothing to reopen the launchpad does not wait for a library'));
+  await sp.click('.fvs-nav [data-nav="create"]');
+  await sp.click('.fvs-launch-create');
+  await sp.waitForFunction(() => /笔记库还没打开/.test(document.querySelector('.fvs-launch-error:not([hidden])')?.textContent || ''), null, { timeout: 8000 });
+  await sp.click('.fvs-nav [data-nav="projects"]');
+  await sp.waitForSelector('.fvs-launch-empty', { timeout: 25000 }).catch(() => assert.fail('the list finishes loading while the host keeps polling it'));
+  console.log(`no library: the empty list after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
 assert.deepEqual(errors.filter(e => !/fonts\.|ERR_FAILED|net::/.test(e)), []);
 console.log('studio e2e ok');
 await browser.close();
