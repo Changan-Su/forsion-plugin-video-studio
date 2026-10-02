@@ -356,6 +356,7 @@
     "launch-idea-note": "\u5199\u4E86\u60F3\u6CD5\u7684\u8BDD\uFF0C\u521B\u5EFA\u540E\u4F1A\u586B\u8FDB AI \u5BFC\u6F14\uFF0C\u7531\u4F60\u786E\u8BA4\u540E\u518D\u53D1\u9001\u3002",
     "launch-name-invalid": '\u540D\u79F0\u4E0D\u80FD\u4EE5\u70B9\u5F00\u5934\u6216\u7ED3\u5C3E\uFF0C\u4E5F\u4E0D\u80FD\u5305\u542B / \\ : * ? " < > |',
     "launch-name-taken": "\u5DF2\u7ECF\u6709\u540C\u540D\u7684\u6587\u4EF6\u5939\u4E86\uFF0C\u6362\u4E2A\u540D\u5B57\u5427\u3002",
+    "launch-no-library": "\u7B14\u8BB0\u5E93\u8FD8\u6CA1\u6253\u5F00\uFF0C\u5DE5\u7A0B\u6CA1\u6709\u5730\u65B9\u5B58\u653E\u3002\u5148\u5728\u7B14\u8BB0\u91CC\u6253\u5F00\u4E00\u4E2A\u5E93\uFF0C\u518D\u56DE\u6765\u65B0\u5EFA\u3002",
     "default-name": "\u65B0\u89C6\u9891",
     "bin-import": "\u5BFC\u5165",
     "bin-import-hint": "\u590D\u5236\u5230\u5DE5\u7A0B\u7684\u7D20\u6750\u6587\u4EF6\u5939\uFF0C\u4E0D\u653E\u8FDB\u65F6\u95F4\u7EBF",
@@ -719,6 +720,7 @@
     "launch-idea-note": "If you describe an idea, it goes into the AI Director for you to review and send.",
     "launch-name-invalid": "Names can't start or end with a dot, or contain / \\ : * ? \" < > |",
     "launch-name-taken": "A folder with this name already exists. Try another name.",
+    "launch-no-library": "No library is open, so there is nowhere to save the project. Open a library in Notes, then come back.",
     "default-name": "New video",
     "bin-import": "Import",
     "bin-import-hint": "Copies files into the project's media folder without adding them to the timeline",
@@ -5980,7 +5982,12 @@
   var mmss = (s) => "".concat(Math.floor(s / 60), ":").concat(String(Math.floor(s % 60)).padStart(2, "0"));
   function registerWorkspace(ctx2, t2, { createProject: createProject2, exampleProject, remember: remember2 }) {
     const app2 = ctx2.app || {}, listeners = /* @__PURE__ */ new Set(), mounts = /* @__PURE__ */ new Set();
-    let selected = null, paths = [], generation = 0;
+    let selected = null, paths = [], generation = 0, loaded = false;
+    async function libraryReady(ms = 15e3) {
+      if (typeof app2.vaultRoot !== "function") return true;
+      for (const end = Date.now() + ms; !app2.vaultRoot() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 150));
+      return !!app2.vaultRoot();
+    }
     const emit = () => listeners.forEach((fn) => fn());
     const valid = (path) => typeof path === "string" && path.toLowerCase().endsWith(".fvs.md");
     const listed = (path) => valid(path) && !path.split("/").some((part) => part.startsWith("."));
@@ -6008,7 +6015,10 @@
     }
     async function refresh() {
       if (selected) titles.delete(selected);
-      const gen = ++generation, root = app2.vaultRoot?.();
+      const gen = ++generation;
+      await libraryReady();
+      if (gen !== generation) return;
+      const root = app2.vaultRoot?.();
       let found = [];
       try {
         found = await app2.listFiles?.() || [];
@@ -6019,6 +6029,7 @@
       if (active && !next.includes(active) && await app2.readFile(active).catch(() => null) !== null) next.push(active);
       if (gen !== generation || root !== app2.vaultRoot?.()) return;
       paths = next;
+      loaded = true;
       emit();
       void readTitles(next);
     }
@@ -6091,7 +6102,7 @@
           h("span", { class: "fvs-launch-meta" }, h("span", { text: r.frame }), h("small", { text: r.length })),
           h("span", { class: "fvs-launch-arrow" }, icon("ArrowRight"))
         )));
-        if (!found.length) list2.append(h("div", { class: "fvs-launch-empty" }, h("strong", { text: t2(search.value ? "launch-no-match" : "launch-empty") }), search.value ? null : h("p", { text: t2("launch-empty-hint") })));
+        if (!found.length && (loaded || search.value)) list2.append(h("div", { class: "fvs-launch-empty" }, h("strong", { text: t2(search.value ? "launch-no-match" : "launch-empty") }), search.value ? null : h("p", { text: t2("launch-empty-hint") })));
       };
       search.oninput = render;
       box.append(
@@ -6174,6 +6185,7 @@
         busy = true;
         submit.disabled = true;
         try {
+          if (!await libraryReady(5e3)) return fail(t2("launch-no-library"));
           let list2 = paths;
           try {
             list2 = await app2.listFiles?.() || paths;
@@ -6418,6 +6430,7 @@
           last = (await ctx2.loadData?.())?.last;
         } catch {
         }
+        await libraryReady();
         if (disposed || path) return;
         const initial = view.getParams?.().filePath || selected || last;
         if (valid(initial)) await show(initial, { initial: true });

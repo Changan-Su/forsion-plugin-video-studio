@@ -14,7 +14,14 @@ const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2
 // Only public plugin contracts cross the host boundary. No host stores or second React runtime.
 export function registerWorkspace(ctx, t, { createProject, exampleProject, remember }) {
   const app = ctx.app || {}, listeners = new Set(), mounts = new Set();
-  let selected = null, paths = [], generation = 0;
+  let selected = null, paths = [], generation = 0, loaded = false;
+  // The host restores the notes library lazily (a plugin view wakes it, but the restore is async): reading before it
+  // lands gives nothing, so wait for it. Hosts without vaultRoot() cannot tell; go ahead.
+  async function libraryReady(ms = 15000) {
+    if (typeof app.vaultRoot !== 'function') return true;
+    for (const end = Date.now() + ms; !app.vaultRoot() && Date.now() < end;) await new Promise(r => setTimeout(r, 150));
+    return !!app.vaultRoot();
+  }
   const emit = () => listeners.forEach(fn => fn());
   const valid = path => typeof path === 'string' && path.toLowerCase().endsWith('.fvs.md');
   // render jobs, Director snapshots and other dot-folders hold temporary copies, not projects
@@ -38,14 +45,17 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   }
   async function refresh() {
     if (selected) titles.delete(selected); // ponytail: only the open project re-reads its title; others refresh when opened
-    const gen = ++generation, root = app.vaultRoot?.();
+    const gen = ++generation;
+    await libraryReady();
+    if (gen !== generation) return;
+    const root = app.vaultRoot?.();
     let found = [];
     try { found = await app.listFiles?.() || []; } catch { /* no vault */ }
     if (gen !== generation || root !== app.vaultRoot?.()) return;
     const next = [...new Set(found.filter(listed))].sort((a, b) => a.localeCompare(b)), active = selected;
     if (active && !next.includes(active) && await app.readFile(active).catch(() => null) !== null) next.push(active);
     if (gen !== generation || root !== app.vaultRoot?.()) return;
-    paths = next;
+    paths = next; loaded = true;
     emit();
     void readTitles(next);
   }
@@ -99,7 +109,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
         h('span', { class: 'fvs-launch-info' }, h('strong', { text: r.title }), h('small', { text: r.key })),
         h('span', { class: 'fvs-launch-meta' }, h('span', { text: r.frame }), h('small', { text: r.length })),
         h('span', { class: 'fvs-launch-arrow' }, icon('ArrowRight')))));
-      if (!found.length) list.append(h('div', { class: 'fvs-launch-empty' }, h('strong', { text: t(search.value ? 'launch-no-match' : 'launch-empty') }), search.value ? null : h('p', { text: t('launch-empty-hint') })));
+      if (!found.length && (loaded || search.value)) list.append(h('div', { class: 'fvs-launch-empty' }, h('strong', { text: t(search.value ? 'launch-no-match' : 'launch-empty') }), search.value ? null : h('p', { text: t('launch-empty-hint') })));
     };
     search.oninput = render;
     box.append(
@@ -144,6 +154,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       if (typed && badName(typed)) return fail(t('launch-name-invalid'));
       busy = true; submit.disabled = true;
       try {
+        if (!await libraryReady(5000)) return fail(t('launch-no-library'));
         let list = paths;
         try { list = await app.listFiles?.() || paths; } catch { /* the folder check falls back to the project list */ }
         if (typed && inUse(list, typed)) return fail(t('launch-name-taken'));
@@ -296,6 +307,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const unsubscribe = view.onParamsChanged?.(params => { if (valid(params.filePath)) void show(params.filePath); });
     (async () => {
       let last = null; try { last = (await ctx.loadData?.())?.last; } catch { /* no data */ }
+      await libraryReady(); // the project to reopen is a file in the library
       if (disposed || path) return;
       const initial = view.getParams?.().filePath || selected || last;
       if (valid(initial)) await show(initial, { initial: true });
