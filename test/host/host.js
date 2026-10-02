@@ -161,7 +161,8 @@ window.HOST = (() => {
     } else { delete ctx.replaceView; delete ctx.closeView; }
     let params = { ...(recipe?.main?.[0]?.params || {}), ...(file ? { filePath: file } : {}) };
     const view = reg.views.find(v => v.id === 'studio');
-    view.mount(main, { surface: 'main', extendView, getParams: () => params, setParams: p => { params = { ...params, ...p }; }, onParamsChanged: () => () => {}, showInMainPanel() {} });
+    const props = { surface: 'main', extendView, getParams: () => params, setParams: p => { params = { ...params, ...p }; }, onParamsChanged: () => () => {}, showInMainPanel() {} };
+    let unmountMain = view.mount(main, props);
     // the host builds main first, then the panels
     for (const item of recipe?.left || []) openLeft(viewId(item.type));
     if (bottomPanel) for (const item of recipe.bottom || []) openBottom(viewId(item.type));
@@ -172,6 +173,8 @@ window.HOST = (() => {
       // keepSize: hidden without a size change (visibility), so only an interaction shows the editor is back
       hide({ keepSize = false } = {}) { visible = false; if (keepSize) main.style.visibility = 'hidden'; else main.style.display = 'none'; close('owner'); },
       show() { visible = true; main.style.display = ''; main.style.visibility = ''; },
+      // the host rebuilds the main column around layout jumps: the view is cleaned up and mounted again, same params
+      remount() { if (typeof unmountMain === 'function') unmountMain(); main.replaceChildren(); unmountMain = view.mount(main, props); },
     };
     return space;
   }

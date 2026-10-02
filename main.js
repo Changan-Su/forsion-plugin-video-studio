@@ -2917,6 +2917,7 @@
     const record = base + ".director.json";
     let task = null, before = "", after = "", disposed = false, reading = false, submitting = false;
     let draft = { text: "", thinkingLevel: "medium" };
+    let follow = null;
     const listeners = /* @__PURE__ */ new Set(), emit = () => listeners.forEach((fn) => fn());
     async function refresh() {
       if (reading || disposed) return;
@@ -2954,6 +2955,8 @@
         task = next;
         before = snapshot;
         draft.text = "";
+        follow?.("");
+        follow = null;
         emit();
         return true;
       } catch (e) {
@@ -3014,6 +3017,7 @@
         if (taskFn) void submit({ ...draft, text: t2(key) }, taskFn());
         else {
           draft.text = t2(key) + (t2.en() ? ": " : "\uFF1A");
+          follow?.(draft.text);
           if (chat) {
             chat.update({ value: draft.text });
             chat.focus();
@@ -3040,6 +3044,7 @@
       if (ctx2.ui?.mountChatBox && ctx2.tangu?.chatSelection) {
         chat = ctx2.ui.mountChatBox(input, { ...draft, value: draft.text, agentSlug: AGENT, placeholder: t2("ai-placeholder"), label: t2("ai-title"), submitLabel: t2("ai-send"), submitOn: "modifier-enter", onChange(value) {
           draft = { ...value };
+          follow?.(draft.text);
         }, onSubmit: (selection) => submit(selection) });
         chat.focus();
       } else {
@@ -3047,6 +3052,7 @@
         textarea.value = draft.text;
         textarea.oninput = () => {
           draft.text = textarea.value;
+          follow?.(draft.text);
         };
         const send = async () => {
           if (await submit({ ...draft, text: textarea.value })) textarea.value = "";
@@ -3070,8 +3076,9 @@
         root.remove();
       };
     }
-    const seed = (text) => {
+    const seed = (text, onDraft) => {
       draft = { ...draft, text: String(text) };
+      follow = onDraft || null;
     };
     return { mount, seed, dispose() {
       disposed = true;
@@ -5913,9 +5920,8 @@
     layout();
     void load().then(() => {
       if (opts.idea && !S.disposed && S.p.scenes.length) {
-        director.seed(opts.idea);
+        director.seed(opts.idea, opts.ideaDraft);
         openAsk();
-        opts.ideaTaken?.();
       }
     });
     raf = requestAnimationFrame(loop);
@@ -6360,8 +6366,8 @@
           chooseProject: picker,
           openWorkspace: () => open(next),
           idea: !compact && pendingIdea?.path === next ? pendingIdea.text : "",
-          ideaTaken: () => {
-            if (pendingIdea?.path === next) pendingIdea = null;
+          ideaDraft: (text) => {
+            if (pendingIdea?.path === next) pendingIdea = text ? { path: next, text } : null;
           },
           closeProject: launcher ? closeProject : null,
           dock: docked ? dock : null,
@@ -6460,8 +6466,8 @@
         h("style", { text: CSS2 }),
         h("div", { class: "fvs-bin-head" }, h("strong", { text: t2("bin") }), h("span", { class: "fvs-grow" }), importBtn),
         input,
-        grid,
-        empty
+        empty,
+        grid
       );
       el.append(shell);
       let studio = null, items = [], gen = 0, disposed = false, shown = null;

@@ -83,10 +83,11 @@ try {
   const madeText = readFileSync(made, 'utf8');
   assert.match(madeText, /"width": 1080/); assert.match(madeText, /"height": 1920/);
   assert.equal(await bottomOn(), 1, 'the timeline came to the bottom');
-  // the host remounts the studio when the bottom panel first appears: the idea has to survive that
+  // the host remounts the studio around the layout jump, before or after the idea reached the Director: check the
+  // settled window, not the first mount
+  await settle(); await win.waitForTimeout(800); await steady();
   await win.waitForFunction(() => /15 秒的新品预告/.test(document.querySelector('.fvs-director-panel')?.innerText + (document.querySelector('.fvs-director-panel textarea, .fvs-director-panel [contenteditable]')?.value || document.querySelector('.fvs-director-panel [contenteditable]')?.textContent || '')), null, { timeout: 10000 })
     .catch(() => assert.fail('the Director holds the idea'));
-  await settle(); await win.waitForTimeout(800);
   await H.captureWindow(app, join(shots, '02-created.png'));
 
   // 3. closing the project jumps back

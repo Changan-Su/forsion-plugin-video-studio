@@ -27,6 +27,7 @@ export function directorController(ctx, state, t, flush) {
   let task = null, before = '', after = '', disposed = false, reading = false, submitting = false;
   // Let the native picker resolve Agent/global defaults until the user makes a selection.
   let draft = { text: '', thinkingLevel: 'medium' };
+  let follow = null; // an idea from the launchpad: its edits go back to the workspace until it is sent (remounts)
   const listeners = new Set(), emit = () => listeners.forEach(fn => fn());
   async function refresh() {
     if (reading || disposed) return; reading = true;
@@ -51,7 +52,7 @@ export function directorController(ctx, state, t, flush) {
       const next = { id, beforePath, phase: 'waiting', scene: state().sel, time: state().time, createdAt: new Date().toISOString() };
       const ok = await handOff(ctx, state(), specific || TASKS.ask(selection.text.trim()), t, { ...selection, onStarted(r) { next.sessionId = r.sessionId; } });
       if (!ok) return false;
-      await app.writeFile(record, JSON.stringify(next)); task = next; before = snapshot; draft.text = ''; emit(); return true;
+      await app.writeFile(record, JSON.stringify(next)); task = next; before = snapshot; draft.text = ''; follow?.(''); follow = null; emit(); return true;
     } catch (e) { ctx.notify?.(String(e.message || e), { level: 'warning' }); return false; }
     finally { submitting = false; }
   }
@@ -95,7 +96,7 @@ export function directorController(ctx, state, t, flush) {
     const chips = [['ai-chip-scene'], ['ai-chip-pace'], ['ai-chip-copy'], ['ai-chip-score', TASKS.score], ['ai-chip-sync', TASKS.sync], ['ai-chip-review', TASKS.review]];
     const choose = (key, taskFn) => {
       if (taskFn) void submit({ ...draft, text: t(key) }, taskFn());
-      else { draft.text = t(key) + (t.en() ? ': ' : '：'); if (chat) { chat.update({ value: draft.text }); chat.focus(); } else { textarea.value = draft.text; textarea.focus(); } }
+      else { draft.text = t(key) + (t.en() ? ': ' : '：'); follow?.(draft.text); if (chat) { chat.update({ value: draft.text }); chat.focus(); } else { textarea.value = draft.text; textarea.focus(); } }
     };
     root.append(h('div', { class: 'fvs-panel-shell' },
       h('div', { class: 'fvs-panel-scroll' }, context, phase,
@@ -105,11 +106,11 @@ export function directorController(ctx, state, t, flush) {
     body.append(root);
     // Older startChat hosts cannot honour the native model picker. Keep their plain prompt adapter.
     if (ctx.ui?.mountChatBox && ctx.tangu?.chatSelection) {
-      chat = ctx.ui.mountChatBox(input, { ...draft, value: draft.text, agentSlug: AGENT, placeholder: t('ai-placeholder'), label: t('ai-title'), submitLabel: t('ai-send'), submitOn: 'modifier-enter', onChange(value) { draft = { ...value }; }, onSubmit: selection => submit(selection) });
+      chat = ctx.ui.mountChatBox(input, { ...draft, value: draft.text, agentSlug: AGENT, placeholder: t('ai-placeholder'), label: t('ai-title'), submitLabel: t('ai-send'), submitOn: 'modifier-enter', onChange(value) { draft = { ...value }; follow?.(draft.text); }, onSubmit: selection => submit(selection) });
       chat.focus();
     } else {
       textarea = h('textarea', { class: 'fvs-input', 'aria-label': t('ai-title'), placeholder: t('ai-placeholder') }); textarea.value = draft.text;
-      textarea.oninput = () => { draft.text = textarea.value; };
+      textarea.oninput = () => { draft.text = textarea.value; follow?.(draft.text); };
       const send = async () => { if (await submit({ ...draft, text: textarea.value })) textarea.value = ''; };
       textarea.onkeydown = e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); } };
       input.append(textarea, h('div', { class: 'fvs-row fvs-send-row' }, h('small', { class: 'fvs-hint', text: t('ai-send-hint') }), h('button', { type: 'button', class: 'fvs-btn primary', onclick: send }, t('ai-send')))); textarea.focus();
@@ -118,6 +119,6 @@ export function directorController(ctx, state, t, flush) {
     return () => { clearInterval(contextTimer); listeners.delete(render); chat?.dispose(); root.remove(); };
   }
   // text the next mount starts with (an idea from the launchpad); nothing is sent until the person sends it
-  const seed = text => { draft = { ...draft, text: String(text) }; };
+  const seed = (text, onDraft) => { draft = { ...draft, text: String(text) }; follow = onDraft || null; };
   return { mount, seed, dispose() { disposed = true; clearInterval(timer); listeners.clear(); } };
 }

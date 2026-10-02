@@ -1807,7 +1807,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   layout();
 
   // a project made from the launchpad with an idea: the idea waits in the Director for the person to send
-  void load().then(() => { if (opts.idea && !S.disposed && S.p.scenes.length) { director.seed(opts.idea); openAsk(); opts.ideaTaken?.(); } });
+  void load().then(() => { if (opts.idea && !S.disposed && S.p.scenes.length) { director.seed(opts.idea, opts.ideaDraft); openAsk(); } });
   raf = requestAnimationFrame(loop);
   const dispose = () => {
     commitFocusedField();

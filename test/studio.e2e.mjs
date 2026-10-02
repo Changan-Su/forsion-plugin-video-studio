@@ -519,6 +519,24 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   assert.equal(await sp.inputValue('.host-extend .fvs-director-panel textarea'), '一支 15 秒的竖屏新品预告', 'the Director holds the idea');
   assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent by itself');
   await shot(sp, '21-created');
+  // the real host remounts the editor around layout jumps, sometimes after the idea reached the Director: the idea
+  // (as edited) waits until it is sent, and not after
+  const director = '.host-extend .fvs-director-panel textarea';
+  const draftAfterRemount = async (want, label) => {
+    await sp.evaluate(() => HOST.spaceState.remount());
+    await sp.waitForFunction(([s, w]) => document.querySelector(s)?.value === w, [director, want], { timeout: 5000 }).catch(() => assert.fail(label));
+  };
+  await draftAfterRemount('一支 15 秒的竖屏新品预告', 'a remount keeps the idea');
+  await sp.fill(director, '一支 15 秒的竖屏新品预告，最后停在 Logo');
+  await draftAfterRemount('一支 15 秒的竖屏新品预告，最后停在 Logo', 'a remount keeps the edited idea');
+  assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'still nothing sent');
+  await sp.click('.host-extend .fvs-director-panel .fvs-send-row .fvs-btn.primary');
+  await sp.waitForFunction(() => HOST.calls.startChat.length === 1);
+  assert.match((await sp.evaluate(() => HOST.calls.startChat[0])).prompt, /最后停在 Logo/, 'the edited idea is what goes');
+  await sp.evaluate(() => HOST.spaceState.remount());
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip');
+  await sp.waitForTimeout(400);
+  assert.ok(!/新品预告/.test(await sp.locator(director).inputValue().catch(() => '')), 'a sent idea does not come back');
   // closing the project jumps back: navigation, launchpad, no timeline, nothing to reopen next time
   await sp.locator('.fvs-bar button[aria-label="更多"]').click();
   await sp.getByRole('menuitem', { name: '关闭工程' }).click();

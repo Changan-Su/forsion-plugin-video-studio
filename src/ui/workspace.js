@@ -61,8 +61,8 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   const newProject = () => go('create'); // as in Coding Studio: a page with a name, a frame and an idea
   const example = safe(async () => open(await exampleProject(false)));
   const nav = { page: 'projects' }; // the launchpad's page ('projects' | 'create'), picked in the left navigation
-  // the idea typed on the create page, until a studio has put it in the Director: the host may remount the studio
-  // right after the layout jump (a new bottom panel restructures the grid), which would drop it with the first mount
+  // the idea typed on the create page, as edited in the Director, until it is sent: the host remounts the studio
+  // around layout jumps (before or after the first mount reached the Director), and each mount seeds it again
   let pendingIdea = null;
   /** Show the launchpad's `page` in the main studio here, closing its project first; open one when there is none. */
   async function go(page) {
@@ -257,7 +257,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       if (idea) pendingIdea = { path: next, text: idea };
       disposeContent = mountStudio(ctx, holder, next, t, {
         view, compact, chooseProject: picker, openWorkspace: () => open(next),
-        idea: !compact && pendingIdea?.path === next ? pendingIdea.text : '', ideaTaken: () => { if (pendingIdea?.path === next) pendingIdea = null; },
+        idea: !compact && pendingIdea?.path === next ? pendingIdea.text : '', ideaDraft: text => { if (pendingIdea?.path === next) pendingIdea = text ? { path: next, text } : null; },
         closeProject: launcher ? closeProject : null,
         dock: docked ? dock : null, showTimeline: () => ctx.openView?.('timeline', { location: 'bottom' }),
         showInMain: () => { view.setParams?.({ filePath: next }); view.showInMainPanel?.(); },
@@ -324,7 +324,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const importBtn = h('button', { type: 'button', class: 'fvs-btn ghost', 'data-bin': 'import', title: t('bin-import-hint'), onclick: () => input.click() }, icon('Upload'), h('span', { text: t('bin-import') }));
     const grid = h('div', { class: 'fvs-bin-grid' }), empty = h('p', { class: 'fvs-hint fvs-bin-empty' });
     const shell = h('div', { class: 'fvs-extension fvs-bin' }, h('style', { text: CSS }),
-      h('div', { class: 'fvs-bin-head' }, h('strong', { text: t('bin') }), h('span', { class: 'fvs-grow' }), importBtn), input, grid, empty);
+      h('div', { class: 'fvs-bin-head' }, h('strong', { text: t('bin') }), h('span', { class: 'fvs-grow' }), importBtn), input, empty, grid);
     el.append(shell);
     let studio = null, items = [], gen = 0, disposed = false, shown = null;
     const store = async files => { if (studio && files.length) { await studio.store(files); void scan(); } };
