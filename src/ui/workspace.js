@@ -16,9 +16,11 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   const app = ctx.app || {}, listeners = new Set(), mounts = new Set();
   let selected = null, paths = [], generation = 0, loaded = false;
   // The host restores the notes library lazily (a plugin view wakes it, but the restore is async): reading before it
-  // lands gives nothing, so wait for it. Hosts without vaultRoot() cannot tell; go ahead.
+  // lands gives nothing, so wait for it. Hosts without vaultRoot() cannot tell; go ahead. Older hosts never wake it
+  // for a plugin view (the wake-up came with replaceView), so there is nothing to wait for: answer at once.
   async function libraryReady(ms = 15000) {
     if (typeof app.vaultRoot !== 'function') return true;
+    if (typeof ctx.replaceView !== 'function') return !!app.vaultRoot();
     for (const end = Date.now() + ms; !app.vaultRoot() && Date.now() < end;) await new Promise(r => setTimeout(r, 150));
     return !!app.vaultRoot();
   }

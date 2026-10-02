@@ -5985,6 +5985,7 @@
     let selected = null, paths = [], generation = 0, loaded = false;
     async function libraryReady(ms = 15e3) {
       if (typeof app2.vaultRoot !== "function") return true;
+      if (typeof ctx2.replaceView !== "function") return !!app2.vaultRoot();
       for (const end = Date.now() + ms; !app2.vaultRoot() && Date.now() < end; ) await new Promise((r) => setTimeout(r, 150));
       return !!app2.vaultRoot();
     }

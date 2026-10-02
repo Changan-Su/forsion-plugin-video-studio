@@ -646,6 +646,25 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   assert.deepEqual(serr, []);
   await sp.close();
 }
+// …and on an older host (no replaceView), which never wakes the library for a plugin view: nothing to wait for, so
+// a remembered project does not hold the launchpad back, and creating says why at once.
+{
+  const { sp, serr } = await spacePage(); // remembers the example as the last project
+  await sp.evaluate(() => {
+    const none = async () => { throw new Error('No vault is open'); };
+    Object.assign(HOST.ctx.app, { vaultRoot: () => null, listFiles: none, writeFile: none, readFile: async () => null });
+  });
+  await sp.evaluate(r => HOST.space(null, r, { oldHost: true }), RECIPE);
+  await sp.waitForSelector('.fvs-launch-empty', { timeout: 3000 }).catch(() => assert.fail('an older host: the launchpad and its list do not wait for a library that never comes'));
+  await sp.click('.fvs-nav [data-nav="create"]');
+  const t1 = Date.now();
+  await sp.click('.fvs-launch-create');
+  await sp.waitForFunction(() => /笔记库还没打开/.test(document.querySelector('.fvs-launch-error:not([hidden])')?.textContent || ''), null, { timeout: 2000 })
+    .catch(() => assert.fail('an older host: creating says at once that no library is open'));
+  assert.ok(Date.now() - t1 < 2000);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
 
 assert.deepEqual(errors.filter(e => !/fonts\.|ERR_FAILED|net::/.test(e)), []);
 console.log('studio e2e ok');
