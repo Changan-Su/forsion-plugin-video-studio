@@ -70,18 +70,25 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     return () => { listeners.delete(render); shell.remove(); };
   }
 
-  // One docked studio and one bottom-panel timeline per window: the timeline view shows that studio's timeline.
+  // One bottom-panel timeline per window shows the newest docked studio's timeline; when that studio closes, the
+  // one opened before it (another tab) gets the panel back.
   const dock = (() => {
-    let studio = null, host = null;
-    const link = () => { host?.show(studio ? studio.timeline : null); studio?.attach(host ? host.shell : null); };
+    const studios = []; let host = null;
+    const top = () => studios.at(-1) ?? null;
+    const link = () => { const s = top(); host?.show(s ? s.timeline : null); s?.attach(host ? host.shell : null); };
     return {
       studio(client) {
-        studio?.attach(null); studio = client; link();
-        return () => { if (studio !== client) return; studio = null; client.attach(null); host?.show(null); };
+        top()?.attach(null); studios.push(client); link();
+        return () => {
+          const i = studios.indexOf(client); if (i < 0) return;
+          const owned = i === studios.length - 1;
+          studios.splice(i, 1);
+          if (owned) { client.attach(null); link(); }
+        };
       },
       host(panel) {
         host = panel; link();
-        return () => { if (host !== panel) return; host = null; studio?.attach(null); };
+        return () => { if (host !== panel) return; host = null; top()?.attach(null); };
       },
     };
   })();

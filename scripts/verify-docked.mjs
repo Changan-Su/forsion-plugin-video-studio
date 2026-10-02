@@ -95,6 +95,10 @@ try {
     assert.ok(lit > 40 && lumas.at(-1) > lit * .6, `the stage repaints ${when}`);
   };
   await repainted('after the panel collapses');
+  // the panel took the focused timeline with it: the keys are the editor's again without a click
+  const t1 = await timeAt();
+  await win.keyboard.press('ArrowRight');
+  assert.notEqual(await timeAt(), t1, 'arrow keys still step after ⌘J');
   await H.captureWindow(app, join(shots, '03-collapsed.png'));
   await win.getByRole('button', { name: '显示时间线', exact: true }).click();
   await win.waitForSelector(clip, { timeout: 5000 });

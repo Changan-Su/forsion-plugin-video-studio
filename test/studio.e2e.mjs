@@ -395,8 +395,45 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   // (it was measured detached while the panel was closed: the fit is redone on the next frame once it is back)
   await sp.waitForFunction(w => Math.abs(document.querySelector('.host-bottom .fvs-clip[data-id="cards"]').getBoundingClientRect().width - w) < 2, fitWidth, { timeout: 3000 })
     .catch(async () => assert.fail(`the timeline comes back fitted to the panel (${await width()} vs ${fitWidth})`));
-  // another project: the panel gets the new editor's timeline, not two
+  // picking another hit marker in the panel leaves one highlighted (the markers are not under the editor's root)
+  const dockHits = sp.locator('.host-bottom .fvs-clip[data-id="cards"] .fvs-hitm');
+  await dockHits.nth(2).click(); await dockHits.nth(4).click();
+  assert.equal(await sp.locator('.host-bottom .fvs-hitm.on').count(), 1, 'one highlighted hit marker');
+  // the panel closing with the keyboard in it hands the keys back to the editor, not to the page
+  await sp.locator('.host-bottom .fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
+  await sp.evaluate(() => HOST.spaceState.closeBottom());
+  await sp.waitForFunction(() => !!document.activeElement?.closest('.fvs-studio'), null, { timeout: 2000 })
+    .catch(async () => assert.fail(`keys go back to the editor (focus on ${await sp.evaluate(() => document.activeElement?.className || document.activeElement?.tagName)})`));
+  const t1 = await timeAt();
+  await sp.keyboard.press('ArrowRight');
+  assert.notEqual(await timeAt(), t1, 'arrow keys still step once the panel is gone');
+  await sp.getByRole('button', { name: '显示时间线', exact: true }).click();
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]');
+  // a picture dropped on the docked timeline is imported at the nearest cut
+  await sp.evaluate(async () => {
+    const png = await new Promise(r => { const c = document.createElement('canvas'); c.width = c.height = 4; c.toBlob(r, 'image/png'); });
+    const dt = new DataTransfer(); dt.items.add(new File([png], 'dropped.png', { type: 'image/png' }));
+    const sc = document.querySelector('.host-bottom .fvs-tl-scroll'), r = sc.getBoundingClientRect();
+    const at = { clientX: r.left + 6, clientY: r.top + 70, bubbles: true, cancelable: true, dataTransfer: dt };
+    sc.dispatchEvent(new DragEvent('dragover', at)); sc.dispatchEvent(new DragEvent('drop', at));
+  });
+  await sp.waitForFunction(p => /^## picture · dropped$/m.test(HOST.text(p)), FILE, { timeout: 5000 })
+    .catch(() => assert.fail('a file dropped on the docked timeline is imported'));
+  await sp.waitForSelector('.host-bottom .fvs-clip[data-id="picture"]');
+  // a second studio tab takes the panel; closing it gives the panel back to the first
   const other = `${DIR}/second.fvs.md`;
+  await sp.evaluate(([p, q]) => { HOST.files.set(q, HOST.text(p).replace('"title": "第 2.12 话 · 人类补完计划"', '"title": "第二个工程"')); HOST.ctx.saveData({ ...HOST.data, trusted: [p, q] }); }, [FILE, other]);
+  await sp.evaluate(() => { document.querySelector('.fvs-dock-timeline .fvs-tl').dataset.first = '1'; });
+  await sp.evaluate(q => {
+    const box = document.createElement('div'); box.id = 'second-tab'; box.style.cssText = 'position:fixed;left:0;top:0;width:900px;height:500px;visibility:hidden';
+    document.body.append(box);
+    window.__closeSecond = HOST.reg.views.find(v => v.id === 'studio').mount(box, { surface: 'main', getParams: () => ({ timeline: 'bottom', filePath: q }), setParams() {}, onParamsChanged: () => () => {}, showInMainPanel() {} });
+  }, other);
+  await sp.waitForFunction(() => { const tl = document.querySelector('.fvs-dock-timeline .fvs-tl'); return tl && !tl.dataset.first && tl.querySelector('.fvs-clip'); }, null, { timeout: 10000 });
+  await sp.evaluate(async () => { (await window.__closeSecond)?.(); document.getElementById('second-tab').remove(); });
+  await sp.waitForFunction(() => document.querySelector('.fvs-dock-timeline .fvs-tl')?.dataset.first === '1', null, { timeout: 3000 })
+    .catch(() => assert.fail('closing the newer studio gives the panel back to the first'));
+  // another project: the panel gets the new editor's timeline, not two
   await sp.evaluate(([p, q]) => { HOST.files.set(q, HOST.text(p).replace('"title": "第 2.12 话 · 人类补完计划"', '"title": "第二个工程"')); HOST.ctx.saveData({ ...HOST.data, trusted: [p, q] }); }, [FILE, other]);
   await sp.evaluate(() => { document.querySelector('.fvs-dock-timeline .fvs-tl').dataset.old = '1'; });
   await sp.evaluate(q => HOST.reg.lists.find(l => l.id === 'projects').open({ key: q }), other);

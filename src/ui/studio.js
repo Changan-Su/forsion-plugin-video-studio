@@ -258,6 +258,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
 
   /* ───────── layout ───────── */
+  // ponytail: docked, focus mode hides only what is the editor's; the bottom panel is the host's (⌘J). Collapsing it
+  // here needs a host seam to close a view (a `view.close()` on the plugin view context).
   function setFocus(on) {
     S.focus = on;
     if (on) { inspectorHandle?.close(); closeLayer(); } else restoreInspector();
@@ -408,7 +410,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /** Fields apply on blur or change: blurring the focused one first puts its draft into the text. */
   function commitFocusedField() {
     const a = document.activeElement;
-    if (a && a !== document.body && (root.contains(a) || side.contains(a)) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur();
+    if (a && a !== document.body && (root.contains(a) || side.contains(a) || timeline.contains(a)) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur();
   }
 
   let unwatch = null, poll = 0, banner = null;
@@ -993,7 +995,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     e.preventDefault(); e.stopPropagation();
     const s = P.sceneById(S.p, id); if (!s) return;
     S.sel = s.id; S.selHit = { scene: s.id, index: i }; S.selCap = null;
-    root.querySelectorAll('.fvs-hitm.on').forEach(x => x.classList.remove('on')); m.classList.add('on');
+    timeline.querySelectorAll('.fvs-hitm.on').forEach(x => x.classList.remove('on')); m.classList.add('on');
     renderToolbar();
     const Z = S.zoom || 20, r = inner.getBoundingClientRect(), u = P.hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
     let at = s.hitTimes[i], moved = false;
@@ -1085,7 +1087,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const Z = S.zoom || 20, x0 = e.clientX, el = e.currentTarget, minDur = Math.max(1 / fps(), .1);
     if (S.selCap !== i || S.tab !== 'captions') {
       S.selCap = i; S.selHit = null; S.tab = 'captions';
-      root.querySelectorAll('.fvs-cap.on, .fvs-clip.on, .fvs-hitm.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
+      timeline.querySelectorAll('.fvs-cap.on, .fvs-clip.on, .fvs-hitm.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
       renderSide(); renderToolbar();
     }
     let start = c0.start, end = c0.end, moved = false;
@@ -1248,28 +1250,34 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /* files dropped on the stage or the timeline; on the timeline they land at the nearest cut */
   let dropHint = null;
   const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
-  root.addEventListener('dragover', e => {
-    if (!hasFiles(e) || opts.compact) return;
-    e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-    root.classList.add('dropping');
-    if (scroller.contains(e.target)) {
-      const Z = S.zoom || 20, x = (e.clientX - inner.getBoundingClientRect().left) / Z;
-      const k = S.p.scenes.filter(s => (s.t0 + s.t1) / 2 < x).length;
-      if (!dropHint) { dropHint = h('div', { class: 'fvs-tl-insert' }); inner.append(dropHint); }
-      dropHint.style.left = `${(k < S.p.scenes.length ? S.p.scenes[k].t0 : S.p.length) * Z}px`;
-      dropHint.dataset.index = String(k);
-    } else { dropHint?.remove(); dropHint = null; }
-  });
-  const endDrop = () => { root.classList.remove('dropping'); dropHint?.remove(); dropHint = null; };
-  root.addEventListener('dragleave', e => { if (!root.contains(e.relatedTarget)) endDrop(); });
-  root.addEventListener('drop', e => {
-    if (!hasFiles(e) || opts.compact) return;
-    e.preventDefault();
-    const k = dropHint ? +dropHint.dataset.index : null;
-    endDrop();
-    const afterId = k === null ? undefined : k === 0 ? '' : S.p.scenes[k - 1].id;
-    void importFiles([...e.dataTransfer.files], afterId);
-  });
+  // on the editor and, while the timeline is docked, on the bottom panel that holds it; returns the unbinder
+  function acceptDrops(box) {
+    const endDrop = () => { box.classList.remove('dropping'); dropHint?.remove(); dropHint = null; };
+    const over = e => {
+      if (!hasFiles(e) || opts.compact) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+      box.classList.add('dropping');
+      if (scroller.contains(e.target)) {
+        const Z = S.zoom || 20, x = (e.clientX - inner.getBoundingClientRect().left) / Z;
+        const k = S.p.scenes.filter(s => (s.t0 + s.t1) / 2 < x).length;
+        if (!dropHint) { dropHint = h('div', { class: 'fvs-tl-insert' }); inner.append(dropHint); }
+        dropHint.style.left = `${(k < S.p.scenes.length ? S.p.scenes[k].t0 : S.p.length) * Z}px`;
+        dropHint.dataset.index = String(k);
+      } else { dropHint?.remove(); dropHint = null; }
+    };
+    const leave = e => { if (!box.contains(e.relatedTarget)) endDrop(); };
+    const drop = e => {
+      if (!hasFiles(e) || opts.compact) return;
+      e.preventDefault();
+      const k = dropHint ? +dropHint.dataset.index : null;
+      endDrop();
+      const afterId = k === null ? undefined : k === 0 ? '' : S.p.scenes[k - 1].id;
+      void importFiles([...e.dataTransfer.files], afterId);
+    };
+    box.addEventListener('dragover', over); box.addEventListener('dragleave', leave); box.addEventListener('drop', drop);
+    return () => { endDrop(); box.removeEventListener('dragover', over); box.removeEventListener('dragleave', leave); box.removeEventListener('drop', drop); };
+  }
+  acceptDrops(root);
 
   /* ───────── popovers ───────── */
   function openTemplates(anchor) {
@@ -1742,15 +1750,19 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     rootKeys(e);
   });
   // The bottom panel's timeline view borrows `timeline` while it is mounted (shell = its container), else the strip shows.
-  let dockShell = null, dockKeys = null;
+  let dockShell = null, dockKeys = null, dockDrops = null;
   const undock = opts.dock?.studio({
     timeline,
     attach(shell) {
-      if (dockShell) { dockShell.removeEventListener('keydown', onKey); dockShell.removeEventListener('pointerdown', dockKeys); }
-      dockShell = shell; dockKeys = shell ? keepKeys(shell) : null;
+      // the panel closing takes the focused timeline with it: give the keys back to the editor, not to the page
+      const a = document.activeElement, lost = !!dockShell && (!a || a === document.body || dockShell.contains(a));
+      if (dockShell) { dockShell.removeEventListener('keydown', onKey); dockShell.removeEventListener('pointerdown', dockKeys); dockDrops?.(); }
+      dockShell = shell; dockKeys = shell ? keepKeys(shell) : null; dockDrops = shell ? acceptDrops(shell) : null;
       if (shell) { shell.addEventListener('keydown', onKey); shell.addEventListener('pointerdown', dockKeys); }
       dockStrip.hidden = !!shell;
-      if (!S.disposed) layout();
+      if (S.disposed) return;
+      if (!shell && lost) setTimeout(() => { const b = document.activeElement; if (!S.disposed && (!b || b === document.body) && root.isConnected) root.focus({ preventScroll: true }); });
+      layout();
     },
   });
   const ro = new ResizeObserver(() => {

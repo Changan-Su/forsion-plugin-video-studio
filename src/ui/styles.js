@@ -272,7 +272,7 @@ select.fvs-input{padding:0 4px}
 .fvs-sheet-body{min-height:0;overflow:hidden}
 
 /* focus, narrow and compact (Mini) layouts follow the container, not the window */
-.fvs-studio.focus-preview .fvs-tl,.fvs-studio.focus-preview .fvs-side{display:none}
+.fvs-studio.focus-preview .fvs-tl,.fvs-studio.focus-preview .fvs-side,.fvs-studio.focus-preview .fvs-dock-strip{display:none}
 .fvs-studio.narrow .fvs-main{grid-template-columns:minmax(0,1fr)}
 .fvs-studio.narrow .fvs-side{position:absolute;top:0;right:0;bottom:48px;z-index:15;width:min(320px,94%);border:1px solid var(--fv-line);border-radius:var(--fv-r-md) 0 0 var(--fv-r-md);background:var(--fv-card);box-shadow:var(--fv-shadow)}
 .fvs-studio.narrow .fvs-bar{padding-left:12px;gap:8px}
