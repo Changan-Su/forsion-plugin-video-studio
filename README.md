@@ -132,7 +132,7 @@ npm run verify:features -- --live # 临时工程的真模型修改、差异/恢�
 
 提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐由导演 Agent 使用本机工具执行。`verify:features -- --live` 会调用模型并产生两条可见导演会话，只操作临时工程；原始示例保持不变。它验证工程修改与 MP4 导出，不代表新曲创作已验收。
 
-模型和思考档位传递依赖宿主公开的 `ctx.tangu.chatSelection` / `startChat({ modelId, thinkingLevel })` 契约；旧宿主降级为普通提示输入。当前 dev 已同步这项宿主能力。缩略图与导出状态仍由插件自身管理，没有引入另一套 React 或独立执行服务。详细验收见 [ACCEPTANCE-0.5.md](ACCEPTANCE-0.5.md)（上一版：[ACCEPTANCE-0.4.md](ACCEPTANCE-0.4.md)）。
+模型和思考档位传递依赖宿主公开的 `ctx.tangu.chatSelection` / `startChat({ modelId, thinkingLevel })` 契约；旧宿主降级为普通提示输入。当前 dev 已同步这项宿主能力。缩略图与导出状态仍由插件自身管理，没有引入另一套 React 或独立执行服务。详细验收见 [ACCEPTANCE-0.6.md](ACCEPTANCE-0.6.md)（之前：[0.5](ACCEPTANCE-0.5.md)、[0.4](ACCEPTANCE-0.4.md)）。
 
 ---
 
