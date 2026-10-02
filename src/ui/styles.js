@@ -65,7 +65,8 @@ button.fvs-project:hover{background:var(--fv-hover)}
 /* stage */
 .fvs-main{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0;min-width:0}
 .fvs-studio.medium .fvs-main{grid-template-columns:minmax(0,1fr) 272px}
-.fvs-studio.medium :is(.fvs-timeline-duration,.fvs-zoom-controls input,.fvs-snap-control > span){display:none}
+:is(.fvs-studio,.fvs-dock-timeline).medium :is(.fvs-timeline-duration,.fvs-snap-control > span){display:none}
+:is(.fvs-studio,.fvs-dock-timeline).medium .fvs-zoom-controls input{width:64px}
 .fvs-studio.inspector-hidden .fvs-main{grid-template-columns:minmax(0,1fr)}
 .fvs-studio.inspector-hidden .fvs-side{display:none}
 .fvs-preview{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0}
@@ -194,7 +195,7 @@ select.fvs-input{padding:0 4px}
 .fvs-sync-chip[data-state=warn] i{background:var(--fv-warn)}
 .fvs-timeline-duration{font:var(--fv-caption)/1 var(--fv-mono);white-space:nowrap}
 .fvs-snap-control{display:flex;align-items:center;gap:6px;white-space:nowrap}
-.fvs-studio .fvs-snap-control select{height:24px;padding:0 4px;border:1px solid var(--fv-line);border-radius:var(--fv-r-sm);background:var(--fv-card);color:var(--fv-text);font-size:var(--fv-caption)}
+:is(.fvs-studio,.fvs-dock-timeline) .fvs-snap-control select{height:24px;padding:0 4px;border:1px solid var(--fv-line);border-radius:var(--fv-r-sm);background:var(--fv-card);color:var(--fv-text);font-size:var(--fv-caption)}
 .fvs-zoom-controls{display:flex;align-items:center;gap:2px}
 .fvs-zoom-controls input{width:84px;margin:0 4px;accent-color:var(--fv-accent)}
 .fvs-zoom-controls .fvs-btn.ghost{height:24px;padding:0 8px}
@@ -254,7 +255,7 @@ select.fvs-input{padding:0 4px}
 .fvs-tl-ghost{position:absolute;top:62px;height:52px;z-index:6;border:1.5px dashed var(--fv-accent);border-radius:var(--fv-r-sm);pointer-events:none}
 .fvs-tl-ghost.move{border-style:solid;background:color-mix(in srgb,var(--fv-accent) 16%,transparent)}
 .fvs-tl-insert{position:absolute;top:58px;height:60px;z-index:7;width:2px;margin-left:-1px;border-radius:1px;background:var(--fv-accent);pointer-events:none}
-.fvs-studio.reordering .fvs-clip{cursor:grabbing}
+.fvs-tl.reordering .fvs-clip{cursor:grabbing}
 .fvs-tl-empty{position:absolute;left:12px;top:22px;color:var(--fv-muted);font-size:var(--fv-meta)}
 .fvs-lane{position:absolute;left:0;right:0;height:44px}
 .fvs-lane.empty::after{content:attr(data-hint);position:absolute;left:12px;top:14px;color:var(--fv-muted);font-size:var(--fv-caption);pointer-events:none;white-space:nowrap}
@@ -276,11 +277,12 @@ select.fvs-input{padding:0 4px}
 .fvs-studio.narrow .fvs-side{position:absolute;top:0;right:0;bottom:48px;z-index:15;width:min(320px,94%);border:1px solid var(--fv-line);border-radius:var(--fv-r-md) 0 0 var(--fv-r-md);background:var(--fv-card);box-shadow:var(--fv-shadow)}
 .fvs-studio.narrow .fvs-bar{padding-left:12px;gap:8px}
 .fvs-studio.narrow :is(.fvs-status,.fvs-history,.fvs-timeline-duration,.fvs-snap-control span,.fvs-zoom-controls input,.fvs-current-scene,.fvs-sync-sum){display:none}
-.fvs-studio.narrow .fvs-sync-chip{width:24px;padding:0;justify-content:center}
-.fvs-studio.narrow :is(.fvs-ai-action,.fvs-export-action,.fvs-tl-add,.fvs-tl-import) span{display:none}
+.fvs-dock-timeline.narrow :is(.fvs-timeline-duration,.fvs-snap-control span,.fvs-zoom-controls input,.fvs-sync-sum){display:none}
+:is(.fvs-studio,.fvs-dock-timeline).narrow .fvs-sync-chip{width:24px;padding:0;justify-content:center}
+.fvs-studio.narrow :is(.fvs-ai-action,.fvs-export-action) span,:is(.fvs-studio,.fvs-dock-timeline).narrow :is(.fvs-tl-add,.fvs-tl-import) span{display:none}
 .fvs-studio.narrow .fvs-transport{padding:0 8px 4px 12px}
-.fvs-studio.narrow .fvs-tl-body{grid-template-columns:44px minmax(0,1fr)}
-.fvs-studio.narrow :is(.fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane) span,.fvs-studio.narrow .fvs-rail-ruler{font-size:0}
+:is(.fvs-studio,.fvs-dock-timeline).narrow .fvs-tl-body{grid-template-columns:44px minmax(0,1fr)}
+:is(.fvs-studio,.fvs-dock-timeline).narrow :is(.fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane) span,:is(.fvs-studio,.fvs-dock-timeline).narrow .fvs-rail-ruler{font-size:0}
 .fvs-studio.narrow .fvs-viewport{padding:6px 10px}
 .fvs-studio.compact{grid-template-rows:auto minmax(0,1fr)}
 .fvs-studio.compact :is(.fvs-tl,.fvs-side,.fvs-history,.fvs-status,.fvs-ai-action,.fvs-export-action,.fvs-time){display:none}
@@ -339,6 +341,16 @@ select.fvs-input{padding:0 4px}
 .fvs-native-properties{overflow:hidden}
 .fvs-native-properties .fvs-side{height:100%;border-left:0}
 .fvs-native-properties .fvs-side-close{display:none}
+/* the timeline docked in the native bottom panel (Space): it fills the panel; the panel's own sash sizes it */
+.fvs-dock-timeline{display:flex;flex-direction:column;overflow:hidden;outline:none}
+.fvs-dock-timeline > .fvs-tl{flex:1;min-height:0;grid-template-rows:auto minmax(0,1fr);background:transparent}
+.fvs-dock-timeline .fvs-tl-resize{display:none}
+.fvs-dock-timeline .fvs-tl-bar{padding-top:6px}
+.fvs-dock-empty{margin:auto;padding:16px;text-align:center}
+.fvs-dock-strip{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 10px 4px 12px;background:var(--fv-hover);font-size:var(--fv-meta);color:var(--fv-muted)}
+.fvs-dock-strip svg{width:14px;height:14px}
+.fvs-dock-strip span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fvs-dock-strip .fvs-btn{height:24px;padding:0 8px}
 .fvs-workspace-host{height:100%;min-height:0;overflow:hidden}
 .fvs-library{display:grid;gap:14px;align-content:start;max-width:620px;margin:0 auto;padding:28px 20px}
 .fvs-library-heading{display:flex;align-items:center;gap:10px}

@@ -14,7 +14,7 @@ import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
 
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project

@@ -2,13 +2,13 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-本目录是独立 Git 仓库，版本 **0.6.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+本目录是独立 Git 仓库，版本 **0.7.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
-工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，下面是时间线。场景只在时间线上出现一次，片段直接显示缩略图；属性、AI 导演和导出在 Space 里用原生 Extend View 打开，在文件标签页和浮窗里是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
+工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，时间线在下方。场景只在时间线上出现一次，片段直接显示缩略图。在视频工作室 Space 里，界面全部用原生面板：工程列表在左栏，时间线在底部面板，属性、AI 导演和导出用右侧的 Extend View；在文件标签页、浮窗和不支持底部面板的旧版 Forsion 里，时间线画在编辑器下方，属性等是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
 
 一段视频就是一份 `.fvs.md` 工程文件：每个场景是一页网页（HTML + CSS，加一点关键帧脚本），场景首尾相接地排在时间线上，时间线踩在音乐的拍子上。每个场景写着自己的**拍点**，画面在拍点上切，配乐也在拍点上给重音。
 
-- **时间线**：片段显示同一渲染器生成的真实缩略图（只渲染看得见的片段，遵守脚本信任）；每条音轨一条轨道并画出波形，可拖动改起点；时间线缩放、吸附、高度可调。
+- **时间线**：片段显示同一渲染器生成的真实缩略图（只渲染看得见的片段，遵守脚本信任）；每条音轨一条轨道并画出波形，可拖动改起点；吸附、高度可调。缩放以指针处为锚点（⌘ / Ctrl / Alt + 滚轮，或触控板双指捏合），`=` / `-` 缩放，⇧Z 适应整片，滑块从全片一直放大到逐帧。
 - **手动编辑**：实时预览、播放；双击画面里的文字直接改；属性面板改场景设置（长度可选小节、拍、秒）、全部文字、代码和工程设置。撤销、重做、自动保存。
 - **剪辑**：导入图片、视频、音频（按钮或拖进时间线）；在播放头处分割（S / ⌘B）；拖左边缘修剪入点、拖右边缘改长度，相邻场景让位、后面的切点不动，按住 Alt 推移后面全部；拖动片段调整顺序；⌘D 复制、Delete 删除。视频由运行时接管，预览、网页导出和 MP4 逐帧对齐并混入原声。
 - **字幕轨**：时间线最上面一条字幕轨，双击添加、拖动移动、拖两端修剪；属性面板「字幕」页逐条改时间和文字、设置位置和大小。字幕是工程文件开头的一个 SRT 块（整片时间），可导入 / 导出 `.srt`，预览和网页导出都显示，MP4 默认烧录。
@@ -132,7 +132,7 @@ npm run verify:features -- --live # 临时工程的真模型修改、差异/恢�
 
 提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐由导演 Agent 使用本机工具执行。`verify:features -- --live` 会调用模型并产生两条可见导演会话，只操作临时工程；原始示例保持不变。它验证工程修改与 MP4 导出，不代表新曲创作已验收。
 
-模型和思考档位传递依赖宿主公开的 `ctx.tangu.chatSelection` / `startChat({ modelId, thinkingLevel })` 契约；旧宿主降级为普通提示输入。当前 dev 已同步这项宿主能力。缩略图与导出状态仍由插件自身管理，没有引入另一套 React 或独立执行服务。详细验收见 [ACCEPTANCE-0.6.md](ACCEPTANCE-0.6.md)（之前：[0.5](ACCEPTANCE-0.5.md)、[0.4](ACCEPTANCE-0.4.md)）。
+模型和思考档位传递依赖宿主公开的 `ctx.tangu.chatSelection` / `startChat({ modelId, thinkingLevel })` 契约；旧宿主降级为普通提示输入。当前 dev 已同步这项宿主能力。缩略图与导出状态仍由插件自身管理，没有引入另一套 React 或独立执行服务。详细验收见 [ACCEPTANCE-0.7.md](ACCEPTANCE-0.7.md)（之前：[0.6](ACCEPTANCE-0.6.md)、[0.5](ACCEPTANCE-0.5.md)、[0.4](ACCEPTANCE-0.4.md)）。
 
 ---
 
@@ -144,6 +144,7 @@ music's beat grid, and each scene lists its **hits** — the picture cuts on the
 
 Edit by hand (live preview, double-click text in the picture, panels for scene settings, text, code and project),
 cut like a clip editor (import pictures, video and sound, split at the playhead, trim either end, reorder by dragging,
-crossfades and other transitions, ten scene templates, a captions track with SRT import and export), hand work to the bundled **Video Studio Director** agent
+crossfades and other transitions, ten scene templates, a captions track with SRT import and export, and a timeline
+that zooms around the pointer and, in the Video Studio Space, sits in the native bottom panel), hand work to the bundled **Video Studio Director** agent
 (write scenes, score, check sync, render MP4), and export a single-file web video or an MP4. The format and
 the scene API are documented in the bundled skill; `examples/episode-2.12` is a complete project.

@@ -70,8 +70,37 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     return () => { listeners.delete(render); shell.remove(); };
   }
 
+  // One docked studio and one bottom-panel timeline per window: the timeline view shows that studio's timeline.
+  const dock = (() => {
+    let studio = null, host = null;
+    const link = () => { host?.show(studio ? studio.timeline : null); studio?.attach(host ? host.shell : null); };
+    return {
+      studio(client) {
+        studio?.attach(null); studio = client; link();
+        return () => { if (studio !== client) return; studio = null; client.attach(null); host?.show(null); };
+      },
+      host(panel) {
+        host = panel; link();
+        return () => { if (host !== panel) return; host = null; studio?.attach(null); };
+      },
+    };
+  })();
+  function mountTimeline(el) {
+    const empty = h('p', { class: 'fvs-hint fvs-dock-empty', text: t('timeline-no-project') });
+    const shell = h('div', { class: 'fvs-extension fvs-dock-timeline', tabindex: '-1' }, h('style', { text: CSS }), empty);
+    el.append(shell);
+    // the timeline's toolbar follows the panel's width, as it does in the editor
+    const ro = new ResizeObserver(() => { const w = shell.clientWidth; shell.classList.toggle('narrow', w > 0 && w < 760); shell.classList.toggle('medium', w > 0 && w < 1100); });
+    ro.observe(shell);
+    const off = dock.host({ shell, show(timeline) { shell.querySelector(':scope > .fvs-tl')?.remove(); if (timeline) shell.append(timeline); empty.hidden = !!timeline; } });
+    return () => { off(); ro.disconnect(); shell.remove(); };
+  }
+
   function mountWorkspace(el, view = {}, compact = false) {
     let disposed = false, disposeContent = null, path = null, request = 0;
+    // The Space recipe docks the timeline in the native bottom panel and says so in the studio's params; hosts
+    // without a bottom panel for plugins (older, mobile) keep it inside the editor.
+    const docked = !compact && view.surface !== 'floating' && view.getParams?.().timeline === 'bottom' && !!ctx.viewLocations?.includes('bottom');
     const holder = h('div', { class: 'fvs-workspace-host' }); el.append(holder);
     const picker = async () => {
       // the host shows one panel at a time: the picker takes the properties panel's place until it closes
@@ -96,6 +125,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       if (view.getParams?.().filePath !== next) view.setParams?.({ filePath: next });
       disposeContent = mountStudio(ctx, holder, next, t, {
         view, compact, chooseProject: picker, openWorkspace: () => open(next),
+        dock: docked ? dock : null, showTimeline: () => ctx.openView?.('timeline', { location: 'bottom' }),
         showInMain: () => { view.setParams?.({ filePath: next }); view.showInMainPanel?.(); },
         openMini: ctx.openMiniPanel ? () => ctx.openMiniPanel('preview', { title: t('mini-preview'), params: { filePath: next }, mainViewId: 'studio', mainViewParams: { filePath: next } }) : null,
         openFloating: ctx.openFloatingPanel ? () => ctx.openFloatingPanel('studio', { title: t('app'), params: { filePath: next }, width: 1120, height: 820, minWidth: 480, minHeight: 580 }) : null,
@@ -116,6 +146,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
 
   ctx.registerView?.({ id: 'studio', title: t('app'), workspaceSource: 'projects', singleton: true, mount: (el, view) => mountWorkspace(el, view) });
   ctx.registerView?.({ id: 'preview', title: t('mini-preview'), singleton: true, mount: (el, view) => mountWorkspace(el, view, true) });
+  ctx.registerView?.({ id: 'timeline', title: t('timeline'), singleton: true, mount: el => mountTimeline(el) });
   ctx.registerListSource?.({
     id: 'projects', title: t('projects'), items: filter => rows(filter?.query), search: true, activeKey: () => selected,
     subscribe(fn) { listeners.add(fn); void refresh(); const poll = setInterval(refresh, 8000); return () => { listeners.delete(fn); clearInterval(poll); }; },

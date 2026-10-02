@@ -170,7 +170,10 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /* ───────── timeline ───────── */
   const snapSel = h('select', { 'aria-label': t('snap'), onchange: e => { S.snap = e.target.value; } },
     ...['bar', 'beat', 'half', 'quarter', 'off'].map(k => h('option', { value: k, selected: S.snap === k }, t(`snap-${k}`))));
-  const zoomInput = h('input', { type: 'range', min: '2', max: '160', step: '1', 'aria-label': t('zoom-level'), oninput: e => setZoom(+e.target.value) });
+  // the slider is logarithmic: every step multiplies the zoom by the same amount, from half the fit to a frame per ~24 px
+  const ZOOM_STEPS = 1000;
+  const zoomInput = h('input', { type: 'range', min: '0', max: String(ZOOM_STEPS), step: '1', 'aria-label': t('zoom-level'),
+    oninput: e => { const [lo, hi] = zoomRange(); setZoom(lo * Math.pow(hi / lo, +e.target.value / ZOOM_STEPS)); } });
   const syncButton = h('button', { type: 'button', class: 'fvs-sync-chip', hidden: true, 'aria-haspopup': 'dialog', title: t('sync'), onclick: e => openSync(e.currentTarget) }, h('i'), h('span', { class: 'fvs-sync-sum' }));
   const splitBtn = tool('Scissors', 'split', () => splitAtPlayhead(), { kbd: 'S' });
   const dupBtn = tool('Copy', 'duplicate', () => duplicateSelected(), { kbd: `${MOD}D` });
@@ -186,8 +189,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     h('div', { class: 'fvs-tl-tools' }, splitBtn, dupBtn, delBtn, h('span', { class: 'fvs-tl-sep' }), addBtn, capBtn, importBtn, fileInput),
     syncButton, durationEl, h('span', { class: 'fvs-grow' }),
     h('label', { class: 'fvs-snap-control' }, h('span', { text: t('snap') }), snapSel),
-    h('div', { class: 'fvs-zoom-controls' }, tool('Minus', 'zoom-out', () => setZoom(S.zoom / 1.5)), zoomInput,
-      tool('Plus', 'zoom-in', () => setZoom(S.zoom * 1.5)), h('button', { type: 'button', class: 'fvs-btn ghost', onclick: () => setZoom(0) }, t('zoom-fit'))),
+    h('div', { class: 'fvs-zoom-controls' }, tool('ZoomOut', 'zoom-out', () => zoomBy(1 / 1.5), { kbd: '-' }), zoomInput,
+      tool('ZoomIn', 'zoom-in', () => zoomBy(1.5), { kbd: '=' }),
+      h('button', { type: 'button', class: 'fvs-btn ghost', title: `${t('zoom-fit-hint')} (⇧Z)`, onclick: () => setZoom(0) }, t('zoom-fit'))),
     keysBtn);
   const scroller = h('div', { class: 'fvs-tl-scroll' });
   const inner = h('div', { class: 'fvs-tl-inner' });
@@ -215,7 +219,20 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   });
   const tlBody = h('div', { class: 'fvs-tl-body' }, trackRail, scroller);
   const timeline = h('section', { class: 'fvs-tl', 'aria-label': t('timeline') }, resizeHandle, tlBar, tlBody);
-  root.append(timeline);
+  // In the Space the timeline lives in the native bottom panel (opts.dock); this strip stands in for it while that panel is closed.
+  const dockStrip = h('div', { class: 'fvs-dock-strip', hidden: true }, icon('PanelBottom'), h('span', { text: t('timeline-docked') }),
+    h('button', { type: 'button', class: 'fvs-btn ghost', onclick: () => opts.showTimeline?.() }, t('timeline-show')));
+  root.append(opts.dock ? dockStrip : timeline);
+  // ⌘/Ctrl + wheel and a trackpad pinch (a wheel event with ctrlKey) zoom around the pointer, as in other editors; so does Alt + wheel
+  tlBody.addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // lines → pixels
+    const x = Math.max(0, Math.min(scroller.clientWidth, e.clientX - scroller.getBoundingClientRect().left));
+    zoomBy(Math.exp(-dy * (Math.abs(dy) < 30 ? .01 : .0025)), x); // pinch sends many small deltas, a wheel notch one large one
+  }, { passive: false });
+  let rulerFrame = 0;
+  scroller.addEventListener('scroll', () => { cancelAnimationFrame(rulerFrame); rulerFrame = requestAnimationFrame(drawRuler); });
 
   let current = null, pending = null, pendingTimer = 0, inline = null;
   const drags = new Set();
@@ -685,12 +702,25 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     return { bar: tp.bar, beat: tp.beat, half: tp.beat / 2, quarter: tp.beat / 4, off: 1 / fps() }[S.snap];
   };
   const snapT = x => { const g = grid(); return Math.round(x / g) * g; };
-  function setZoom(z) {
-    const fit = Math.max(2, (scroller.clientWidth - 24) / Math.max(1, S.p.length));
+  const fitZoom = () => Math.max(2, (scroller.clientWidth - 24) / Math.max(1, S.p.length));
+  /** px per second: from half the fit (the whole film with room around it) to about 24 px per frame */
+  const zoomRange = () => { const fit = fitZoom(); return [fit / 2, Math.max(400, fps() * 24, fit)]; };
+  const zoomBy = (f, at) => setZoom((S.zoom || fitZoom()) * f, at);
+  /**
+   * z px per second (0 = fit the film). The time under viewport x `at` stays put; without one, the playhead
+   * when it is in view, else the middle of the view.
+   */
+  function setZoom(z, at) {
+    const [lo, hi] = zoomRange(), old = S.zoom || fitZoom(), w = scroller.clientWidth;
+    const headX = S.time * old - scroller.scrollLeft;
+    const x = at ?? (headX >= 0 && headX <= w ? headX : w / 2);
+    const tx = (scroller.scrollLeft + x) / old;
     S.zoomFit = !(z > 0);
-    S.zoom = z > 0 ? Math.min(400, Math.max(fit / 2, z)) : fit;
-    zoomInput.value = String(S.zoom);
+    S.zoom = z > 0 ? Math.min(hi, Math.max(lo, z)) : fitZoom();
+    zoomInput.value = String(Math.round(Math.log(S.zoom / lo) / Math.log(hi / lo) * ZOOM_STEPS));
     renderTimeline();
+    scroller.scrollLeft = Math.max(0, tx * S.zoom - x); // after the render, so the content already has its new width
+    drawRuler();
   }
   // a stream that cannot seek is swapped for an inline copy, in the thumbnails and the main preview alike
   // A stream that cannot seek is swapped for an inline copy, in the thumbnails and the main preview alike.
@@ -807,24 +837,31 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const g = c.getContext('2d'); g.setTransform(cw / w, 0, 0, dpr, 0, 0); return g;
   }
   function css(name, fb) { return getComputedStyle(root).getPropertyValue(name).trim() || fb; }
+  // The ruler is only as wide as the view and follows the scroll: a canvas as wide as the film runs past the
+  // browser's canvas limit when zoomed in, and the ticks and numbers come out squeezed.
   function drawRuler() {
-    const Z = S.zoom || 20, W = Math.ceil(S.p.length * Z) + 48;
+    const Z = S.zoom || 20, x0 = scroller.scrollLeft, W = Math.max(1, scroller.clientWidth);
+    ruler.style.left = `${x0}px`;
     const g = canvasSize(ruler, W, RULER_H);
     g.clearRect(0, 0, W, RULER_H);
     const muted = css('--fv-muted', '#888'), line = css('--fv-line', '#ccc');
     g.font = `${css('--fv-caption', '11px')} ${css('--fv-mono', 'ui-monospace, monospace')}`; g.textBaseline = 'top';
-    const tp = S.p.tempo;
+    const tp = S.p.tempo, from = x0 / Z, to = (x0 + W) / Z;
     if (tp) {
       const every = [1, 2, 4, 8, 16].find(n => n * tp.bar * Z >= 34) || 32;
-      for (let b = 0; b * tp.bar <= S.p.length + 1e-6; b++) {
-        const x = b * tp.bar * Z;
+      const last = Math.floor((S.p.length + 1e-6) / tp.bar);
+      for (let b = Math.max(0, Math.floor(from / tp.bar)); b <= Math.min(last, Math.ceil(to / tp.bar)); b++) {
+        const x = b * tp.bar * Z - x0;
         g.fillStyle = b % every ? line : muted; g.fillRect(x, b % every ? 14 : 6, 1, b % every ? 10 : 18);
         if (!(b % every)) { g.fillStyle = muted; g.fillText(String(b + 1), x + 4, 4); }
         if (tp.beat * Z >= 7) for (let k = 1; k < tp.beatsPerBar; k++) { g.fillStyle = line; g.fillRect(x + k * tp.beat * Z, 19, 1, 5); }
       }
     } else {
-      const step = [1, 2, 5, 10, 30, 60].find(n => n * Z >= 40) || 120;
-      for (let s = 0; s <= S.p.length; s += step) { const x = s * Z; g.fillStyle = muted; g.fillRect(x, 6, 1, 18); g.fillText(`${s}s`, x + 4, 4); }
+      const step = [.1, .2, .5, 1, 2, 5, 10, 30, 60].find(n => n * Z >= 40) || 120;
+      for (let i = Math.max(0, Math.floor(from / step)); i * step <= Math.min(S.p.length, to + step); i++) {
+        const sec = i * step, x = sec * Z - x0;
+        g.fillStyle = muted; g.fillRect(x, 6, 1, 18); g.fillText(`${+sec.toFixed(1)}s`, x + 4, 4);
+      }
     }
   }
   function drawWaves() {
@@ -880,7 +917,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         dragging = true;
         ghost = h('div', { class: 'fvs-tl-ghost move', style: { width: `${s0.dur * Z}px` } });
         marker = h('div', { class: 'fvs-tl-insert' });
-        inner.append(ghost, marker); root.classList.add('reordering');
+        inner.append(ghost, marker); timeline.classList.add('reordering');
       }
       const at = (ev.clientX - r.left) / Z, others = S.p.scenes.filter(x => x.id !== id);
       target = others.filter(x => (x.t0 + x.t1) / 2 < at).length;
@@ -889,7 +926,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       marker.style.left = `${bx * Z}px`;
     };
     const up = ev => {
-      ghost?.remove(); marker?.remove(); root.classList.remove('reordering');
+      ghost?.remove(); marker?.remove(); timeline.classList.remove('reordering');
       if (ev.type === 'pointercancel') return;
       if (!dragging) {
         const was = S.sel, s = P.sceneById(S.p, id); if (!s) return;
@@ -1278,7 +1315,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
   function openShortcuts(anchor) {
     const rows = [['key-space', t('key-space')], ['shortcut-frame', '← →'], ['shortcut-beat', '⇧ ← →'], ['shortcut-scene', '↑ ↓'], ['split', 'S'],
-      ['duplicate', `${MOD}D`], ['delete', '⌫'], ['undo', `${MOD}Z`], ['redo', `⇧${MOD}Z`], ['shortcut-text', t('shortcut-dblclick')], ['captions-add', t('captions-lane-dbl')]];
+      ['duplicate', `${MOD}D`], ['delete', '⌫'], ['undo', `${MOD}Z`], ['redo', `⇧${MOD}Z`], ['shortcut-text', t('shortcut-dblclick')], ['captions-add', t('captions-lane-dbl')],
+      ['zoom-in', '='], ['zoom-out', '-'], ['zoom-fit-hint', '⇧Z'], ['shortcut-zoom', `${MOD.replace(/\+$/, '')} + ${t('wheel-or-pinch')}`]];
     openPopover(anchor, h('div', { class: 'fvs-keys' }, h('div', { class: 'fvs-pop-head' }, h('strong', { text: t('shortcuts') })),
       h('dl', {}, ...rows.flatMap(([k, keys]) => [h('dt', { text: k === 'key-space' ? t('play') : t(k) }), h('dd', {}, h('kbd', { text: keys }))]))), { label: t('shortcuts'), align: 'end' });
   }
@@ -1654,7 +1692,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
 
   /* ───────── keys, layout ───────── */
-  root.addEventListener('keydown', e => {
+  // (also bound to the bottom-panel container while the timeline is docked there: its keys do not reach root)
+  function onKey(e) {
     if (e.isComposing || e.keyCode === 229) return;
     const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
     if (mod && k === 's') { e.preventDefault(); commitFocusedField(); save(); return; }
@@ -1679,17 +1718,37 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (e.key === 'Home') seek(0);
     if (e.key === 'End') seek(S.p.length);
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); }
-  });
+    if (!mod && !e.altKey && (e.key === '=' || e.key === '+')) { e.preventDefault(); zoomBy(1.5); }
+    if (!mod && !e.altKey && (e.key === '-' || e.key === '_')) { e.preventDefault(); zoomBy(1 / 1.5); }
+    if (!mod && e.shiftKey && k === 'z') { e.preventDefault(); setZoom(0); }
+  }
+  root.addEventListener('keydown', onKey);
   // clicks on the timeline and the toolbar keep the keyboard on the editor (Space, arrows, ⌘Z)
   // (menus and popovers live on document.body and keep their own focus)
-  root.addEventListener('pointerdown', e => {
-    if (reopenOnShow) { reopenOnShow = false; restoreInspector(); } // shown again without a resize
+  const keepKeys = box => e => {
     if (e.target.closest('input,textarea,select,.fvs-inline,.fvs-sheet')) return;
     setTimeout(() => {
       const a = document.activeElement;
       if (a?.closest?.('.fvs-layer')) return;
-      if (!root.contains(a) || a === document.body) root.focus({ preventScroll: true });
+      if (!box.contains(a) || a === document.body) box.focus({ preventScroll: true });
     });
+  };
+  const rootKeys = keepKeys(root);
+  root.addEventListener('pointerdown', e => {
+    if (reopenOnShow) { reopenOnShow = false; restoreInspector(); } // shown again without a resize
+    rootKeys(e);
+  });
+  // The bottom panel's timeline view borrows `timeline` while it is mounted (shell = its container), else the strip shows.
+  let dockShell = null, dockKeys = null;
+  const undock = opts.dock?.studio({
+    timeline,
+    attach(shell) {
+      if (dockShell) { dockShell.removeEventListener('keydown', onKey); dockShell.removeEventListener('pointerdown', dockKeys); }
+      dockShell = shell; dockKeys = shell ? keepKeys(shell) : null;
+      if (shell) { shell.addEventListener('keydown', onKey); shell.addEventListener('pointerdown', dockKeys); }
+      dockStrip.hidden = !!shell;
+      if (!S.disposed) layout();
+    },
   });
   const ro = new ResizeObserver(() => {
     const w = root.clientWidth;
@@ -1701,7 +1760,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (reopenOnShow && w > 0) { reopenOnShow = false; restoreInspector(); }
     layout();
   });
-  ro.observe(root); ro.observe(viewport);
+  ro.observe(root); ro.observe(viewport); ro.observe(scroller); // (the scroller: the bottom panel resizes on its own)
   layout();
 
   load();
@@ -1717,7 +1776,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (unwatch) unwatch();
     clearInterval(poll);
     window.removeEventListener('message', onMessage);
-    ro.disconnect();
+    ro.disconnect(); cancelAnimationFrame(rulerFrame);
+    undock?.(); timeline.remove();
     for (const clear of drags) clear();
     for (const a of audios) { a.el.pause(); if (a.blob) URL.revokeObjectURL(a.url); }
     root.remove();

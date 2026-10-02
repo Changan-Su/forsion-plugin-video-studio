@@ -278,12 +278,14 @@ export async function checkWorkspace(page, file, shot) {
   await separator.focus(); await page.keyboard.press('ArrowUp');
   assert.equal(Number(await separator.getAttribute('aria-valuenow')), height + 20);
   await page.keyboard.press('ArrowDown');
-  await page.locator('.fvs-zoom-controls input').fill('32');
+  // the slider is logarithmic (0–1000 from half the fit to a frame per ~24 px)
+  await page.locator('.fvs-zoom-controls input').fill('600');
   await page.waitForFunction(() => document.querySelector('.fvs-clip[data-id="cards"]')?.getBoundingClientRect().width > 150);
   const clipWidth = await page.locator('.fvs-clip[data-id="cards"]').evaluate(e => e.getBoundingClientRect().width);
   await page.setViewportSize({ width: 1000, height: 900 });
   await page.waitForFunction(() => document.querySelector('.fvs-studio').classList.contains('medium'));
   assert.equal(await page.locator('.fvs-clip[data-id="cards"]').evaluate(e => e.getBoundingClientRect().width), clipWidth, 'manual zoom survives resize');
+  assert.ok(await page.locator('.fvs-zoom-controls input').isVisible(), 'the zoom slider stays at medium width');
   await shot(page, '11-medium');
 
   // narrow: every control stays inside, the inspector becomes an overlay that the toggle opens and closes

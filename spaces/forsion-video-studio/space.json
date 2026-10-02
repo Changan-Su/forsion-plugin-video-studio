@@ -2,16 +2,17 @@
   "id": "forsion-video-studio",
   "name": { "zh": "视频工作室", "en": "Video Studio" },
   "icon": "video",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "layout": {
-    "main": [{ "type": "plugin:forsion-video-studio:studio" }],
+    "main": [{ "type": "plugin:forsion-video-studio:studio", "params": { "timeline": "bottom" } }],
     "left": [{ "type": "workspace", "params": { "mode": "plugin:forsion-video-studio:projects" } }],
-    "right": []
+    "right": [],
+    "bottom": [{ "type": "plugin:forsion-video-studio:timeline" }]
   },
   "mini": {
     "name": { "zh": "视频预览", "en": "Video preview" },
     "view": { "type": "plugin:forsion-video-studio:preview" },
-    "mainView": { "type": "plugin:forsion-video-studio:studio" }
+    "mainView": { "type": "plugin:forsion-video-studio:studio", "params": { "timeline": "bottom" } }
   },
-  "requires": { "views": ["plugin:forsion-video-studio:studio", "workspace"] }
+  "requires": { "views": ["plugin:forsion-video-studio:studio", "plugin:forsion-video-studio:timeline", "workspace"] }
 }

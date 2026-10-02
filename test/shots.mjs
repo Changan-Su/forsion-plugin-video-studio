@@ -88,16 +88,27 @@ for (const dark of [false, true]) {
   if (errors.length) console.log('page errors:', errors);
   await page.close();
 }
-// 2. Space: native-style panels; the properties panel opens with the project
+// 2. Space (the plugin's own space.json): projects left, stage in main, properties right, timeline in the bottom panel
+const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/space.json'), 'utf8')).layout;
+for (const dark of [true]) {
+  const { page, errors } = await open({ width: 1600, height: 960 }, { dark, text: CAPTIONED });
+  await page.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await ready(page); await analysed(page); await page.waitForTimeout(1500);
+  await shot(page, '07-space-dark');
+  if (errors.length) console.log('page errors:', errors);
+  await page.close();
+}
 {
   const { page, errors } = await open({ width: 1600, height: 960 }, { text: CAPTIONED });
-  await page.evaluate(p => HOST.space(p), FILE);
+  await page.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
   await ready(page); await analysed(page); await page.waitForTimeout(1500);
   await shot(page, '07-space');
   await page.click('.fvs-cap:nth-child(3)'); await ready(page); await page.waitForTimeout(800);
   await shot(page, '08-space-captions');
   await page.click('.fvs-ai-action'); await shot(page, '09-space-director');
   await page.click('.fvs-export-action'); await page.click('.fvs-menu button'); await shot(page, '10-space-export');
+  await page.keyboard.press('Escape');
+  await page.click('.host-bottom-close'); await shot(page, '10b-space-timeline-closed');
   if (errors.length) console.log('page errors:', errors);
   await page.close();
 }
