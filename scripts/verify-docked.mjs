@@ -35,6 +35,14 @@ const stageLuma = async () => {
     return sum / (px.length / 4) / 3;
   }, r);
 };
+// Give the editor the keyboard: a click on its time label, which is in the page. A click on the stage (an iframe)
+// leaves the keyboard in the iframe until the iframe answers with a pick, and a key pressed right after can beat
+// that answer (seen under load: ⌘J and ⌘Z lost, focus still on the iframe).
+const editorKeys = async () => {
+  await win.locator('.fvs-studio .fvs-time').click();
+  await win.waitForFunction(() => document.activeElement === document.querySelector('.fvs-studio'), null, { timeout: 3000 })
+    .catch(() => assert.fail('a click in the editor gives it the keyboard'));
+};
 const settle = () => win.waitForSelector('#tangu-splash', { state: 'detached', timeout: 15000 }).catch(() => {});
 const bottomOn = () => win.locator('.dv-edge-bottom.is-on').count();
 // The host remounts the editor once after a layout jump (until fix/bottom-toggle-park-group lands): a key pressed
@@ -106,7 +114,7 @@ try {
   await win.waitForSelector(clip, { timeout: 30000 });
   await projectLayout('the example');
   await steady();
-  await win.locator('.fvs-view').click({ position: { x: 20, y: 20 } });
+  await editorKeys();
   await win.keyboard.press('Meta+j');
   await win.waitForSelector('.fvs-dock-strip', { state: 'visible', timeout: 5000 });
   await win.locator('.fvs-project').click();
@@ -134,7 +142,7 @@ try {
   assert.equal(ids[ids.indexOf('cards') + 1], 'picture', 'a double-click adds after the scene at the playhead');
   await settle(); await win.waitForTimeout(400);
   await H.captureWindow(app, join(shots, '04-bin.png'));
-  await win.locator('.fvs-view').click({ position: { x: 20, y: 20 } });
+  await editorKeys();
   await win.keyboard.press('Meta+z');
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 });
   ids = await order();
@@ -144,7 +152,7 @@ try {
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { timeout: 5000 }).catch(() => assert.fail('a drag from the bin to the timeline places the picture'));
   ids = await order();
   assert.equal(ids[ids.indexOf(at) - 1], 'picture', `dropped at the cut before ${at}`);
-  await win.locator('.fvs-view').click({ position: { x: 20, y: 20 } });
+  await editorKeys();
   await win.keyboard.press('Meta+z');
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 });
 
@@ -221,6 +229,7 @@ try {
     left: [...document.querySelectorAll('.fvs-nav, .fvs-bin')].map(e => e.className),
     main: [...document.querySelectorAll('.fvs-launch, .fvs-studio')].map(e => e.className),
     bottom: !!document.querySelector('.dv-edge-bottom.is-on'),
+    keyboard: document.activeElement?.tagName + '.' + document.activeElement?.className,
   })).catch(err => String(err)));
   if (logs.length) console.log(logs.join('\n'));
   throw e;
