@@ -58,7 +58,7 @@ if (!reg.embeds[0].match('Videos/a.fvs.md') || reg.embeds[0].match('a.md')) fail
 ok(`main.js registers ${reg.fileTypes.length} file type, ${reg.commands.length} commands, creator, slash item, embed`);
 const space = JSON.parse(readFileSync(at('spaces/forsion-video-studio/space.json'), 'utf8'));
 const viewTypes = new Set(reg.views.map(v => `plugin:${manifest.id}:${v.id}`).concat('workspace'));
-for (const type of [...space.requires.views, ...Object.values(space.layout).flat().map(v => v.type), space.mini.view.type, space.mini.mainView.type]) if (!viewTypes.has(type)) fail(`Space references unknown view ${type}`);
+for (const type of [...space.requires.views, ...Object.values(space.layout).filter(Array.isArray).flat().map(v => v.type), space.mini.view.type, space.mini.mainView.type]) if (!viewTypes.has(type)) fail(`Space references unknown view ${type}`);
 if (space.mini.view.type === space.mini.mainView.type) fail('Mini must have a dedicated adapter');
 if (reg.lists[0]?.id !== reg.views[0]?.workspaceSource) fail('workspace list must match the studio source');
 ok('Space, native project list and dedicated Mini adapter');

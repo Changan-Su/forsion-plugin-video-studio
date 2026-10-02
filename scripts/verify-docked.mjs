@@ -9,7 +9,7 @@
 // run `npx electron-vite build` there first. No model calls.
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,6 +59,22 @@ const launchLayout = async when => {
     .catch(() => assert.fail(`${when}: no timeline at the bottom`));
   assert.equal(await win.locator('.fvs-bin').count(), 0, `${when}: no media bin`);
 };
+// The recipe asks for a full-width bottom panel (layout.bottomSpan 'full'): on hosts that know bottomSpan the
+// timeline runs under the media bin too, and the bin sits on top of it instead of running the full height.
+const regions = join(desktop, '../lcl/engine/regionLayout.ts');
+const spans = existsSync(regions) && readFileSync(regions, 'utf8').includes('BottomSpan');
+const fullBottom = async when => {
+  if (!spans) return;
+  const g = await win.evaluate(() => {
+    const rect = sel => { const el = document.querySelector(sel)?.closest('.dv-groupview'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
+    return { left: rect('.fvs-bin'), main: rect('.fvs-studio'), bottom: rect('.fvs-dock-timeline') };
+  });
+  const { left: l, bottom: b } = g;
+  console.log(`${when}: bin ${JSON.stringify(l)} · timeline ${JSON.stringify(b)}`);
+  assert.ok(l && b, `${when}: the bin and the timeline are both docked`);
+  assert.ok(Math.abs(b.x - l.x) <= 2, `${when}: the timeline spans under the bin (timeline x ${b.x}, bin x ${l.x})`);
+  assert.ok(Math.abs(l.y + l.h - b.y) <= 8, `${when}: the bin sits on top of the timeline (bin bottom ${l.y + l.h}, timeline top ${b.y})`);
+};
 const projectLayout = async when => {
   await win.waitForSelector('.fvs-bin', { timeout: 15000 }).catch(() => assert.fail(`${when}: the media bin on the left`));
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip', { timeout: 30000 });
@@ -86,6 +102,7 @@ try {
   await H.captureWindow(app, join(shots, '01-create.png'));
   await win.locator('.fvs-launch-create').click();
   await projectLayout('a new project');
+  await steady(); await fullBottom('a new project');
   const made = find(join(home, 'vault'), '宣传片.fvs.md');
   assert.ok(made && basename(dirname(made)) === '宣传片', `the project has its own folder (${made})`);
   const madeText = readFileSync(made, 'utf8');
@@ -216,6 +233,7 @@ try {
   await win.reload({ waitUntil: 'domcontentloaded' });
   await win.waitForSelector('.dv-groupview', { timeout: 30000 });
   await projectLayout('after a reload');
+  await steady(); await fullBottom('after a reload');
   await settle(); await win.waitForTimeout(600);
   await H.captureWindow(app, join(shots, '05-reloaded.png'));
 

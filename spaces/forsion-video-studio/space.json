@@ -7,7 +7,8 @@
     "main": [{ "type": "plugin:forsion-video-studio:studio", "params": { "timeline": "bottom" } }],
     "left": [{ "type": "plugin:forsion-video-studio:nav" }],
     "right": [],
-    "bottom": [{ "type": "plugin:forsion-video-studio:timeline" }]
+    "bottom": [{ "type": "plugin:forsion-video-studio:timeline" }],
+    "bottomSpan": "full"
   },
   "mini": {
     "name": { "zh": "视频预览", "en": "Video preview" },
