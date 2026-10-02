@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { tmpdir, homedir, platform } from 'node:os';
 import { spawnSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { parseProject, cueSheet, sceneById, formatLength, visibleHits, stageHtml } from '../lib/project.js';
+import { parseProject, cueSheet, sceneById, formatLength, visibleHits, stageHtml, formatSrt } from '../lib/project.js';
 import { compile, buildHtml, audioTracks, isRelativeUrl } from '../lib/compile.js';
 import { scan, videos } from '../lib/html.js';
 import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
@@ -14,18 +14,19 @@ import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
 
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project
   fvs info <file>                      scenes, times, hits (read this before editing)
   fvs check <file> [--runtime]         parse errors; --runtime also runs every scene script in a browser
   fvs cues <file> [--out cues.json]    the cue sheet a score is written against (JSON)
+  fvs captions <file> [--out f.srt]    the captions track as a SubRip file
   fvs html <file> [--out f.html] [--inline]   standalone web video (player page)
   fvs still <file> --at <t|scene[:hit]> [--out f.png] [--scale 0.5]   one frame as PNG
   fvs sheet <file> [--scenes | --every <sec>] [--out sheet.png]       contact sheet of frames
   fvs render <file> [--out f.mp4] [--from s] [--to s] [--scale 0.5] [--workers 3] [--crf 18]
-                    [--keep-frames dir] [--no-audio]                 MP4 with the project's audio
+                    [--keep-frames dir] [--no-audio] [--no-captions] MP4 with the project's audio and captions
   fvs render-job <job.json>            export with real progress and a .cancel marker
   fvs sync <file> [--audio a.mp3]      do the hits land on accents of the score?
 
@@ -123,9 +124,10 @@ function ffmpegBin() {
 }
 
 /** Open the project's capture page: the stage at 1:1, window.__stage.seek(t). */
-async function openStage(ctx, browser, { scale = 1 } = {}) {
+async function openStage(ctx, browser, { scale = 1, captions = true } = {}) {
   const tmp = mkdtempSync(join(tmpdir(), 'fvs-'));
   const payload = compile(ctx.p, { resolve: rel => fileUrl(ctx.dir, rel) });
+  if (!captions) payload.captions = [];
   const html = buildHtml(payload, RUNTIME, { mode: 'capture' });
   const page = join(tmp, 'capture.html');
   writeFileSync(page, html);
@@ -192,6 +194,7 @@ const commands = {
       if (extra.length) log(`${' '.repeat(5)}${extra.join(' · ')}`);
       for (const v of videos(s.html)) log(`${' '.repeat(5)}video ${v.src || '(no src)'}${v.clipIn ? ` · from ${sec(v.clipIn)} into the file` : ''}${v.gain ? ` · ${v.gain} dB` : ''}${v.muted ? ' · muted' : ''}${v.loop ? ' · loop' : ''}`);
     }
+    if (p.captions.length) log(`\ncaptions: ${p.captions.length} cues, ${Math.min(...p.captions.map(c => c.start)).toFixed(2)}–${Math.max(...p.captions.map(c => c.end)).toFixed(2)} s on project time (scene edits do not move them; fvs captions lists them)`);
   },
 
   async check() {
@@ -218,6 +221,15 @@ const commands = {
     report(p, { fail: false });
     const out = JSON.stringify(cueSheet(p), null, 2);
     if (flags.out) { writeFileSync(resolve(flags.out), out + '\n'); log(resolve(flags.out)); } else log(out);
+  },
+
+  async captions() {
+    const { p } = load(pos[0]);
+    report(p, { fail: false });
+    const bad = p.errors.filter(e => e.captions && e.level === 'error').length;
+    if (bad && !flags.force) die(`${bad} caption error(s) above; the SRT would leave those cues out (fix them or pass --force)`);
+    const out = formatSrt(p.captions);
+    if (flags.out) { writeFileSync(resolve(flags.out), out ? out + '\n' : ''); log(resolve(flags.out)); } else if (out) log(out);
   },
 
   async html() {

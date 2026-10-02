@@ -2,7 +2,7 @@
 name: forsion-video-studio
 description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when a .fvs.md file is involved, or when asked to render, score, re-time or check the sync of such a video.
 metadata:
-  version: 0.2.0
+  version: 0.3.0
   author: Forsion
   category: Forsion
 ---
@@ -14,8 +14,8 @@ are a pure function of time; they play back to back on a timeline that sits on t
 The user edits the same file in the Video Studio editor (text, timing, code) and sees your edits live:
 the editor reloads the file whenever it changes on disk.
 
-Your jobs: write new projects and scenes, change pacing and copy, score the video, check that the picture
-cuts land on the music, and render MP4s.
+Your jobs: write new projects and scenes, change pacing and copy, score the video, write captions, check that
+the picture cuts land on the music, and render MP4s.
 
 ## Tools
 
@@ -31,9 +31,10 @@ node fvs.mjs check <project> --runtime      # parse errors + runs every scene sc
 node fvs.mjs sheet <project> [--every 2]    # contact sheet PNG (one frame per scene, or every N s) → look at it
 node fvs.mjs still <project> --at cards:3   # one frame: seconds, a scene id, or scene:hit
 node fvs.mjs cues <project>                 # the cue sheet JSON a score is written against
+node fvs.mjs captions <project> [--out x.srt]   # the captions track as a SubRip file
 node fvs.mjs sync <project>                 # do the hits land on accents of the first audio track?
 node fvs.mjs html <project>                 # standalone web-video player (.html)
-node fvs.mjs render <project> --out x.mp4 [--workers 3] [--from s --to s] [--scale 0.5]
+node fvs.mjs render <project> --out x.mp4 [--workers 3] [--from s --to s] [--scale 0.5] [--no-captions]
 ```
 
 `still`, `sheet`, `render` and `check --runtime` need a Chromium: `npm i -g playwright-core` (or a local
@@ -55,8 +56,20 @@ After rendering, look at a few frames (`view_video` if you have it, or `still`) 
   "background": "#000",
   "fonts": ["https://fonts.googleapis.com/css2?family=…"],   // stylesheet URLs
   "audio": [{ "src": "audio/score.mp3", "role": "score", "at": 0, "gain": 0 }],   // also "in", "dur", "mute" (below)
+  "captions": { "position": "bottom", "size": "medium" },   // optional look: "top"; "small" | "large"
   "assets": ["assets/logo.png"]            // only files that scripts reference by string
 }
+```
+
+```srt
+1
+00:00:01,000 --> 00:00:03,500
+The captions track (SubRip). One cue per block;
+two lines are fine.
+
+2
+00:00:04,000 --> 00:00:06,000
+第二句
 ```
 
 ```css
@@ -113,6 +126,14 @@ grain('.grain')
   hits are the house style: use transitions for section changes, not everywhere.
 - Audio tracks also take `"in"` (where in the file to start, seconds or a length), `"dur"` (how long to play;
   default to the file's end) and `"mute": true`. A track plays file time `in + (t − at)` from project time `at`.
+- **Captions**: one ```` ```srt ```` block **before the first scene** (inside a scene it is ignored, with a
+  warning). Standard SubRip: a number, `HH:MM:SS,mmm --> HH:MM:SS,mmm`, the text, a blank line between cues.
+  Times are **absolute project seconds**, like audio tracks: changing a scene's length or order does **not**
+  move them, so after re-timing scenes re-time the captions too (`fvs info` lists scene starts; it also prints
+  a captions summary). The runtime draws them over everything, bottom centre in a dark box, and `render`
+  burns them in (`--no-captions` leaves them out; `fvs captions` writes the .srt for platforms that take one).
+  Plain text only (`<i>`-style tags are dropped); restyle with `.fvs-caption` / `.fvs-captions` in the
+  project CSS. Keep cues 1–7 s, at most two short lines, never overlapping unless two people speak.
 - **Splitting a scene** (the Studio's split, or by hand): copy the scene right after itself with a new id;
   the first keeps its start and gets `length` = split point − its start; the copy gets
   `in` = old `in` + that length, `length` = the rest, and no `transition`. Same hits, html, css and js: the
@@ -205,6 +226,11 @@ without re-timing its animation, raise its `in` and shorten its `length` by the 
 (or the worked example `score_episode_212.py`): accents on hits, bigger hits on scene starts, a
 sixteenth of breath before hits inside running music. Write `audio/score.mp3` next to the project and add
 it to `audio`. Run `fvs sync` and fix misses. Melodies must be original — a reference can guide style only.
+
+**Captions.** Write the cues into the ```` ```srt ```` block from the narration, the voice-over script or
+the on-screen story: time each to its line (scene starts and hit times from `fvs info` / `fvs cues` are good
+anchors), keep them off on-screen text where you can, then `check` (bad times and cues after the end are
+reported) and look at a `still` inside a cue.
 
 **Sync check.** `fvs sync` lists hits without an accent. A hit on a drop to silence counts. For each miss,
 move the picture-only hit onto the accent (nearest eighth) or change the score.

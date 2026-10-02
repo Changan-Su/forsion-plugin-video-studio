@@ -6,6 +6,7 @@
 //   ```css          global stylesheet (one or more blocks, before the first scene)
 //   ```html stage   persistent layers around the scenes (backdrops, grain, flash)
 //   ```js stage     script run after every scene is built (backdrops, global hooks)
+//   ```srt          the captions track (SubRip; absolute project times), before the first scene
 //   ## id · Title   one scene; scenes play in document order, back to back
 //   ```fvs          scene settings (JSON): length, hits, class, in, transition
 //   ```html         scene markup; its text is what the Studio lets people edit
@@ -148,13 +149,51 @@ function readJSON(tok, where, errors) {
 
 const isFvs = t => t.kind === 'fence' && (t.lang === 'fvs' || (t.lang === 'json' && t.tags.includes('fvs')));
 const isLang = (t, ...langs) => t.kind === 'fence' && langs.includes(t.lang) && !isFvs(t);
-const LANG = { html: ['html', 'htm'], js: ['js', 'javascript', 'mjs'], css: ['css'] };
+const LANG = { html: ['html', 'htm'], js: ['js', 'javascript', 'mjs'], css: ['css'], captions: ['srt', 'vtt'] };
+
+/* ───────── captions (SubRip; WebVTT cues read too) ───────── */
+
+const CUE_TIME = /^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,3}))?$/;
+const cueTime = s => { const m = String(s).trim().match(CUE_TIME); return m ? (+(m[1] || 0)) * 3600 + +m[2] * 60 + +m[3] + (m[4] ? +m[4].padEnd(3, '0') / 1000 : 0) : NaN; };
+
+/**
+ * Cues of a SubRip (or WebVTT) text: { cues: [{ start, end, text, line }], errors: [{ line, message }] }.
+ * `line` counts from 1 within `text` (add the fence's line for file lines). Never throws.
+ */
+export function parseSrt(text) {
+  const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const cues = [], errors = [];
+  for (let i = 0; i < lines.length;) {
+    if (!lines[i].trim()) { i++; continue; }
+    const from = i;
+    while (i < lines.length && lines[i].trim()) i++;
+    const block = lines.slice(from, i);
+    if (/^(WEBVTT|NOTE|STYLE|REGION)\b/.test(block[0])) continue;
+    const k = block.findIndex(l => l.includes('-->'));
+    if (k < 0) { errors.push({ line: from + 1, message: 'caption without a time line ("00:00:01,000 --> 00:00:03,000")' }); continue; }
+    const [a, rest] = block[k].split('-->'), start = cueTime(a), end = cueTime(rest.trim().split(/\s+/)[0]);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) { errors.push({ line: from + k + 1, message: `cannot read caption times "${block[k].trim()}" (use 00:00:01,000 --> 00:00:03,000)` }); continue; }
+    if (!(end > start)) { errors.push({ line: from + k + 1, message: `caption ends before it starts (${block[k].trim()})` }); continue; }
+    cues.push({ start, end, text: block.slice(k + 1).join('\n').trim(), line: from + k + 1 });
+  }
+  return { cues, errors };
+}
+
+const srtTime = sec => {
+  const ms = Math.max(0, Math.round(sec * 1000)), p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`;
+};
+/** SubRip text for cues [{ start, end, text }]: sorted by start, numbered from 1; '' when there are none. */
+export function formatSrt(cues) {
+  return [...cues].sort((a, b) => a.start - b.start).map((c, i) =>
+    `${i + 1}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${String(c.text ?? '').replace(/\r\n?/g, '\n').replace(/\n\s*\n/g, '\n').trim()}`).join('\n\n');
+}
 
 /** Parse a project. Never throws: problems land in `errors` (level error | warning) with line numbers. */
 export function parseProject(src) {
   const { toks, eol } = tokenize(String(src ?? ''));
   const errors = [];
-  const p = { eol, toks, meta: { ...DEFAULTS }, metaTok: -1, rawMeta: null, css: [], stageHtml: -1, stageJs: -1, scenes: [], errors };
+  const p = { eol, toks, meta: { ...DEFAULTS }, metaTok: -1, rawMeta: null, css: [], stageHtml: -1, stageJs: -1, captionsTok: -1, captionsIgnored: 0, captions: [], scenes: [], errors };
   let i = 0;
   // preamble
   for (; i < toks.length; i++) {
@@ -167,6 +206,7 @@ export function parseProject(src) {
       const m = readJSON(t, null, errors);
       if (m) { p.rawMeta = m; p.meta = { ...DEFAULTS, ...m }; }
     } else if (isLang(t, ...LANG.css)) p.css.push(i);
+    else if (isLang(t, ...LANG.captions)) { if (p.captionsTok < 0) p.captionsTok = i; else { p.captionsIgnored++; errors.push({ level: 'warning', line: t.line, captions: true, message: 'second captions block ignored (one ```srt track per project)' }); } }
     else if (isLang(t, ...LANG.html) && (t.tags.includes('stage') || p.stageHtml < 0)) { if (p.stageHtml < 0) p.stageHtml = i; }
     else if (isLang(t, ...LANG.js) && (t.tags.includes('stage') || p.stageJs < 0)) { if (p.stageJs < 0) p.stageJs = i; }
   }
@@ -184,6 +224,8 @@ export function parseProject(src) {
       s.last = i;
       if (t.kind === 'fence' && !t.closed) errors.push({ level: 'error', line: t.line, scene: s.id, message: 'code block is never closed' });
       if (isFvs(t)) { if (s.metaTok < 0) { s.metaTok = i; s.meta = readJSON(t, s.id, errors) || {}; } }
+      // inside a scene it would move and vanish with the scene: captions live before the first scene
+      else if (isLang(t, ...LANG.captions)) errors.push({ level: 'warning', line: t.line, scene: s.id, captions: true, message: 'a captions block inside a scene is ignored; move it before the first scene' });
       else for (const k of ['html', 'js', 'css']) if (isLang(t, ...LANG[k])) {
         if (s[`${k}Tok`] < 0) s[`${k}Tok`] = i;
         else errors.push({ level: 'warning', line: t.line, scene: s.id, message: `second \`${k}\` block in scene "${s.id}" is ignored` });
@@ -276,6 +318,7 @@ function computeTimeline(p) {
   const metaLine = p.metaTok >= 0 ? p.toks[p.metaTok].line : 1;
   for (const k of ['width', 'height', 'fps']) if (!(+m[k] > 0)) p.errors.push({ level: 'error', line: metaLine, message: `"${k}" must be a positive number` });
   checkAudio(p, metaLine);
+  readCaptions(p, metaLine);
   if (!p.scenes.length) p.errors.push({ level: 'warning', line: 1, message: 'the project has no scenes yet (add a "## id · Title" section)' });
 }
 
@@ -293,6 +336,28 @@ function checkAudio(p, line) {
       } catch (e) { p.errors.push({ level: 'error', line, message: `${name} "${k}": ${e.message}` }); }
     }
   });
+}
+
+/** Look of the captions, from the project setting "captions": { "position": "bottom" | "top", "size": "small" | "medium" | "large" }. */
+export const CAPTION_POSITIONS = ['bottom', 'top'], CAPTION_SIZES = ['small', 'medium', 'large'];
+export function captionStyle(meta) {
+  const c = meta && meta.captions && typeof meta.captions === 'object' ? meta.captions : {};
+  return { position: CAPTION_POSITIONS.includes(c.position) ? c.position : 'bottom', size: CAPTION_SIZES.includes(c.size) ? c.size : 'medium' };
+}
+
+/** The captions track: cue times are absolute project seconds (scene edits do not move them, like audio tracks). */
+function readCaptions(p, metaLine) {
+  const c = p.meta.captions;
+  if (c !== undefined && c !== null && (typeof c !== 'object' || Array.isArray(c) || (c.position !== undefined && !CAPTION_POSITIONS.includes(c.position)) || (c.size !== undefined && !CAPTION_SIZES.includes(c.size)))) {
+    p.errors.push({ level: 'warning', line: metaLine, captions: true, message: `"captions" settings: use { "position": "${CAPTION_POSITIONS.join('" | "')}", "size": "${CAPTION_SIZES.join('" | "')}" }` });
+  }
+  if (p.captionsTok < 0) return;
+  const tok = p.toks[p.captionsTok], base = tok.line;
+  const { cues, errors } = parseSrt(tok.body);
+  for (const e of errors) p.errors.push({ level: 'error', line: base + e.line, captions: true, message: e.message });
+  p.captions = cues.map(x => ({ ...x, line: base + x.line }));
+  const late = p.scenes.length ? p.captions.find(x => x.start >= p.length - 1e-6) : null;
+  if (late) p.errors.push({ level: 'warning', line: late.line, captions: true, message: `a caption starts at ${round(late.start, 3)} s, after the end of the video (${round(p.length, 3)} s)` });
 }
 
 // times sit exactly on the beat grid; keep float dust out of them
@@ -397,6 +462,31 @@ export function setProjectBlock(src, which, body, index = 0) {
     const info = which === 'css' ? 'css' : `${which} stage`;
     let at = p.scenes.length ? p.scenes[0].first : p.toks.length;
     p.toks.splice(at, 0, fence(info, body), textTok('\n'));
+  });
+}
+
+/**
+ * Replace the captions track with `cues` ([{ start, end, text }], seconds). Only the ```srt block changes;
+ * a new one goes right before the first scene, and no cues removes the block.
+ */
+export function setCaptions(src, cues) {
+  // SubRip keeps milliseconds: check the times as they will be written
+  const ms = x => Math.round(x * 1000);
+  for (const c of cues) if (!(Number.isFinite(c.start) && Number.isFinite(c.end) && ms(c.start) >= 0 && ms(c.end) > ms(c.start))) throw new Error(`caption times must satisfy 0 ≤ start < end (in whole milliseconds), got ${c.start} → ${c.end}`);
+  const body = formatSrt(cues);
+  return edit(src, p => {
+    const k = p.captionsTok;
+    if (k >= 0) {
+      // an empty block stays while an ignored second one exists, so that one does not take over
+      if (body || p.captionsIgnored) { Object.assign(p.toks[k], { body, info: 'srt', lang: 'srt', tags: [], dirty: true }); return; }
+      const next = p.toks[k + 1];
+      p.toks.splice(k, next && next.kind === 'text' && next.raw === '\n' ? 2 : 1);
+      return;
+    }
+    if (!body) return;
+    const at = p.scenes.length ? p.scenes[0].first : p.toks.length;
+    const before = serializeTokens(p.toks.slice(0, at));
+    p.toks.splice(at, 0, ...(before && !/\n\n$/.test(before) ? [textTok('\n')] : []), fence('srt', body), textTok('\n'));
   });
 }
 

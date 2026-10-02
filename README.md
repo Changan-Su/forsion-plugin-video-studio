@@ -2,7 +2,7 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-本目录是独立 Git 仓库，版本 **0.5.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+本目录是独立 Git 仓库，版本 **0.6.0**。从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
 工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，下面是时间线。场景只在时间线上出现一次，片段直接显示缩略图；属性、AI 导演和导出在 Space 里用原生 Extend View 打开，在文件标签页和浮窗里是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
 
@@ -11,6 +11,7 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 - **时间线**：片段显示同一渲染器生成的真实缩略图（只渲染看得见的片段，遵守脚本信任）；每条音轨一条轨道并画出波形，可拖动改起点；时间线缩放、吸附、高度可调。
 - **手动编辑**：实时预览、播放；双击画面里的文字直接改；属性面板改场景设置（长度可选小节、拍、秒）、全部文字、代码和工程设置。撤销、重做、自动保存。
 - **剪辑**：导入图片、视频、音频（按钮或拖进时间线）；在播放头处分割（S / ⌘B）；拖左边缘修剪入点、拖右边缘改长度，相邻场景让位、后面的切点不动，按住 Alt 推移后面全部；拖动片段调整顺序；⌘D 复制、Delete 删除。视频由运行时接管，预览、网页导出和 MP4 逐帧对齐并混入原声。
+- **字幕轨**：时间线最上面一条字幕轨，双击添加、拖动移动、拖两端修剪；属性面板「字幕」页逐条改时间和文字、设置位置和大小。字幕是工程文件开头的一个 SRT 块（整片时间），可导入 / 导出 `.srt`，预览和网页导出都显示，MP4 默认烧录。
 - **转场与模板**：八种转场（交叉淡化、经背景色、滑入、推入、擦除、缩放、模糊等）；「新场景」提供十个声明式模板，用当前工程的样式实时预览，横屏竖屏都能用。
 - **交给 AI**：「AI 导演」打开原生 Chat Box，把任务交给内置的 **Video Studio 导演** Agent，选中场景和播放位置会一起发送。它直接改这份文件，编辑器自动载入改动；面板显示任务前后的改动，可以恢复。文字面板里每一行都有「AI 改写」。
 - **卡点检查**：编辑器分析配乐的重音，时间线上的拍点绿色表示落在重音上，黄色表示没有，空心表示切到安静处；「卡点检查」弹层列出偏离的拍点，可以交给 AI 修正。
@@ -19,7 +20,7 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 ## 原生工作室 Space
 
-插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；片名可以打开 Extend View 工程选择器，走带右侧的属性按钮（或双击片段）打开原生 Extend View 属性面板，「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
+插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。左边使用原生 Workspace 工程列表，主区域是 Video Studio；片名可以打开 Extend View 工程选择器，原生 Extend View 属性面板随工程默认打开（不抢键盘焦点；AI 导演、导出或工程选择器临时占用右侧，关掉后它自动回来；用走带右侧的属性按钮、面板的 × 或 Esc 关掉后，本次会话不再自动打开），「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
 
 主工作台的「更多」菜单可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
 
@@ -50,6 +51,12 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 ```css
 /* 全局样式 */
+```
+
+```srt
+1
+00:00:01,000 --> 00:00:03,500
+字幕轨（可选）：标准 SubRip，整片时间
 ```
 
 ## cards · 标题卡
@@ -83,6 +90,7 @@ node tools/fvs.mjs sheet my-video.fvs.md        # 每个场景一帧的缩略图
 node tools/fvs.mjs render my-video.fvs.md --out my-video.mp4
 node tools/fvs.mjs sync my-video.fvs.md         # 拍点有没有落在配乐的重音上
 node tools/fvs.mjs html my-video.fvs.md         # 单文件网页视频
+node tools/fvs.mjs captions my-video.fvs.md --out my-video.srt   # 字幕轨导出为 SRT
 ```
 
 ## 包里有什么
@@ -136,6 +144,6 @@ music's beat grid, and each scene lists its **hits** — the picture cuts on the
 
 Edit by hand (live preview, double-click text in the picture, panels for scene settings, text, code and project),
 cut like a clip editor (import pictures, video and sound, split at the playhead, trim either end, reorder by dragging,
-crossfades and other transitions, ten scene templates), hand work to the bundled **Video Studio Director** agent
+crossfades and other transitions, ten scene templates, a captions track with SRT import and export), hand work to the bundled **Video Studio Director** agent
 (write scenes, score, check sync, render MP4), and export a single-file web video or an MP4. The format and
 the scene API are documented in the bundled skill; `examples/episode-2.12` is a complete project.

@@ -21,9 +21,11 @@ export { h, dirOf, joinPath, mimeOf, b64 };
 const fmtTime = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 const typing = e => { const x = e.target; return x && (x.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(x.tagName)); };
 const STREAM = /\.(mp4|m4v|webm|mov|ogv)$/i;
-const KIND = name => (/\.(mp4|m4v|webm|mov)$/i.test(name) ? 'video' : /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(name) ? 'image' : /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name) ? 'audio' : null);
+const KIND = name => (/\.(mp4|m4v|webm|mov)$/i.test(name) ? 'video' : /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(name) ? 'image' : /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name) ? 'audio' : /\.(srt|vtt)$/i.test(name) ? 'captions' : null);
 const MOD = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent || '') ? '⌘' : 'Ctrl+';
-const RULER_H = 24, VIDEO_H = 64, AUDIO_H = 44;
+const RULER_H = 24, CAPTION_H = 32, VIDEO_H = 64, AUDIO_H = 44; // track order: what sits on the picture is drawn above it
+// In a Space the properties panel opens with each project until the person closes it (for this session).
+let inspectorPref = true;
 
 /** Shared per-plugin trust list: paths whose scripts the user agreed to run. */
 export async function trustList(ctx) {
@@ -89,7 +91,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   let inspectorHandle = null, askHandle = null, exportHandle = null;
   const S = {
     path, text: '', saved: '', p: P.parseProject(''), time: 0, playing: false,
-    sel: null, selText: null, selHit: null, tab: 'scene', codeScope: 'scene', allTexts: false,
+    sel: null, selText: null, selHit: null, selCap: null, tab: 'scene', codeScope: 'scene', allTexts: false,
     zoom: 0, snap: 'half', undo: [], redo: [], trusted: false, gen: 0,
     runtimeErrors: [], counts: null, sync: null, audioKey: '', disposed: false, status: 'saved',
     focus: false, inspectorOpen: false, muted: false, zoomFit: true, timelineHeight: 0, advancedOpen: false,
@@ -150,7 +152,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /* ───────── inspector ───────── */
   const tabs = h('div', { class: 'fvs-tabs', role: 'tablist', 'aria-label': t('properties') });
   const panel = h('div', { class: 'fvs-panel', role: 'tabpanel' });
-  for (const k of ['scene', 'text', 'code', 'project']) {
+  for (const k of ['scene', 'text', 'captions', 'code', 'project']) {
     tabs.append(h('button', { type: 'button', role: 'tab', 'data-tab': k, 'aria-selected': String(S.tab === k), onclick: () => { S.tab = k; renderSide(); } }, t(`tab-${k}`)));
   }
   tabs.addEventListener('keydown', e => {
@@ -175,12 +177,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const delBtn = tool('Trash2', 'delete', () => deleteSelected(), { kbd: '⌫' });
   const addBtn = tool('Plus', 'add-scene', e => openTemplates(e.currentTarget), { cls: 'fvs-tl-add' });
   addBtn.setAttribute('aria-haspopup', 'dialog');
-  const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/*,audio/*', hidden: true, onchange: e => { const files = [...e.target.files]; e.target.value = ''; void importFiles(files); } });
+  const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/*,audio/*,.srt,.vtt', hidden: true, onchange: e => { const files = [...e.target.files]; e.target.value = ''; void importFiles(files); } });
+  const capBtn = tool('Captions', 'captions-add', () => addCaption());
   const importBtn = tool('Upload', 'import-media', () => fileInput.click(), { cls: 'fvs-tl-import' });
   const keysBtn = tool('Keyboard', 'shortcuts', e => openShortcuts(e.currentTarget));
   const durationEl = h('span', { class: 'fvs-timeline-duration' });
   const tlBar = h('div', { class: 'fvs-tl-bar', role: 'toolbar', 'aria-label': t('timeline') },
-    h('div', { class: 'fvs-tl-tools' }, splitBtn, dupBtn, delBtn, h('span', { class: 'fvs-tl-sep' }), addBtn, importBtn, fileInput),
+    h('div', { class: 'fvs-tl-tools' }, splitBtn, dupBtn, delBtn, h('span', { class: 'fvs-tl-sep' }), addBtn, capBtn, importBtn, fileInput),
     syncButton, durationEl, h('span', { class: 'fvs-grow' }),
     h('label', { class: 'fvs-snap-control' }, h('span', { text: t('snap') }), snapSel),
     h('div', { class: 'fvs-zoom-controls' }, tool('Minus', 'zoom-out', () => setZoom(S.zoom / 1.5)), zoomInput,
@@ -189,14 +192,16 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const scroller = h('div', { class: 'fvs-tl-scroll' });
   const inner = h('div', { class: 'fvs-tl-inner' });
   const ruler = h('canvas', { class: 'fvs-tl-ruler' });
+  const capLane = h('div', { class: 'fvs-cap-lane' });
   const clips = h('div', { class: 'fvs-tl-scenes' });
   const lanes = h('div', { class: 'fvs-tl-lanes' });
   const head = h('div', { class: 'fvs-tl-head' });
-  inner.append(ruler, clips, lanes, head);
+  inner.append(ruler, capLane, clips, lanes, head);
   scroller.append(inner);
   const rulerLabel = h('span', { class: 'fvs-rail-ruler' });
   const audioRail = h('div', { class: 'fvs-rail-audio' });
   const trackRail = h('div', { class: 'fvs-track-rail' }, rulerLabel,
+    h('div', { class: 'fvs-rail-captions' }, icon('Captions'), h('span', { text: t('captions-track') })),
     h('div', { class: 'fvs-rail-video' }, icon('Film'), h('span', { text: t('video-track') })), audioRail);
   const resizeHandle = h('div', { class: 'fvs-tl-resize', role: 'separator', tabindex: '0', 'aria-orientation': 'horizontal', 'aria-label': t('resize-timeline'), 'aria-valuemin': '150' });
   resizeHandle.addEventListener('pointerdown', e => {
@@ -222,7 +227,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
   /* lane geometry: the body grows with the number of audio lanes unless the user sized it */
-  const lanesHeight = () => RULER_H + VIDEO_H + AUDIO_H * Math.max(1, laneTracks().length) + 10;
+  const lanesHeight = () => RULER_H + CAPTION_H + VIDEO_H + AUDIO_H * Math.max(1, laneTracks().length) + 10;
   const timelineHeight = () => S.timelineHeight || lanesHeight();
   function resizeTimeline(height) {
     S.timelineHeight = Math.max(150, Math.min(Math.max(150, root.clientHeight * .6), height));
@@ -238,28 +243,55 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /* ───────── layout ───────── */
   function setFocus(on) {
     S.focus = on;
-    if (on) { inspectorHandle?.close(); closeLayer(); }
+    if (on) { inspectorHandle?.close(); closeLayer(); } else restoreInspector();
     layout();
   }
   function toggleInspector(force) {
     const open = force ?? !(nativeInspector ? inspectorHandle?.isOpen : S.inspectorOpen);
-    if (nativeInspector) { if (open) openInspector(); else inspectorHandle?.close(); return; }
+    if (nativeInspector) { inspectorPref = open; if (open) openInspector(); else inspectorHandle?.close(); return; }
     S.inspectorOpen = open; if (open) S.focus = false;
     layout();
   }
-  function openInspector() {
+  /*
+   * The native panel shares the right side with the Director and the export panel (the host shows one at a
+   * time). It is the side's resting state: it opens with the project and comes back when they close, unless
+   * the person closed it (our toggle, the host's × or Escape). A hidden view loses it; it returns on show.
+   */
+  let reopenOnShow = false;
+  function openInspector({ quiet = false, focusKey = null } = {}) {
     if (!nativeInspector || S.disposed) return;
-    if (inspectorHandle?.isOpen) return;
+    if (inspectorHandle?.isOpen) { if (focusKey) panel.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus(); return; }
     S.focus = false;
-    inspectorHandle = opts.view.extendView.open({ id: 'fvs-properties', title: t('properties'), side: 'right',
-      mount(body) {
-        const shell = h('div', { class: 'fvs-extension fvs-native-properties' }, h('style', { text: STUDIO_CSS }), side);
-        body.append(shell); return () => shell.remove();
-      },
-      onClose() { inspectorHandle = null; if (!S.disposed) { root.querySelector('.fvs-main').append(side); layout(); } },
-    });
+    const before = document.activeElement;
+    try {
+      inspectorHandle = opts.view.extendView.open({ id: 'fvs-properties', title: t('properties'), side: 'right',
+        mount(body) {
+          const shell = h('div', { class: 'fvs-extension fvs-native-properties' }, h('style', { text: STUDIO_CSS }), side);
+          body.append(shell); return () => shell.remove();
+        },
+        onClose(reason) {
+          inspectorHandle = null;
+          if (reason === 'dismiss') inspectorPref = false;
+          if (reason === 'owner') reopenOnShow = inspectorPref;
+          if (!S.disposed) { root.querySelector('.fvs-main').append(side); layout(); }
+        },
+      });
+    } catch { reopenOnShow = inspectorPref; return; } // the view is hidden right now
+    // the host focuses the first control of a panel it opens; send the keyboard where it belongs instead
+    if (quiet || focusKey) {
+      const target = () => (focusKey ? panel.querySelector(`[data-key="${CSS.escape(focusKey)}"]`) : before && before !== document.body && before.isConnected ? before : root);
+      const off = () => { clearTimeout(timer); side.removeEventListener('focusin', back); side.removeEventListener('pointerdown', off); };
+      const back = () => { off(); const x = target(); if (x && x !== document.activeElement) { x.focus({ preventScroll: true }); if (focusKey) x.select?.(); } };
+      const timer = setTimeout(off, 1500);
+      side.addEventListener('focusin', back); side.addEventListener('pointerdown', off);
+    }
     layout();
   }
+  /** Bring the panel back after another panel or focus mode had the side, if the person wants it. */
+  function restoreInspector() {
+    setTimeout(() => { if (!S.disposed && nativeInspector && inspectorPref && !S.focus && !inspectorHandle?.isOpen) openInspector({ quiet: true }); });
+  }
+  const sidePanelClosed = reason => { if (reason === 'close' || reason === 'dismiss') restoreInspector(); else if (reason === 'owner') reopenOnShow = inspectorPref; };
   function layout() {
     const inspectorShown = nativeInspector ? !!inspectorHandle?.isOpen : S.inspectorOpen;
     root.classList.toggle('inspector-hidden', nativeInspector || !S.inspectorOpen || !!opts.compact);
@@ -284,7 +316,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const sceneUnderPlayhead = () => S.p.scenes.find(s => S.time >= s.t0 && S.time < s.t1) || S.p.scenes.at(-1) || null;
   function selectScene(id, { seekTo = true, reveal = true } = {}) {
     const s = P.sceneById(S.p, id); if (!s) return;
-    S.sel = id; S.selHit = null; S.selText = null;
+    S.sel = id; S.selHit = null; S.selText = null; S.selCap = null;
     if (seekTo) seek(s.t0);
     renderTimeline(); renderSide(); renderToolbar();
     if (reveal) {
@@ -317,17 +349,22 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     reparse();
     S.time = Math.min(S.p.length, S.p.scenes[1] ? S.p.scenes[1].t0 + .5 : 0);
     S.sel = sceneUnderPlayhead()?.id || null;
-    // the inline inspector starts open where there is room for it; the native one opens on demand
+    // the inline inspector starts open where there is room for it; the native one opens with the project
     if (!nativeInspector && !opts.compact && root.clientWidth >= 1100) S.inspectorOpen = true;
     applyTimelineHeight();
     layout();
     renderAll();
+    if (nativeInspector && inspectorPref) openInspector({ quiet: true });
     requestAnimationFrame(() => setZoom(0));
     if (S.trusted) buildPreview(); else showGate();
     loadAudio();
     watch();
   }
-  function reparse() { S.p = P.parseProject(S.text); if (S.sel && !P.sceneById(S.p, S.sel)) S.sel = S.p.scenes[0] ? S.p.scenes[0].id : null; }
+  function reparse() {
+    S.p = P.parseProject(S.text);
+    if (S.sel && !P.sceneById(S.p, S.sel)) S.sel = S.p.scenes[0] ? S.p.scenes[0].id : null;
+    if (S.selCap !== null && !S.p.captions[S.selCap]) S.selCap = null;
+  }
 
   let saveTimer = 0, saving = null, writes = Promise.resolve();
   function setStatus(k, vars) { S.status = k; statusEl.textContent = t(k, vars); statusEl.dataset.state = k; statusEl.title = t(k, vars); }
@@ -466,7 +503,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
   function onPick(m) {
     if (!m.scene) return;
-    S.sel = m.scene;
+    S.sel = m.scene; S.selCap = null; S.selHit = null; // Delete now means this scene
     if (m.text != null) S.selText = { scene: m.scene, index: m.text };
     renderTimeline(); renderToolbar();
     if (!m.dbl) root.focus({ preventScroll: true }); // take the keyboard back from the preview
@@ -662,7 +699,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (typeof src !== 'string' || !S.p.scenes.some(s => (typeof HT.videos === 'function' ? HT.videos(s.html) : []).some(v => v.src === src))) return false;
     return assets.fallback(joinPath(dirOf(path), src));
   }
-  const thumbs = sceneThumbnails(scroller, scene => previewHtml({ ...S.p, scenes: [scene] }, path, assets), () => S,
+  const thumbs = sceneThumbnails(scroller, scene => previewHtml({ ...S.p, scenes: [scene], captions: [] }, path, assets), () => S,
     { onMediaError: src => { const swapped = fallbackMedia(src); if (swapped) schedulePreview(); return swapped; } });
   const clipEls = new Map();
   function makeClip(id) {
@@ -699,7 +736,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (!c) { c = makeClip(s.id); clipEls.set(s.id, c); clips.append(c.el); }
       const width = Math.max(3, s.dur * Z - 2);
       Object.assign(c.el.style, { left: `${s.t0 * Z}px`, width: `${width}px` });
-      c.el.classList.toggle('on', s.id === S.sel);
+      c.el.classList.toggle('on', s.id === S.sel && S.selCap === null);
       c.el.classList.toggle('alt', k % 2 === 1);
       c.el.classList.toggle('tight', width < 54);
       c.el.title = `${s.title || s.id} · ${fmtTime(s.t0)}–${fmtTime(s.t1)} · ${t('scene-duration', { n: s.dur.toFixed(2) })}${s.in ? ` · ${t('scene-in')} ${s.in.toFixed(2)}s` : ''}`;
@@ -724,12 +761,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     clips.querySelector('.fvs-tl-empty')?.remove();
     if (!S.p.scenes.length) clips.append(h('div', { class: 'fvs-tl-empty', text: t('scene-none-yet') }));
     head.style.left = `${S.time * Z}px`;
-    renderLanes(); drawRuler(); drawWaves(); renderErrors(); renderToolbar();
+    renderCaptions(); renderLanes(); drawRuler(); drawWaves(); renderErrors(); renderToolbar();
   }
   function renderToolbar() {
     const s = selScene(), under = sceneUnderPlayhead();
     splitBtn.disabled = !under || typeof P.splitScene !== 'function';
-    dupBtn.disabled = !s; delBtn.disabled = !s && !S.selHit;
+    dupBtn.disabled = !s || S.selCap !== null; delBtn.disabled = !s && !S.selHit && S.selCap === null;
   }
   /* one lane per audio track: label in the rail, a draggable region with its waveform */
   let laneEls = [];
@@ -741,7 +778,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       for (let i = 0; i < Math.max(1, tracks.length); i++) {
         const canvas = h('canvas', { class: 'fvs-lane-wave' });
         const region = h('div', { class: 'fvs-lane-region' }, canvas, h('span', { class: 'fvs-lane-name' }));
-        const lane = h('div', { class: 'fvs-lane', style: { top: `${RULER_H + VIDEO_H + i * AUDIO_H}px` } }, region);
+        const lane = h('div', { class: 'fvs-lane', style: { top: `${RULER_H + CAPTION_H + VIDEO_H + i * AUDIO_H}px` } }, region);
         region.addEventListener('pointerdown', e => dragTrack(e, i));
         lane.addEventListener('pointerdown', e => { if (e.target === lane) scrub(e); });
         const label = h('div', { class: 'fvs-rail-lane' }, icon('Music2'), h('span'));
@@ -856,7 +893,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (ev.type === 'pointercancel') return;
       if (!dragging) {
         const was = S.sel, s = P.sceneById(S.p, id); if (!s) return;
-        S.sel = id; S.selHit = null;
+        S.sel = id; S.selHit = null; S.selCap = null;
         if (was === id) seek((ev.clientX - r.left) / Z);
         else if (S.time < s.t0 || S.time >= s.t1) seek(s.t0);
         renderTimeline(); renderSide();
@@ -915,7 +952,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function dragHit(e, id, i, m) {
     e.preventDefault(); e.stopPropagation();
     const s = P.sceneById(S.p, id); if (!s) return;
-    S.sel = s.id; S.selHit = { scene: s.id, index: i };
+    S.sel = s.id; S.selHit = { scene: s.id, index: i }; S.selCap = null;
     root.querySelectorAll('.fvs-hitm.on').forEach(x => x.classList.remove('on')); m.classList.add('on');
     renderToolbar();
     const Z = S.zoom || 20, r = inner.getBoundingClientRect(), u = P.hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
@@ -967,6 +1004,116 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (k >= 0) tryCommit(src => P.setProjectMeta(src, { audio: list.filter((_, i) => i !== k) }));
   }
 
+  /* ───────── captions: one track of cues on project time (scene edits do not move them) ───────── */
+  const cues = () => S.p.captions || [];
+  const sameCue = (a, b) => Math.abs(a.start - b.start) < 6e-4 && Math.abs(a.end - b.end) < 6e-4 && a.text === b.text;
+  const captionErrors = () => S.p.errors.filter(e => e.captions && e.level === 'error');
+  /**
+   * Write the whole track; `keep` (a cue as written) stays selected. Lines the parser could not read are not in
+   * `cues()`, so ordinary edits wait until they are fixed; `force` (an import, "keep the readable ones") drops them.
+   */
+  function commitCaptions(list, keep = null, { force = false } = {}) {
+    if (!force && captionErrors().length) { notify(ctx, t('captions-blocked'), 'warn'); S.tab = 'captions'; renderSide(); return false; }
+    S.selCap = null;
+    if (!tryCommit(src => P.setCaptions(src, list.map(c => ({ start: c.start, end: c.end, text: c.text }))))) return false;
+    // the last match: a new cue identical to an older one sorts after it
+    const k = keep ? cues().findLastIndex(c => sameCue(c, keep)) : -1;
+    S.selCap = k < 0 ? null : k;
+    renderTimeline(); renderSide();
+    return true;
+  }
+  function renderCaptions() {
+    const Z = S.zoom || 20, list = cues();
+    capLane.classList.toggle('empty', !list.length);
+    capLane.dataset.hint = t('captions-lane-hint');
+    capLane.replaceChildren(...list.map((c, i) => {
+      const el = h('div', { class: `fvs-cap${S.selCap === i ? ' on' : ''}`, 'data-index': String(i), style: { left: `${c.start * Z}px`, width: `${Math.max(3, (c.end - c.start) * Z - 1)}px` },
+        title: `${fmtTime(c.start)} – ${fmtTime(c.end)}\n${c.text}\n${t('caption-hint')}` },
+      h('span', { text: c.text.replace(/\s*\n\s*/g, ' / ') }), h('i', { class: 'fvs-cap-edge start' }), h('i', { class: 'fvs-cap-edge end' }));
+      el.addEventListener('pointerdown', e => capPointerDown(e, i));
+      el.addEventListener('dblclick', () => editCaption(i));
+      return el;
+    }));
+  }
+  capLane.addEventListener('pointerdown', e => { if (e.target === capLane) scrub(e); });
+  capLane.addEventListener('dblclick', e => { if (e.target === capLane) addCaption(snapT((e.clientX - inner.getBoundingClientRect().left) / (S.zoom || 20))); });
+  /* drag a cue to move it, its ends to trim it; a click selects it */
+  function capPointerDown(e, i) {
+    if (e.button !== 0) return;
+    const c0 = cues()[i]; if (!c0) return;
+    const edge = e.target.closest('.fvs-cap-edge'), mode = edge ? (edge.classList.contains('start') ? 'start' : 'end') : 'move';
+    const Z = S.zoom || 20, x0 = e.clientX, el = e.currentTarget, minDur = Math.max(1 / fps(), .1);
+    if (S.selCap !== i || S.tab !== 'captions') {
+      S.selCap = i; S.selHit = null; S.tab = 'captions';
+      root.querySelectorAll('.fvs-cap.on, .fvs-clip.on, .fvs-hitm.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
+      renderSide(); renderToolbar();
+    }
+    let start = c0.start, end = c0.end, moved = false;
+    const move = ev => {
+      if (!moved && Math.abs(ev.clientX - x0) < 4) return;
+      moved = true;
+      const dx = (ev.clientX - x0) / Z;
+      if (mode === 'move') { start = Math.max(0, snapT(c0.start + dx)); end = start + (c0.end - c0.start); }
+      else if (mode === 'start') start = Math.max(0, Math.min(c0.end - minDur, snapT(c0.start + dx)));
+      else end = Math.max(c0.start + minDur, snapT(c0.end + dx));
+      Object.assign(el.style, { left: `${start * Z}px`, width: `${Math.max(3, (end - start) * Z - 1)}px` });
+    };
+    const up = ev => {
+      if (ev.type === 'pointercancel') { renderCaptions(); return; }
+      if (!moved) { if (S.time < c0.start || S.time >= c0.end) seek(c0.start); return; }
+      if (Math.abs(start - c0.start) < 1e-6 && Math.abs(end - c0.end) < 1e-6) return;
+      const next = { ...c0, start, end };
+      commitCaptions(cues().map((c, k) => (k === i ? next : c)), next);
+    };
+    listenDrag(move, up);
+  }
+  /** A cue at `at` (the playhead by default): 2 s, or up to the next cue when that starts sooner. */
+  function addCaption(at = S.time) {
+    const list = cues(), start = Math.max(0, Math.min(at, Math.max(0, S.p.length - .5)));
+    const next = list.filter(c => c.start > start + 1e-3).reduce((m, c) => Math.min(m, c.start), Infinity);
+    const cue = { start, end: start + (next - start >= .5 ? Math.min(2, next - start) : 2), text: t('caption-new') };
+    if (commitCaptions([...list, cue], cue)) editCaption(S.selCap);
+  }
+  function deleteCaption(i) {
+    const list = cues();
+    if (list[i]) commitCaptions(list.filter((_, k) => k !== i));
+  }
+  /** Show cue `i` in the captions tab with its text selected. */
+  function editCaption(i) {
+    if (i === null || !cues()[i]) return;
+    S.selCap = i; S.tab = 'captions';
+    renderTimeline(); renderSide();
+    const key = `cap:${i}:text`, field_ = () => panel.querySelector(`[data-key="${key}"]`);
+    if (nativeInspector) {
+      inspectorPref = true;
+      if (!inspectorHandle?.isOpen) { openInspector({ focusKey: key }); return; }
+    } else if (!opts.compact && !S.inspectorOpen) { S.inspectorOpen = true; S.focus = false; layout(); }
+    const ta = field_(); if (ta) { ta.focus(); ta.select(); }
+  }
+  async function importCaptions(file) {
+    let text = '';
+    try { text = await file.text(); } catch { text = ''; }
+    const { cues: got, errors } = P.parseSrt(text);
+    if (!got.length) { notify(ctx, t('captions-import-empty', { name: file.name }), 'warn'); return; }
+    const had = cues().length;
+    if (!commitCaptions(got, null, { force: true })) return;
+    notify(ctx, t(had ? 'captions-replaced' : 'captions-imported', { n: got.length, m: had }));
+    if (errors.length) notify(ctx, t('captions-import-skipped', { name: file.name, n: errors.length, line: errors[0].line }), 'warn');
+  }
+  async function exportSrt() {
+    const text = P.formatSrt(cues()) + '\n', stem = path.replace(/\.fvs\.md$/i, '');
+    if (!text.trim()) return;
+    // never overwrite a different file: the same content is fine, anything else gets the next free name
+    let out = `${stem}.srt`;
+    for (let k = 2; k < 1000; k++) {
+      const have = await Promise.resolve(app.readFile(out)).catch(() => null);
+      if (have === null || have === undefined || have === text) break;
+      out = `${stem}-${k}.srt`;
+    }
+    try { await app.writeFile(out, text); notify(ctx, t('captions-exported', { path: out })); }
+    catch (e) { notify(ctx, String(e && e.message || e), 'warn'); }
+  }
+
   /* ───────── editing commands ───────── */
   function splitAtPlayhead() {
     const s = sceneUnderPlayhead();
@@ -982,6 +1129,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (tryCommit(src => P.duplicateScene(src, s.id, id, s.title ? t('copy-title', { title: s.title }) : ''))) selectScene(id);
   }
   function deleteSelected() {
+    if (S.selCap !== null) { deleteCaption(S.selCap); return; }
     if (S.selHit) {
       const { scene, index } = S.selHit; S.selHit = null;
       const s = P.sceneById(S.p, scene);
@@ -1031,13 +1179,14 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
   async function importBatch(files, afterId) {
     if (!files.length || S.disposed) return;
-    if (!app.writeBytes) { notify(ctx, t('import-unsupported'), 'warn'); return; }
     let existing = null;
     try { const list = await app.listFiles?.(); existing = list ? new Set(list) : null; } catch { existing = null; }
     let after = afterId !== undefined ? afterId : insertAfter(), added = null, tracks = 0;
     for (const file of files) {
       const kind = KIND(file.name);
       if (!kind) { notify(ctx, t('import-skip', { name: file.name }), 'warn'); continue; }
+      if (kind === 'captions') { await importCaptions(file); continue; } // the text goes into the project
+      if (!app.writeBytes) { notify(ctx, t('import-unsupported'), 'warn'); continue; }
       try {
         const rel = await freeRel(kind === 'audio' ? 'audio' : 'media', sanitize(file.name), existing);
         await app.writeBytes(joinPath(dirOf(path), rel), new Uint8Array(await file.arrayBuffer()));
@@ -1097,7 +1246,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         const id = P.freeId(S.p, tpl.id);
         const p2 = P.parseProject(P.insertScene(S.text, null, sceneFromTemplate(tpl, { id, tempo: S.p.tempo, zh: !t.en() })));
         const sc = P.sceneById(p2, id);
-        void previewHtml({ ...p2, scenes: [sc] }, path, assets).then(html => {
+        void previewHtml({ ...p2, scenes: [sc], captions: [] }, path, assets).then(html => {
           if (!shot.isConnected) return;
           const f = h('iframe', { sandbox: 'allow-scripts', tabindex: '-1', 'aria-hidden': 'true' }); f.srcdoc = html;
           frames.push({ f, t: sc.t1 - .05 }); shot.append(f);
@@ -1129,7 +1278,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
   function openShortcuts(anchor) {
     const rows = [['key-space', t('key-space')], ['shortcut-frame', '← →'], ['shortcut-beat', '⇧ ← →'], ['shortcut-scene', '↑ ↓'], ['split', 'S'],
-      ['duplicate', `${MOD}D`], ['delete', '⌫'], ['undo', `${MOD}Z`], ['redo', `⇧${MOD}Z`], ['shortcut-text', t('shortcut-dblclick')]];
+      ['duplicate', `${MOD}D`], ['delete', '⌫'], ['undo', `${MOD}Z`], ['redo', `⇧${MOD}Z`], ['shortcut-text', t('shortcut-dblclick')], ['captions-add', t('captions-lane-dbl')]];
     openPopover(anchor, h('div', { class: 'fvs-keys' }, h('div', { class: 'fvs-pop-head' }, h('strong', { text: t('shortcuts') })),
       h('dl', {}, ...rows.flatMap(([k, keys]) => [h('dt', { text: k === 'key-space' ? t('play') : t(k) }), h('dd', {}, h('kbd', { text: keys }))]))), { label: t('shortcuts'), align: 'end' });
   }
@@ -1137,6 +1286,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     openMenu(anchor, [
       { icon: 'Film', label: t('export-mp4'), hint: t('export-mp4-hint'), run: () => openExportPanel(anchor) },
       { icon: 'Globe', label: t('export-html'), hint: t('export-html-hint'), run: () => exportWeb() },
+      { icon: 'Captions', label: t('export-srt'), hint: t('export-srt-hint'), disabled: !cues().length, run: () => void exportSrt() },
       '-',
       { icon: 'Terminal', label: t('export-cmd'), hint: t('export-cmd-hint'), run: () => copyRenderCommand() },
     ], { label: t('export'), align: 'end' });
@@ -1187,13 +1337,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     aiBtn.setAttribute('aria-pressed', 'false');
   }
   function openExportPanel() {
-    if (opts.view?.extendView) exportHandle = opts.view.extendView.open({ id: 'fvs-export', title: t('export'), side: 'right', mount: exports.mount, onClose() { exportHandle = null; } });
+    if (opts.view?.extendView) exportHandle = opts.view.extendView.open({ id: 'fvs-export', title: t('export'), side: 'right', mount: exports.mount, onClose(reason) { exportHandle = null; sidePanelClosed(reason); } });
     else openInlinePanel('export', exports.mount, t('export'));
   }
   function openAsk() {
     if (askHandle?.isOpen) { askHandle.close(); return; }
     if (opts.view?.extendView) {
-      askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount: director.mount, onClose() { askHandle = null; aiBtn.setAttribute('aria-pressed', 'false'); } });
+      askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount: director.mount, onClose(reason) { askHandle = null; aiBtn.setAttribute('aria-pressed', 'false'); sidePanelClosed(reason); } });
       aiBtn.setAttribute('aria-pressed', 'true');
     } else openInlinePanel('director', director.mount, t('ai-title'));
   }
@@ -1226,7 +1376,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     for (const b of tabs.children) { b.setAttribute('aria-selected', String(b.dataset.tab === S.tab)); b.tabIndex = b.dataset.tab === S.tab ? 0 : -1; }
     const focus = document.activeElement && panel.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     const scroll = panel.scrollTop;
-    panel.replaceChildren(...({ scene: sceneTab, text: textTab, code: codeTab, project: projectTab }[S.tab])());
+    panel.replaceChildren(...({ scene: sceneTab, text: textTab, captions: captionsTab, code: codeTab, project: projectTab }[S.tab])());
     panel.scrollTop = scroll;
     if (focus) { const x = panel.querySelector(`[data-key="${CSS.escape(focus)}"]`); if (x) x.focus(); }
   }
@@ -1384,6 +1534,60 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     } catch (e) { box.textContent = String(e && e.message || e); }
   }
 
+  /* the captions track as a list: times, text, look; the timeline lane edits the same cues */
+  function captionsTab() {
+    const list = cues(), look = P.captionStyle(S.p.meta);
+    const setLook = patch => {
+      const next = { ...look, ...patch };
+      const value = { ...(next.position !== 'bottom' ? { position: next.position } : {}), ...(next.size !== 'medium' ? { size: next.size } : {}) };
+      tryCommit(src => P.setProjectMeta(src, { captions: Object.keys(value).length ? value : null }));
+    };
+    const seg = (key, options, value, pick) => h('div', { class: 'fvs-segmented', role: 'radiogroup', 'aria-label': t(key), 'data-key': key },
+      ...options.map(([v, label]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(v === value), onclick: () => { if (v !== value) pick(v); } }, label)));
+    const group = (label, control) => h('div', { class: 'fvs-field' }, h('span', { text: label }), control);
+    const file = h('input', { type: 'file', accept: '.srt,.vtt', hidden: true, onchange: e => { const f = e.target.files[0]; e.target.value = ''; if (f) void importCaptions(f); } });
+    const out = [
+      h('div', { class: 'fvs-cap-actions' },
+        h('button', { type: 'button', class: 'fvs-btn', 'data-key': 'cap-add', onclick: () => addCaption() }, icon('Plus'), t('captions-add')),
+        file, h('button', { type: 'button', class: 'fvs-btn ghost', title: t('captions-import'), onclick: () => file.click() }, icon('Upload'), t('import-short')),
+        h('button', { type: 'button', class: 'fvs-btn ghost', title: t('captions-export'), disabled: !list.length, onclick: () => void exportSrt() }, icon('Download'), t('export-short'))),
+      h('small', { class: 'fvs-hint', text: t('captions-hint') }),
+      section(t('captions-look'), h('div', { class: 'fvs-row' },
+        group(t('captions-position'), seg('captions-position', [['bottom', t('captions-bottom')], ['top', t('captions-top')]], look.position, v => setLook({ position: v }))),
+        group(t('captions-size'), seg('captions-size', [['small', t('captions-small')], ['medium', t('captions-medium')], ['large', t('captions-large')]], look.size, v => setLook({ size: v }))))),
+    ];
+    if (!list.length) out.push(h('div', { class: 'fvs-empty' }, icon('Captions'), h('p', { text: t('captions-none') })));
+    const rows = list.map((c, i) => [c, i]).sort((a, b) => a[0].start - b[0].start).map(([c, i]) => {
+      const put = next => commitCaptions(list.map((y, j) => (j === i ? next : y)), next);
+      const time = k => input(`cap:${i}:${k}`, +c[k].toFixed(3), x => {
+        const next = { ...c, [k]: +x };
+        if (x === '' || !(next.start >= 0) || !(next.end > next.start)) { renderSide(); return; }
+        put(next);
+      }, { type: 'number', min: '0', step: '0.1', 'aria-label': t(k === 'start' ? 'caption-start' : 'caption-end') });
+      const ta = h('textarea', { class: 'fvs-input', 'data-key': `cap:${i}:text`, rows: Math.min(4, Math.max(1, c.text.split('\n').length)), 'aria-label': t('caption-text') });
+      ta.value = c.text;
+      ta.addEventListener('change', () => { const v = ta.value.trim(); if (v !== c.text) put({ ...c, text: v }); });
+      ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ta.blur(); } });
+      ta.addEventListener('focus', () => {
+        if (S.selCap !== i) { S.selCap = i; renderCaptions(); renderToolbar(); }
+        if (S.time < c.start || S.time >= c.end) seek(c.start);
+      });
+      const row = h('div', { class: `fvs-cap-item${S.selCap === i ? ' on' : ''}` },
+        h('div', { class: 'fvs-cap-times' }, time('start'), h('span', { class: 'fvs-unit', text: '→' }), time('end'), h('span', { class: 'fvs-unit', text: t('unit-sec') }),
+          h('button', { type: 'button', class: 'fvs-btn icon', title: t('caption-delete'), 'aria-label': t('caption-delete'), onclick: () => deleteCaption(i) }, icon('Trash2'))),
+        ta);
+      if (S.selCap === i) requestAnimationFrame(() => row.scrollIntoView({ block: 'nearest' }));
+      return row;
+    });
+    if (rows.length) out.push(section(t('captions-count', { n: list.length }), h('div', { class: 'fvs-cap-list' }, ...rows)));
+    const errs = S.p.errors.filter(e => e.captions), bad = captionErrors().length;
+    if (errs.length) out.push(section(t('problems'),
+      bad ? h('p', { class: 'fvs-hint', text: t('captions-unreadable', { n: bad }) }) : null,
+      bad ? h('button', { type: 'button', class: 'fvs-btn danger', onclick: () => commitCaptions(list, null, { force: true }) }, icon('Trash2'), t('captions-keep-readable')) : null,
+      h('div', { class: 'fvs-problems' }, ...errs.map(e => h('div', { class: e.level === 'warning' ? 'w' : 'e', text: `${e.line ? `line ${e.line}: ` : ''}${e.message}` })))));
+    return out;
+  }
+
   function codeTab() {
     const s = selScene();
     const seg = (key, label, disabled) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(S.codeScope === key), disabled, onclick: () => { S.codeScope = key; renderSide(); } }, label);
@@ -1461,7 +1665,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (mod && k === 'y') { e.preventDefault(); redo(); return; }
     if (mod && k === 'd') { e.preventDefault(); duplicateSelected(); return; }
     if ((mod && k === 'b') || (!mod && !e.altKey && k === 's')) { e.preventDefault(); splitAtPlayhead(); return; }
-    if (e.key === 'Escape') { if (inlinePanel) closeInlinePanel(); else if (S.focus) setFocus(false); return; }
+    // (an Escape we use must not also reach the host, which would close the side panel)
+    if (e.key === 'Escape') { if (inlinePanel) { e.preventDefault(); closeInlinePanel(); } else if (S.focus) { e.preventDefault(); setFocus(false); } return; }
     if (e.code === 'Space') {
       if (e.target !== root && e.target.matches?.('button:focus-visible, [role=tab]:focus-visible, [role=separator]:focus-visible')) return;
       e.preventDefault(); toggle(); return;
@@ -1478,6 +1683,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   // clicks on the timeline and the toolbar keep the keyboard on the editor (Space, arrows, ⌘Z)
   // (menus and popovers live on document.body and keep their own focus)
   root.addEventListener('pointerdown', e => {
+    if (reopenOnShow) { reopenOnShow = false; restoreInspector(); } // shown again without a resize
     if (e.target.closest('input,textarea,select,.fvs-inline,.fvs-sheet')) return;
     setTimeout(() => {
       const a = document.activeElement;
@@ -1492,6 +1698,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     root.classList.toggle('narrow', w < 760);
     root.classList.toggle('medium', w < 1100);
     root.classList.toggle('tiny', w < 460);
+    if (reopenOnShow && w > 0) { reopenOnShow = false; restoreInspector(); }
     layout();
   });
   ro.observe(root); ro.observe(viewport);
@@ -1517,5 +1724,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   };
   // Workbench entity navigation waits for queued writes before mounting the next engineering file.
   dispose.flush = async () => { commitFocusedField(); await save(); return S.text === S.saved; };
+  // the workspace's project picker borrows the side; it calls this when it closes without switching
+  dispose.restoreSide = restoreInspector;
   return dispose;
 }

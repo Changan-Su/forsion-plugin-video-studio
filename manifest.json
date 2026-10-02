@@ -2,11 +2,11 @@
   "id": "forsion-video-studio",
   "name": "Forsion Video Studio",
   "nameEn": "Forsion Video Studio",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "apiVersion": 1,
   "author": "Forsion",
-  "description": "AI 辅助的网页动画视频编辑器，也能做基础剪辑。视频就是一份 .fvs.md 工程文件：场景是网页，时间线踩在音乐的拍子上；图片和视频素材可以直接拖进时间线，分割、修剪、调整顺序、加转场。可以手动改文字和时间线，让 AI 导演写场景、配乐和检查卡点，再导出网页视频或 MP4。",
-  "descriptionEn": "An AI-assisted editor for videos made of animated web pages, with the basics of clip editing. A video is one .fvs.md project file: scenes are web pages and the timeline sits on the music's beat grid; drop pictures and video clips onto the timeline, then split, trim, reorder and add transitions. Edit text and timing by hand, have the AI Director write scenes, score the video and check the sync, then export a web video or an MP4.",
+  "description": "AI 辅助的网页动画视频编辑器，也能做基础剪辑。视频就是一份 .fvs.md 工程文件：场景是网页，时间线踩在音乐的拍子上；图片和视频素材可以直接拖进时间线，分割、修剪、调整顺序、加转场，还有字幕轨。可以手动改文字和时间线，让 AI 导演写场景、配乐和检查卡点，再导出网页视频或 MP4。",
+  "descriptionEn": "An AI-assisted editor for videos made of animated web pages, with the basics of clip editing. A video is one .fvs.md project file: scenes are web pages and the timeline sits on the music's beat grid; drop pictures and video clips onto the timeline, then split, trim, reorder, add transitions and captions. Edit text and timing by hand, have the AI Director write scenes, score the video and check the sync, then export a web video or an MP4.",
   "main": "main.js",
   "fileExtensions": [
     ".fvs.md"
@@ -24,7 +24,7 @@
       },
       {
         "title": "剪辑",
-        "description": "S 在播放头处分割，拖片段两端修剪，拖片段本身调整顺序，属性面板里加转场。相邻场景会让位，后面的切点不动；按住 Alt 则推移后面所有场景。"
+        "description": "S 在播放头处分割，拖片段两端修剪，拖片段本身调整顺序，属性面板里加转场。相邻场景会让位，后面的切点不动；按住 Alt 则推移后面所有场景。双击时间线最上面的字幕轨加字幕，也能导入 SRT。"
       },
       {
         "title": "交给 AI 导演，然后导出",
@@ -44,7 +44,7 @@
         },
         {
           "title": "Edit",
-          "description": "Press S to split at the playhead, drag a clip's ends to trim it, drag the clip itself to reorder, and add transitions in Properties. The neighbouring scene gives way so later cuts stay put; hold Alt to push everything after it."
+          "description": "Press S to split at the playhead, drag a clip's ends to trim it, drag the clip itself to reorder, and add transitions in Properties. The neighbouring scene gives way so later cuts stay put; hold Alt to push everything after it. Double-click the captions track at the top of the timeline to add captions, or import an SRT file."
         },
         {
           "title": "Hand it to the AI Director, then export",

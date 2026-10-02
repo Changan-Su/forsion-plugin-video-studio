@@ -1,5 +1,5 @@
 // Project → runtime payload → standalone HTML. DOM-free: used by the plugin, the CLI and tests.
-import { cssBlocks, stageHtml, stageJs, tempoOf, parseLength } from './project.js';
+import { cssBlocks, stageHtml, stageJs, tempoOf, parseLength, captionStyle } from './project.js';
 import { videos } from './html.js';
 
 const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#|\/)/i;
@@ -84,6 +84,8 @@ export function compile(p, { resolve = u => u } = {}) {
       cls: s.meta.class || '', html: rewriteHtml(s.html, map), css: rewriteCss(s.css, map), js: s.js,
       line: jsLine(s.jsTok), htmlLine: jsLine(s.htmlTok),
     })),
+    captions: (p.captions || []).map(c => ({ t0: c.start, t1: c.end, text: c.text })),
+    captionStyle: captionStyle(p.meta),
     audio: audio.map(a => ({ ...a, url: resolve(a.src) })),
     media: sceneMedia(p).map(m => ({ ...m, url: url(m.src) })),
     assets: map,

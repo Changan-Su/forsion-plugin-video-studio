@@ -57,7 +57,7 @@ export async function renderVideo(ctx, flags, api) {
     const workers = Math.max(1, Math.min(8, Number(flags.workers) || 3));
     const stages = [];
     try {
-      for (let n = 0; n < workers; n++) { checkCancel(); stages.push(await api.openStage(ctx, browser)); }
+      for (let n = 0; n < workers; n++) { checkCancel(); stages.push(await api.openStage(ctx, browser, { captions: !flags['no-captions'] })); }
       if (api.runtimeErrors(stages[0].st, stages[0].logs) && !flags.force) throw new Error('Scene scripts failed');
       const f0 = Math.round(from * fps), f1 = Math.max(f0, Math.round(to * fps) - 1), total = f1 - f0 + 1;
       let done = 0, lastPct = -1;

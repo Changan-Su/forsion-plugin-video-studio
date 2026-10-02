@@ -83,6 +83,8 @@ export function exportController(ctx, state, assets, t, flush) {
     const to = h('input', { class: 'fvs-input', 'data-export': 'to', type: 'number', min: 0, max: s.p.length, step: .01, value: +s.p.length.toFixed(3), 'aria-label': t('export-to') });
     const custom = h('div', { class: 'fvs-row' }, field('export-from', from), field('export-to', to));
     const audio = h('input', { type: 'checkbox', checked: true, 'data-export': 'audio' });
+    const captions = h('input', { type: 'checkbox', checked: true, 'data-export': 'captions' });
+    const captionsRow = h('label', { class: 'fvs-check' }, captions, t('export-captions'));
     const summary = h('div', { class: 'fvs-summary' }, h('span'), h('span'));
     const status = h('div', { class: 'fvs-export-status', role: 'status', 'aria-live': 'polite', hidden: true });
     const message = h('p', { class: 'fvs-hint', role: 'alert' });
@@ -94,7 +96,7 @@ export function exportController(ctx, state, assets, t, flush) {
     };
     const go = h('button', { type: 'button', class: 'fvs-btn primary', 'data-export': 'start', onclick: async () => {
       go.disabled = true; message.textContent = '';
-      try { applyRange(); await start({ scale: +scale.value, fps: +fps.value, crf: +quality.value, from: +from.value, to: +to.value, workers: 3, 'no-audio': !audio.checked }); }
+      try { applyRange(); await start({ scale: +scale.value, fps: +fps.value, crf: +quality.value, from: +from.value, to: +to.value, workers: 3, 'no-audio': !audio.checked, ...(captions.checked ? {} : { 'no-captions': true }) }); }
       catch (e) { message.textContent = String(e.message || e); }
       finally { if (!disposed) go.disabled = !!active(); }
     } }, t('export-start'));
@@ -102,7 +104,7 @@ export function exportController(ctx, state, assets, t, flush) {
     const render = () => {
       if (job?.options && !hydrated) {
         if (!edited) {
-          const o = job.options; scale.set(o.scale); fps.value = o.fps; quality.set(o.crf); from.value = +Number(o.from).toFixed(3); to.value = +Number(o.to).toFixed(3); audio.checked = !o['no-audio'];
+          const o = job.options; scale.set(o.scale); fps.value = o.fps; quality.set(o.crf); from.value = +Number(o.from).toFixed(3); to.value = +Number(o.to).toFixed(3); audio.checked = !o['no-audio']; captions.checked = !o['no-captions'];
           range.set(Math.abs(o.from) < 1e-3 && Math.abs(o.to - state().p.length) < 1e-3 ? 'all' : 'custom');
         }
         hydrated = true;
@@ -112,6 +114,7 @@ export function exportController(ctx, state, assets, t, flush) {
       if (range.value === 'scene' && !sc) range.set('all');
       applyRange();
       custom.hidden = range.value !== 'custom';
+      captionsRow.hidden = !(state().p.captions || []).length;
       const k = +scale.value;
       summary.children[0].textContent = `${even(W * k)} × ${even(H * k)} · ${fps.value} fps`;
       summary.children[1].textContent = `${clock(Math.max(0, +to.value - +from.value))}`;
@@ -140,10 +143,10 @@ export function exportController(ctx, state, assets, t, flush) {
         h('p', { class: 'fvs-hint', text: t('export-intro') }),
         field('export-size', scale), field('project-fps', fps), field('export-quality', quality),
         field('export-range', range), custom,
-        h('label', { class: 'fvs-check' }, audio, t('export-audio')),
+        h('label', { class: 'fvs-check' }, audio, t('export-audio')), captionsRow,
         summary, status, message),
       h('div', { class: 'fvs-form-actions', 'data-hook': 'form-actions' }, go, web)));
-    for (const control of [fps, from, to, audio]) control.addEventListener('input', () => { edited = true; render(); });
+    for (const control of [fps, from, to, audio, captions]) control.addEventListener('input', () => { edited = true; render(); });
     listeners.add(render); body.append(root); render();
     return () => { listeners.delete(render); root.remove(); };
   }

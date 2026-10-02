@@ -7,6 +7,7 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { serveVault } from './vault-route.mjs';
+import { setCaptions } from '../src/lib/project.js';
 
 const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..');
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
@@ -24,7 +25,15 @@ const css = ['styles/base.css', 'theme/skins.css', 'theme/themes/lovable/theme.c
 const browser = await chromium.launch();
 const shot = async (page, name) => { await page.waitForTimeout(500); await page.screenshot({ path: join(out, `${name}.png`) }); console.log(`${name}.png`); };
 
-async function open(viewport, { dark = false, locale = 'zh' } = {}) {
+const EXAMPLE = readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8');
+// the Space shots carry a captions track (the file-tab shots show the empty one)
+const CAPTIONED = setCaptions(EXAMPLE, [
+  { start: 9.6, end: 12.4, text: '多年来，我们只造了 Agent 的一半。' },
+  { start: 12.4, end: 15.2, text: '另一半，是人。' },
+  { start: 15.2, end: 19.2, text: '这一话，补完计划开始。\nThe other half begins here.' },
+]);
+
+async function open(viewport, { dark = false, locale = 'zh', text = EXAMPLE } = {}) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 2 });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
@@ -44,46 +53,14 @@ async function open(viewport, { dark = false, locale = 'zh' } = {}) {
     document.body.style.background = 'var(--bg)';
   }, [dark, skin, bg]);
   const put = async (p, bytes) => page.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [p, Array.from(bytes)]);
-  await page.evaluate(([p, t]) => HOST.files.set(p, t), [FILE, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8')]);
+  await page.evaluate(([p, t]) => HOST.files.set(p, t), [FILE, text]);
   for (const f of readdirSync(join(EX, 'assets'))) await put(`${DIR}/assets/${f}`, readFileSync(join(EX, 'assets', f)));
   await put(`${DIR}/audio/episode-2.12-score.mp3`, readFileSync(join(EX, 'audio/episode-2.12-score.mp3')));
-  // the Space half of the host: views, a list source and Extend View panels drawn like Genesis draws them
+  // the Space half (views, Extend View panels with the host's rules) lives in test/host/host.js: HOST.space(file)
   await page.evaluate(([file, locale]) => {
     HOST.locale = locale;
-    const c = HOST.ctx, views = {};
-    c.app.listFiles = async () => [...HOST.files.keys()];
-    c.registerView = d => { views[d.id] = d; };
-    c.registerListSource = () => {};
-    c.openView = () => {};
-    c.saveData({ trusted: [file], last: file });
-    HOST.space = () => {
-      document.getElementById('view').style.display = 'none';
-      const shell = document.createElement('div');
-      shell.style.cssText = 'position:fixed;inset:0;display:grid;grid-template-columns:220px minmax(0,1fr) auto;gap:6px;padding:6px;background:var(--bg)';
-      shell.innerHTML = '<nav style="border-radius:var(--radius-lg);background:var(--sidebar-bg,var(--bg));padding:14px;font:13px var(--font-ui);color:var(--text-muted)">视频工程</nav><main style="position:relative;border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden"></main><aside style="display:none;width:340px;border-radius:var(--radius-lg);background:var(--bg-card);box-shadow:var(--card-shadow);overflow:hidden;grid-template-rows:auto minmax(0,1fr)"></aside>';
-      document.body.append(shell);
-      const main = shell.querySelector('main'), side = shell.querySelector('aside');
-      let current = null;
-      const extendView = {
-        open(o) {
-          current?.close();
-          side.style.display = 'grid'; side.replaceChildren();
-          const head = document.createElement('div');
-          head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px 6px 16px;font:600 14px var(--font-ui);color:var(--text)';
-          head.innerHTML = `<span>${o.title}</span><button style="border:0;background:none;color:var(--text-muted);font-size:16px">×</button>`;
-          const body = document.createElement('div'); body.style.cssText = 'min-height:0;overflow:hidden';
-          side.append(head, body);
-          const handle = { isOpen: true, close() { if (!handle.isOpen) return; handle.isOpen = false; dispose?.(); side.style.display = 'none'; side.replaceChildren(); current = null; o.onClose?.(); } };
-          head.querySelector('button').onclick = () => handle.close();
-          const dispose = o.mount(body, handle);
-          current = handle;
-          return handle;
-        },
-        close() { current?.close(); },
-      };
-      let params = { filePath: file };
-      views.studio.mount(main, { extendView, getParams: () => params, setParams: p => { params = { ...params, ...p }; }, onParamsChanged: () => () => {}, showInMainPanel() {} });
-    };
+    HOST.ctx.app.listFiles = async () => [...HOST.files.keys()];
+    HOST.ctx.saveData({ trusted: [file], last: file });
   }, [FILE, locale]);
   await page.evaluate(src => HOST.load(src), readFileSync(join(root, 'main.js'), 'utf8'));
   return { page, errors };
@@ -111,13 +88,14 @@ for (const dark of [false, true]) {
   if (errors.length) console.log('page errors:', errors);
   await page.close();
 }
-// 2. Space: native-style panels
+// 2. Space: native-style panels; the properties panel opens with the project
 {
-  const { page, errors } = await open({ width: 1600, height: 960 });
-  await page.evaluate(() => HOST.space());
+  const { page, errors } = await open({ width: 1600, height: 960 }, { text: CAPTIONED });
+  await page.evaluate(p => HOST.space(p), FILE);
   await ready(page); await analysed(page); await page.waitForTimeout(1500);
   await shot(page, '07-space');
-  await page.click('[aria-label="属性面板"]'); await shot(page, '08-space-properties');
+  await page.click('.fvs-cap:nth-child(3)'); await ready(page); await page.waitForTimeout(800);
+  await shot(page, '08-space-captions');
   await page.click('.fvs-ai-action'); await shot(page, '09-space-director');
   await page.click('.fvs-export-action'); await page.click('.fvs-menu button'); await shot(page, '10-space-export');
   if (errors.length) console.log('page errors:', errors);

@@ -9,6 +9,9 @@ const BASE_CSS = `
 .fvs-scene{position:absolute;inset:0;overflow:hidden}
 .fvs-transition{position:absolute;inset:0}
 [data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+.fvs-captions{position:absolute;left:6%;right:6%;bottom:7%;z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:.25em;pointer-events:none;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;font-weight:600;line-height:1.35;text-align:center}
+.fvs-captions[data-position=top]{top:7%;bottom:auto}
+.fvs-caption{max-width:100%;padding:.12em .5em;border-radius:.18em;background:rgba(0,0,0,.62);color:#fff;white-space:pre-line;overflow-wrap:anywhere}
 `;
 
 /*
@@ -27,6 +30,7 @@ const TRANSITION = {
   zoom: p => ({ b: { opacity: p, transform: `scale(${1.08 - .08 * p})` } }),
   blur: p => ({ b: { opacity: p, filter: `blur(${12 * (1 - p)}px)` } }),
 };
+const NUDGE = 1e-4; // seek renders t + NUDGE (see seek)
 const OUTGOING = new Set(['dip', 'push-left']); // the ones that move the previous scene too
 const TX_PROPS = ['opacity', 'transform', 'clipPath', 'filter'];
 export const TRANSITION_TYPES = Object.keys(TRANSITION);
@@ -205,6 +209,25 @@ export function mount(payload, container, { doc = document, onScene = null, medi
   });
   run(P.stage.js, api({ id: 'stage', t0: 0, t1: P.length, hits: [], el: root }, root), 'stage', P.stage.line);
 
+  // captions sit over everything the project draws, on project time; project CSS restyles .fvs-caption
+  if (P.captions && P.captions.length) {
+    const layer = doc.createElement('div'), style = P.captionStyle || {};
+    layer.className = 'fvs-captions';
+    layer.dataset.position = style.position === 'top' ? 'top' : 'bottom';
+    layer.style.fontSize = `${Math.round(Math.min(P.width, P.height) * ({ small: .036, large: .056 }[style.size] || .045))}px`;
+    root.append(layer);
+    const tags = /<\/?[a-z][^>]*>/gi; // SubRip's <i> <b> <u> <font>: shown as plain text
+    let shown = '';
+    F.H(x => {
+      const t = x - NUDGE; // the frame's own time: a cue [t0, t1) shows on exactly the frames inside it
+      const on = P.captions.filter(c => t >= c.t0 - 1e-6 && t < c.t1 - 1e-6 && c.text);
+      const key = on.map(c => `${c.t0}\u0000${c.text}`).join('\u0001');
+      if (key === shown) return;
+      shown = key;
+      layer.replaceChildren(...on.map(c => { const el = doc.createElement('div'); el.className = 'fvs-caption'; el.textContent = c.text.replace(tags, ''); return el; }));
+    });
+  }
+
   const flashEls = [...root.querySelectorAll('[data-fvs-flash]')];
   if (flashEls.length) {
     flashes.sort((a, b) => a[0] - b[0]);
@@ -218,7 +241,7 @@ export function mount(payload, container, { doc = document, onScene = null, medi
   ], { mode: media, assets: P.assets, errors, onError: onMediaError });
 
   /* frame times and beat times are both exact on paper; the nudge keeps float error from pushing a cut one frame late */
-  const seek = t => { const x = t + 1e-4; F.render(x); return videos ? videos.seek(x) : undefined; };
+  const seek = t => { const x = t + NUDGE; F.render(x); return videos ? videos.seek(x) : undefined; };
   return {
     root, errors, scenes, seek, payload: P, videos,
     length: P.length, width: P.width, height: P.height, fps: P.fps,

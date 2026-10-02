@@ -162,6 +162,94 @@ export async function checkWorkspace(page, file, shot) {
   assert.match(await text(), /"src": "audio\/episode-2.12-score.mp3"[^}]*"at": [\d.]+/);
   await undoBack('moving the score');
 
+  // 10. captions: double-click the track, type, drag, trim, delete; the preview shows them on project time
+  const capLane = await page.locator('.fvs-cap-lane').boundingBox();
+  assert.ok(capLane.y < (await page.locator('.fvs-tl-scenes').boundingBox()).y, 'the captions track sits above the scenes');
+  assert.equal(await page.getAttribute('.fvs-cap-lane', 'data-hint'), '双击添加字幕');
+  await page.mouse.dblclick(capLane.x + 300, capLane.y + capLane.height / 2);
+  await page.waitForFunction(() => /^cap:\d+:text$/.test(document.activeElement?.dataset.key || ''), null, { timeout: 5000 });
+  assert.equal(await page.locator('[data-tab="captions"]').getAttribute('aria-selected'), 'true', 'the captions tab opens on the new cue');
+  assert.equal(await page.evaluate(() => document.activeElement.value.slice(document.activeElement.selectionStart, document.activeElement.selectionEnd)), '新字幕', 'its placeholder text is selected');
+  await page.keyboard.type('第一句字幕');
+  await page.keyboard.press('Enter');
+  await settle();
+  const cueRe = /```srt\n1\n(\d\d):(\d\d):(\d\d),(\d{3}) --> (\d\d):(\d\d):(\d\d),(\d{3})\n第一句字幕\n```\n\n## /;
+  const cueAt = src => { const m = src.match(cueRe); assert.ok(m, `one cue in a srt block before the first scene:\n${src.slice(0, 600)}`); const n = m.slice(1).map(Number); return [n[0] * 3600 + n[1] * 60 + n[2] + n[3] / 1000, n[4] * 3600 + n[5] * 60 + n[6] + n[7] / 1000]; };
+  const [s0, e0] = cueAt(await text());
+  assert.ok(Math.abs(e0 - s0 - 2) < 1e-6, `a new cue lasts 2 s: ${s0} → ${e0}`);
+  assert.equal((await text()).replace(/```srt\n[\s\S]*?```\n\n/, ''), before, 'only the captions block was added');
+  // the preview shows it (the playhead went to the cue when its text field took focus)
+  await page.waitForFunction(() => !document.querySelector('.fvs-view iframe.fvs-pending'), null, { timeout: 15000 });
+  let shown = null;
+  for (let k = 0; k < 40 && shown === null; k++) {
+    for (const f of page.frames()) { const v = await f.evaluate(() => document.querySelector('.fvs-caption')?.textContent ?? null).catch(() => null); if (v !== null) shown = v; }
+    if (shown === null) await page.waitForTimeout(150);
+  }
+  assert.equal(shown, '第一句字幕', 'the preview draws the caption');
+  await shot(page, '17-captions');
+  // drag it later by half a second (snap: half a beat = 0.2 s at 150 BPM, so 0.4 or 0.6)
+  const cue = await page.locator('.fvs-cap').boundingBox(), pxPerSec = cue.width / 2;
+  await page.mouse.move(cue.x + cue.width / 2, cue.y + cue.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(cue.x + cue.width / 2 + .5 * pxPerSec, cue.y + cue.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await settle();
+  const [s1, e1] = cueAt(await text());
+  assert.ok(s1 > s0 + .3 && s1 < s0 + .7 && Math.abs(e1 - s1 - 2) < 1e-6, `moved, same length: ${s0} → ${s1}, ${e1}`);
+  // trim its end a second shorter
+  const later = await page.locator('.fvs-cap').boundingBox();
+  await page.mouse.move(later.x + later.width - 2, later.y + later.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(later.x + later.width - 2 - pxPerSec, later.y + later.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await settle();
+  const [s2, e2] = cueAt(await text());
+  assert.ok(Math.abs(s2 - s1) < 1e-6 && e2 < e1 - .8 && e2 > e1 - 1.2, `end trimmed: ${e1} → ${e2}`);
+  // Delete removes the selected cue, and with it the block: the file is the original again
+  await page.click('.fvs-cap', { position: { x: 4 + 8, y: 12 } });
+  await page.locator('.fvs-studio').focus();
+  await page.keyboard.press('Delete');
+  await settle();
+  assert.equal(await text(), before, 'deleting the last cue removes the block byte for byte');
+  // an SRT import fills the track; the export menu writes the track as a .srt next to the project
+  await page.setInputFiles('.fvs-tl-tools input[type=file]', { name: 'subs.srt', mimeType: 'application/x-subrip', buffer: Buffer.from('1\r\n00:00:01,000 --> 00:00:02,500\r\n你好\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nworld\r\n\r\n3\r\nno time line\r\n') });
+  await page.waitForFunction(() => document.querySelectorAll('.fvs-cap').length === 2, null, { timeout: 5000 });
+  await settle();
+  assert.match(await text(), /```srt\n1\n00:00:01,000 --> 00:00:02,500\n你好\n\n2\n00:00:03,000 --> 00:00:04,000\nworld\n```/);
+  assert.ok(await page.evaluate(() => HOST.calls.notify.some(m => /subs\.srt 里有 1 处读不懂，已跳过（第一处在第 9 行）/.test(m))), 'the skipped part is reported');
+  // export: a different file of the same name is never overwritten; the same content is
+  const srtPath = file.replace(/\.fvs\.md$/, '.srt'), srt2 = file.replace(/\.fvs\.md$/, '-2.srt');
+  const want = '1\n00:00:01,000 --> 00:00:02,500\n你好\n\n2\n00:00:03,000 --> 00:00:04,000\nworld\n';
+  await page.evaluate(p => HOST.files.set(p, 'someone else\'s subtitles'), srtPath);
+  for (const expect of [srt2, srt2]) {
+    await page.click('.fvs-export-action');
+    await page.click('.fvs-menu button:has-text("导出字幕（SRT）")');
+    await page.waitForFunction(p => HOST.text(p) !== null, expect, { timeout: 5000 });
+  }
+  assert.equal(await page.evaluate(p => HOST.text(p), srtPath), 'someone else\'s subtitles');
+  assert.equal(await page.evaluate(p => HOST.text(p), srt2), want);
+  assert.equal(await page.evaluate(p => HOST.files.has(p), file.replace(/\.fvs\.md$/, '-3.srt')), false, 'exporting the same track again reuses its file');
+  await page.evaluate(ps => ps.forEach(p => HOST.files.delete(p)), [srtPath, srt2]);
+  await undoBack('a captions import');
+  // a block with an unreadable line: edits wait (nothing is silently dropped) until the person chooses
+  const broken = before.replace('\n## warning', '\n```srt\n1\n00:00:01,000 --> 00:00:02,000\nok\n\n2\n00:00:03,000 -> 00:00:04,000\nunreadable\n```\n\n## warning');
+  assert.notEqual(broken, before);
+  await page.evaluate(([p, t]) => HOST.external(p, t), [file, broken]);
+  await page.waitForFunction(() => document.querySelectorAll('.fvs-cap').length === 1, null, { timeout: 5000 });
+  const okCue = await page.locator('.fvs-cap').boundingBox();
+  await page.mouse.move(okCue.x + okCue.width / 2, okCue.y + 12);
+  await page.mouse.down(); await page.mouse.move(okCue.x + okCue.width / 2 + 40, okCue.y + 12, { steps: 5 }); await page.mouse.up();
+  await settle();
+  assert.equal(await text(), broken, 'a drag does not rewrite a block it cannot fully read');
+  assert.equal(await page.locator('[data-tab="captions"]').getAttribute('aria-selected'), 'true');
+  await page.getByRole('button', { name: '只保留能读的字幕', exact: true }).click();
+  await settle();
+  assert.equal(await text(), before.replace('\n## warning', '\n```srt\n1\n00:00:01,000 --> 00:00:02,000\nok\n```\n\n## warning'));
+  await page.evaluate(([p, t]) => HOST.external(p, t), [file, before]);
+  await page.waitForFunction(() => document.querySelectorAll('.fvs-cap').length === 0, null, { timeout: 5000 });
+  await settle();
+  assert.equal(await text(), before);
+
   // 9. popovers keep their own focus and close with Escape back onto their button
   await page.click('.fvs-sync-chip');
   await page.waitForSelector('.fvs-sync-pop');

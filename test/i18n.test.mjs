@@ -23,7 +23,7 @@ for (const k of used) {
   if (en(k) === k) missing.push(`en:${k}`);
   else if (/[一-鿿]/.test(en(k))) chinese.push(k);
 }
-const prefixed = { 'tr-': ['none', 'fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur'], 'tab-': ['scene', 'text', 'code', 'project'],
+const prefixed = { 'tr-': ['none', 'fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur'], 'tab-': ['scene', 'text', 'captions', 'code', 'project'],
   'fx-': ['cut', 'fade', 'up', 'down', 'left', 'right', 'pop', 'type'], 'snap-': ['bar', 'beat', 'half', 'quarter', 'off'],
   'director-': ['added', 'removed', 'changed', 'waiting', 'idle', 'thinking', 'speaking', 'tool', 'done', 'error'],
   'export-status-': ['queued', 'preparing', 'frames', 'encoding', 'done', 'failed', 'cancelled'] };

@@ -201,6 +201,97 @@ assert.doesNotMatch(chromeText.replace(/新视频(?: \d+)?/g, ''), /[\u4e00-\u9f
 assert.equal(await page.getByRole('button', { name: 'Next scene', exact: true }).count(), 1);
 await shot(page, '13-english');
 
+// 13. In a Space the properties panel is the right side's resting state: it opens with the project without
+// taking the keyboard, gives way to the Director, comes back after it, stays closed once the person closes it,
+// and returns when a hidden Space shows again (host rules mirrored in test/host/host.js).
+{
+  const sp = await browser.newPage({ viewport: { width: 1600, height: 960 } });
+  const serr = [];
+  sp.on('pageerror', e => serr.push(String(e)));
+  await sp.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
+  await sp.route(`${ORIGIN}/**`, async r => {
+    const u = new URL(r.request().url());
+    if (u.pathname === '/host.html' || u.pathname === '/host.js') return r.fulfill({ path: join(here, 'host', u.pathname.slice(1)) });
+    if (u.pathname.startsWith('/vault/')) return serveVault(sp, r, decodeURIComponent(u.pathname.slice(7)));
+    return r.fulfill({ status: 404 });
+  });
+  await sp.goto(`${ORIGIN}/host.html`);
+  await sp.evaluate(([p, t]) => { HOST.files.set(p, t); HOST.ctx.saveData({ trusted: [p], last: p }); }, [FILE, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8')]);
+  for (const f of readdirSync(join(EX, 'assets'))) await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/assets/${f}`, Array.from(readFileSync(join(EX, 'assets', f)))]);
+  await sp.evaluate(src => HOST.load(src), readFileSync(join(root, 'main.js'), 'utf8'));
+  await sp.evaluate(p => { HOST.space(p); document.querySelector('.host-list-row').focus(); }, FILE);
+  const props = () => sp.locator('.host-extend .fvs-native-properties').count();
+  const settled = () => sp.waitForTimeout(150);
+  await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 10000 });
+  await settled();
+  assert.equal(await sp.evaluate(() => document.activeElement?.className), 'host-list-row', 'opening by itself leaves the keyboard where it was');
+  const toggle = sp.getByRole('button', { name: '属性面板', exact: true });
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+  // the Director takes the side, and the properties come back when it closes
+  await sp.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await sp.waitForSelector('.host-extend .fvs-director-panel');
+  assert.equal(await props(), 0);
+  await sp.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await sp.waitForSelector('.host-extend .fvs-native-properties');
+  await settled();
+  assert.ok(await sp.evaluate(() => !document.querySelector('.host-extend').contains(document.activeElement)), 'coming back does not take the keyboard either');
+  // the project picker borrows the side too; dismissing it brings the properties back
+  await sp.locator('.fvs-project').click();
+  await sp.waitForSelector('.host-extend .fvs-library');
+  await sp.click('.host-extend-close');
+  await sp.waitForSelector('.host-extend .fvs-native-properties');
+  // focus mode hides it; Escape leaves focus mode without the host also dismissing the panel
+  await sp.getByRole('button', { name: '专注预览', exact: true }).click();
+  assert.equal(await props(), 0);
+  await sp.locator('.fvs-studio').focus();
+  await sp.keyboard.press('Escape');
+  await sp.waitForSelector('.host-extend .fvs-native-properties');
+  // a hidden Space loses the panel; showing it again brings it back
+  await sp.evaluate(() => HOST.spaceState.hide());
+  assert.equal(await props(), 0);
+  await sp.evaluate(() => HOST.spaceState.show());
+  await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 5000 });
+  // hidden and shown again without a resize: the first interaction with the editor brings it back
+  await sp.evaluate(() => HOST.spaceState.hide({ keepSize: true }));
+  await sp.waitForTimeout(300); // the closed panel widened the editor: let that resize pass while hidden
+  assert.equal(await props(), 0);
+  await sp.evaluate(() => HOST.spaceState.show());
+  await sp.waitForTimeout(300);
+  assert.equal(await props(), 0, 'nothing resized, so nothing has told the editor yet');
+  await sp.locator('.fvs-tl-scroll').click({ position: { x: 300, y: 10 } });
+  await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 5000 });
+  // closed by the person (toggle): the Director no longer brings it back
+  await toggle.click();
+  assert.equal(await props(), 0);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+  await sp.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await sp.waitForSelector('.host-extend .fvs-director-panel');
+  await sp.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await sp.waitForSelector('.host-extend .fvs-director-panel', { state: 'detached' });
+  await settled();
+  assert.equal(await props(), 0, 'closed stays closed');
+  // the host's × counts as closing it too; the toggle reopens it and takes the keyboard there (asked for)
+  await toggle.click();
+  await sp.waitForSelector('.host-extend .fvs-native-properties');
+  await settled();
+  assert.ok(await sp.evaluate(() => document.querySelector('.host-extend').contains(document.activeElement)), 'an asked-for panel takes the keyboard');
+  await sp.click('.host-extend-close');
+  await sp.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await sp.waitForSelector('.host-extend .fvs-director-panel');
+  await sp.getByRole('button', { name: 'AI 导演', exact: true }).click();
+  await settled();
+  assert.equal(await props(), 0, 'dismissed stays closed');
+  // double-clicking a caption opens the panel on that caption's text
+  const lane = await sp.locator('.fvs-cap-lane').boundingBox();
+  await sp.mouse.dblclick(lane.x + 200, lane.y + lane.height / 2);
+  await sp.waitForFunction(() => document.querySelector('.host-extend')?.contains(document.activeElement) && /^cap:\d+:text$/.test(document.activeElement.dataset.key || ''), null, { timeout: 5000 });
+  assert.equal(await sp.locator('.host-extend [data-tab="captions"]').getAttribute('aria-selected'), 'true');
+  await shot(sp, '18-space-captions');
+  console.log('space log:', (await sp.evaluate(() => HOST.spaceState.log)).join(' '));
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
 assert.deepEqual(errors.filter(e => !/fonts\.|ERR_FAILED|net::/.test(e)), []);
 console.log('studio e2e ok');
 await browser.close();

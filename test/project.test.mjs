@@ -169,3 +169,51 @@ test('templates parse cleanly', () => {
     assert.ok(p.scenes.length >= 1);
   }
 });
+
+test('captions: SubRip and WebVTT cues, errors with file lines, look settings', () => {
+  const { cues, errors } = P.parseSrt('WEBVTT\n\nNOTE skipped\n\n1\n00:00:01.5 --> 00:00:03,250 line:0\n<i>你好</i>\n世界\n\n2\n00:04,000 --> 00:05,000\n\n3\n00:00:09,000 --> 00:00:08,000\nbackwards\n\nno time line');
+  assert.deepEqual(cues.map(c => [c.start, c.end, c.text]), [[1.5, 3.25, '<i>你好</i>\n世界'], [4, 5, '']]);
+  assert.deepEqual(errors.map(e => e.line), [14, 17]); // the backwards time line; the block without one
+  const doc = DOC.replace('## warning', '```srt\n1\n00:00:01,000 --> 00:00:02,000\nhello\n\n2\n00:00:30,000 --> 00:00:31,000\nlate\n```\n\n## warning');
+  const p = P.parseProject(doc);
+  assert.deepEqual(p.captions.map(c => c.text), ['hello', 'late']);
+  const late = p.errors.find(e => e.captions);
+  assert.equal(late.level, 'warning'); assert.equal(doc.split('\n')[late.line - 1], '00:00:30,000 --> 00:00:31,000');
+  assert.deepEqual(compile(p).captions, [{ t0: 1, t1: 2, text: 'hello' }, { t0: 30, t1: 31, text: 'late' }]);
+  assert.deepEqual(compile(p).captionStyle, { position: 'bottom', size: 'medium' });
+  assert.deepEqual(P.captionStyle({ captions: { position: 'top', size: 'huge' } }), { position: 'top', size: 'medium' });
+  assert.ok(P.parseProject(P.setProjectMeta(doc, { captions: { size: 'huge' } })).errors.some(e => e.captions && /settings/.test(e.message)));
+  // inside a scene it would move and vanish with the scene
+  const inScene = P.parseProject(DOC.replace("Director's note", '```srt\n1\n00:00:01,000 --> 00:00:02,000\nx\n```\n\nDirector\'s note'));
+  assert.equal(inScene.captions.length, 0);
+  assert.ok(inScene.errors.some(e => e.captions && e.scene === 'warning'));
+});
+
+test('captions: setCaptions writes only the srt block, before the first scene, and removes it when empty', () => {
+  const one = [{ start: 2, end: 3.5, text: 'second' }, { start: .25, end: 1, text: '第一\n\n行' }];
+  const s = P.setCaptions(DOC, one);
+  assert.equal(P.parseProject(s).captionsTok > P.parseProject(s).stageHtml, true);
+  assert.ok(s.indexOf('```srt') < s.indexOf('## warning'));
+  assert.ok(s.includes('```srt\n1\n00:00:00,250 --> 00:00:01,000\n第一\n行\n\n2\n00:00:02,000 --> 00:00:03,500\nsecond\n```\n\n## warning'));
+  // everything else is byte for byte
+  assert.equal(s.replace(/```srt\n[\s\S]*?```\n\n/, ''), DOC);
+  const p = P.parseProject(s);
+  assert.deepEqual(p.errors.filter(e => e.level === 'error'), []);
+  assert.deepEqual(p.scenes.map(x => x.t0), P.parseProject(DOC).scenes.map(x => x.t0));
+  const edited = P.setCaptions(s, [{ start: 5, end: 6, text: 'only' }]);
+  assert.equal(P.parseProject(edited).captions.length, 1);
+  assert.equal(edited.replace(/```srt\n[\s\S]*?```\n/, ''), s.replace(/```srt\n[\s\S]*?```\n/, ''));
+  assert.equal(P.setCaptions(s, []), DOC);
+  assert.equal(P.setCaptions(DOC, []), DOC);
+  assert.throws(() => P.setCaptions(DOC, [{ start: 2, end: 1, text: 'x' }]), /start < end/);
+  assert.throws(() => P.setCaptions(DOC, [{ start: 1.0001, end: 1.0004, text: 'x' }]), /whole milliseconds/, 'an interval that rounds to nothing');
+  // with an ignored second block, clearing keeps an empty first one so the second does not take over
+  const two = s.replace('```\n\n## warning', '```\n\n```srt\n1\n00:00:09,000 --> 00:00:10,000\nspare\n```\n\n## warning');
+  assert.equal(P.parseProject(two).captions.length, 2);
+  const cleared = P.parseProject(P.setCaptions(two, []));
+  assert.deepEqual([cleared.captions.length, cleared.captionsIgnored], [0, 1]);
+  // a scene move carries no captions along
+  const moved = P.parseProject(P.moveScene(s, 'cards', 0));
+  assert.deepEqual(moved.captions.map(c => c.text), ['第一\n行', 'second']);
+  assert.equal(P.formatSrt(moved.captions), P.formatSrt(one));
+});

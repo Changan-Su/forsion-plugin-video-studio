@@ -408,3 +408,100 @@ test('CLI: info, check and render mix the score, a trimmed track and video sound
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /error line \d+ \[three\]: video file not found: gone\.mp4/);
 });
+
+/* ───────── captions ───────── */
+
+const captionsDoc = (extra = '') => `# Captions
+
+\`\`\`fvs
+{ "fvs": 1, "width": 320, "height": 180, "fps": 10, "background": "#000"${extra} }
+\`\`\`
+
+\`\`\`srt
+1
+00:00:00,500 --> 00:00:01,500
+<i>第一行</i>
+second line
+
+2
+00:00:01,000 --> 00:00:02,000
+overlap
+\`\`\`
+
+## one · One
+
+\`\`\`fvs
+{ "length": "3s" }
+\`\`\`
+
+\`\`\`html
+<p style="margin:0;color:#000">pick me</p>
+\`\`\`
+`;
+
+test('captions: drawn over the picture on project time, under no pointer, styled by the project setting', { skip: !browser }, async () => {
+  const { page, errors } = await capture(captionsDoc(), 'captions');
+  const at = async t => { await page.evaluate(x => __stage.seek(x), t); return page.evaluate(() => [...document.querySelectorAll('.fvs-caption')].map(e => e.textContent)); };
+  assert.deepEqual(await at(.2), []);
+  assert.deepEqual(await at(.6), ['第一行\nsecond line']);
+  assert.deepEqual(await at(1.2), ['第一行\nsecond line', 'overlap']);
+  assert.deepEqual(await at(1.5), ['overlap']);
+  assert.deepEqual(await at(2), []);
+  await at(.6);
+  const look = await page.evaluate(() => {
+    const layer = document.querySelector('.fvs-captions'), c = layer.firstChild.getBoundingClientRect();
+    return { last: layer === document.querySelector('.fvs-stage').lastElementChild, pe: getComputedStyle(layer).pointerEvents, ws: getComputedStyle(layer.firstChild).whiteSpace, size: layer.style.fontSize, bottom: c.bottom, pos: layer.dataset.position };
+  });
+  assert.deepEqual({ ...look, bottom: look.bottom > 150 && look.bottom < 180 }, { last: true, pe: 'none', ws: 'pre-line', size: '8px', bottom: true, pos: 'bottom' });
+  assert.deepEqual(errors, []);
+  await page.close();
+  // a cue's edges are the frame's own time (not the seek nudge), and nothing in the project draws over it
+  const edge = await capture(captionsDoc().replace('"fps": 10', '"fps": 59').replace('00:00:00,500 --> 00:00:01,500', '00:00:00,000 --> 00:00:00,017')
+    .replace('<p style="margin:0;color:#000">pick me</p>', '<div style="position:absolute;inset:0;z-index:99999;background:#000"></div>'), 'captions-edge');
+  // (hit-testing skips pointer-events:none, so lift that for the probe)
+  const shownAt = t => edge.page.evaluate(x => {
+    __stage.seek(x);
+    const c = document.querySelector('.fvs-caption'); if (!c) return null;
+    c.parentElement.style.pointerEvents = 'auto';
+    const r = c.getBoundingClientRect(), top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    c.parentElement.style.pointerEvents = '';
+    return top === c || c.contains(top);
+  }, t);
+  assert.equal(await shownAt(1 / 59), true, 'frame 1 at 59 fps (0.01695 s) is inside a cue ending at 0.017 s, on top of a z-index 99999 layer');
+  assert.equal(await shownAt(2 / 59), null);
+  await edge.page.close();
+  const top = await capture(captionsDoc(', "captions": { "position": "top", "size": "large" }'), 'captions-top');
+  await top.page.evaluate(() => __stage.seek(.6));
+  const r = await top.page.evaluate(() => { const l = document.querySelector('.fvs-captions'); return { pos: l.dataset.position, size: l.style.fontSize, top: l.firstChild.getBoundingClientRect().top }; });
+  assert.equal(r.pos, 'top'); assert.equal(r.size, '10px'); assert.ok(r.top < 40, `top ${r.top}`);
+  await top.page.close();
+});
+
+test('CLI: captions command, info line, still burns captions in, render --no-captions leaves them out', { skip: !browser || !hasFfmpeg }, async () => {
+  const cli = process.env.FVS_CLI || join(root, 'tools/fvs.mjs');
+  const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  const doc = join(dir, 'caps.fvs.md');
+  writeFileSync(doc, captionsDoc().replace('"background": "#000"', '"background": "#000000"'));
+  const srt = run('captions', doc);
+  assert.equal(srt.status, 0, srt.stderr);
+  assert.equal(srt.stdout, '1\n00:00:00,500 --> 00:00:01,500\n<i>第一行</i>\nsecond line\n\n2\n00:00:01,000 --> 00:00:02,000\noverlap\n');
+  assert.match(run('info', doc).stdout, /captions: 2 cues, 0\.50–2\.00 s on project time/);
+  // a block with an unreadable cue is not exported as if it were complete
+  const broken = join(dir, 'caps-broken.fvs.md');
+  writeFileSync(broken, captionsDoc().replace('00:00:01,000 --> 00:00:02,000', '00:00:01,000 -> 00:00:02,000'));
+  const refused = run('captions', broken, '--out', join(dir, 'broken.srt'));
+  assert.notEqual(refused.status, 0); assert.match(refused.stderr, /1 caption error/);
+  assert.equal(run('captions', broken, '--force').stdout, '1\n00:00:00,500 --> 00:00:01,500\n<i>第一行</i>\nsecond line\n');
+  // brightness of the lower middle of a frame: the white caption text against a black stage
+  const light = png => { const r = spawnSync(FFMPEG, ['-v', 'error', '-i', png, '-vf', 'crop=200:40:60:130,format=gray', '-f', 'rawvideo', '-'], { maxBuffer: 1 << 24 }).stdout; return r.reduce((m, v) => Math.max(m, v), 0); };
+  const still = join(dir, 'caps.png');
+  assert.equal(run('still', doc, '--at', '0.6', '--out', still).status, 0);
+  assert.ok(light(still) > 200, 'the caption is in the still');
+  for (const [flag, lit] of [[[], true], [['--no-captions'], false]]) {
+    const out = join(dir, `caps${flag.length}.mp4`), frame = join(dir, `caps${flag.length}.png`);
+    const r = run('render', doc, '--out', out, '--from', '0.6', '--to', '0.8', '--workers', '1', ...flag);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    ff('-i', out, '-frames:v', '1', frame);
+    assert.equal(light(frame) > 200, lit, `render ${flag.join(' ') || '(captions on)'}`);
+  }
+});

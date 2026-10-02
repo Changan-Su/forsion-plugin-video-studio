@@ -74,19 +74,23 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     let disposed = false, disposeContent = null, path = null, request = 0;
     const holder = h('div', { class: 'fvs-workspace-host' }); el.append(holder);
     const picker = async () => {
+      // the host shows one panel at a time: the picker takes the properties panel's place until it closes
+      let switching = false;
       if (view.extendView) view.extendView.open({ id: 'fvs-projects', title: t('projects'), side: 'left',
-        mount(body, handle) { return library(body, p => { handle.close(); show(p); }); } });
+        mount(body, handle) { return library(body, p => { switching = p !== path; handle.close(); void show(p).then(done => { if (switching && !done) disposeContent?.restoreSide?.(); }); }); },
+        onClose(reason) { if (!switching && (reason === 'close' || reason === 'dismiss')) disposeContent?.restoreSide?.(); } });
       else {
         if (await disposeContent?.flush?.() === false || disposed) return;
         disposeContent?.(); holder.replaceChildren(); path = null; disposeContent = library(holder, show);
       }
     };
+    /** Mount `next`; true when it is now the open project. */
     async function show(next) {
-      if (!valid(next)) return;
-      if (next === path) return;
+      if (!valid(next)) return false;
+      if (next === path) return true;
       const gen = ++request;
-      if (await app.readFile(next).catch(() => null) === null || disposed || gen !== request) return;
-      if (await disposeContent?.flush?.() === false || disposed || gen !== request) return;
+      if (await app.readFile(next).catch(() => null) === null || disposed || gen !== request) return false;
+      if (await disposeContent?.flush?.() === false || disposed || gen !== request) return false;
       view.extendView?.close(); disposeContent?.(); holder.replaceChildren(); path = next;
       if (!compact) { selected = next; remember(next); emit(); }
       if (view.getParams?.().filePath !== next) view.setParams?.({ filePath: next });
@@ -96,6 +100,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
         openMini: ctx.openMiniPanel ? () => ctx.openMiniPanel('preview', { title: t('mini-preview'), params: { filePath: next }, mainViewId: 'studio', mainViewParams: { filePath: next } }) : null,
         openFloating: ctx.openFloatingPanel ? () => ctx.openFloatingPanel('studio', { title: t('app'), params: { filePath: next }, width: 1120, height: 820, minWidth: 480, minHeight: 580 }) : null,
       });
+      return true;
     }
     const record = { show, compact }; mounts.add(record);
     const unsubscribe = view.onParamsChanged?.(params => { if (valid(params.filePath)) void show(params.filePath); });

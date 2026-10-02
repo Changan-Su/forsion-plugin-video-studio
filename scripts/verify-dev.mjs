@@ -65,6 +65,7 @@ try {
   await page.getByRole('button', { name: '专注预览', exact: true }).click();
   assert.equal(await page.locator('.fvs-side').isVisible(), false);
   await page.getByRole('button', { name: '返回编辑', exact: true }).click();
+  await page.waitForSelector('.fvs-native-properties .fvs-tabs', { timeout: 10000 }); // focus mode gave the side back
   const size = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   // every toolbar control stays inside the editor at the widths the workbench can give it
   const inside = () => page.evaluate(() => {
@@ -81,7 +82,7 @@ try {
       assert.deepEqual(await inside(), [], `controls stay inside the editor at ${width}px`);
       await page.screenshot({ path: join(shots, `${name}.png`) });
     }
-    assert.equal(await page.locator('.fvs-side').isVisible(), false, 'Space keeps properties in the native Extend View');
+    assert.equal(await page.locator('.fvs-studio .fvs-side').isVisible(), false, 'Space keeps properties in the native Extend View');
   } finally { await page.setViewportSize(size); }
   assert.deepEqual(await readFile(project), before, 'live checks preserve project bytes');
   assert.deepEqual(errors, [], 'no renderer exceptions during live checks');

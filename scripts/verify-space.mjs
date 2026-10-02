@@ -36,15 +36,18 @@ try {
   await page.waitForTimeout(200);
   await page.screenshot({ path: join(shots, '01-space.png') });
 
+  // the properties panel opens with the project, in the native host panel, without taking the keyboard
   const properties = page.getByRole('button', { name: '属性面板', exact: true });
-  if (await properties.getAttribute('aria-pressed') === 'true') await properties.click();
-  await properties.click();
-  await page.waitForSelector('.fvs-native-properties .fvs-tabs');
+  await page.waitForSelector('.fvs-native-properties .fvs-tabs', { timeout: 10000 });
   assert.equal(await page.locator('.fvs-native-properties').evaluate(e => !!e.closest('.fvs-studio')), false, 'properties live in the native host panel');
   assert.equal(await page.locator('.fvs-native-properties .fvs-tabs').isVisible(), true);
+  assert.equal(await properties.getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.evaluate(() => !!document.activeElement?.closest('.fvs-native-properties')), false, 'opening by itself leaves the keyboard alone');
   await page.screenshot({ path: join(shots, '02-extend-properties.png') });
   await properties.click();
   await page.waitForSelector('.fvs-native-properties', { state: 'detached' });
+  await properties.click();
+  await page.waitForSelector('.fvs-native-properties .fvs-tabs');
 
   await page.locator('.fvs-project').click();
   await page.waitForSelector('.fvs-library');
@@ -55,6 +58,7 @@ try {
   await page.screenshot({ path: join(shots, '03-extend-projects.png') });
   await page.locator('.fvs-project-item').first().click();
   await page.waitForSelector('.fvs-library', { state: 'detached' });
+  await page.waitForSelector('.fvs-native-properties .fvs-tabs', { timeout: 10000 }); // back after the picker
 
   await page.getByRole('button', { name: 'AI 导演', exact: true }).click();
   await page.waitForSelector('.fvs-director-panel');
@@ -62,6 +66,9 @@ try {
   await page.screenshot({ path: join(shots, '04-extend-director.png') });
   await page.getByRole('button', { name: 'AI 导演', exact: true }).click();
   await page.waitForSelector('.fvs-director-panel', { state: 'detached' });
+  await page.waitForSelector('.fvs-native-properties .fvs-tabs', { timeout: 10000 }); // back after the Director
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => !!document.activeElement?.closest('.fvs-native-properties')), false, 'coming back leaves the keyboard alone');
 
   const miniEvent = context.waitForEvent('page');
   await page.locator('.fvs-studio .fvs-bar').getByRole('button', { name: '更多', exact: true }).click();
@@ -132,9 +139,11 @@ try {
   await page.evaluate(async spaceModule => { (await import(spaceModule)).setActiveSpace('forsion-video-studio'); }, spaceModule);
   await page.waitForSelector('.fvs-studio .fvs-clip');
   assert.equal(await page.locator('.fvs-clip').count(), 20, 'Space round-trip restores its engineering entity');
+  await page.waitForSelector('.fvs-native-properties .fvs-tabs', { timeout: 10000 });
+  await page.screenshot({ path: join(shots, '07-space-settled.png') });
   assert.deepEqual(await readFile(project), before, 'native lifecycle checks preserve the engineering file');
   assert.deepEqual(errors, []);
-  const result = { state, passed: ['Space activation', 'native project list', 'Extend properties', 'Extend picker draft', 'Extend Director draft', 'Mini adapter and playback', 'Mini-to-main entity', 'native Floating playback', 'Floating picker reopens same project', 'pending save on project switch', 'Space round-trip and Extend cleanup', 'unchanged project'], errors };
+  const result = { state, passed: ['Space activation', 'native project list', 'Extend properties open with the project, keyboard untouched', 'Extend picker draft, properties back', 'Extend Director draft, properties back', 'Mini adapter and playback', 'Mini-to-main entity', 'native Floating playback', 'Floating picker reopens same project', 'pending save on project switch', 'Space round-trip, Extend cleanup and properties back', 'unchanged project'], errors };
   await writeFile(join(shots, 'results.json'), JSON.stringify(result, null, 2) + '\n'); console.log(JSON.stringify(result));
 } finally {
   if (probeProject) {
