@@ -63,6 +63,7 @@ const launchLayout = async when => {
 // timeline runs under the media bin too, and the bin sits on top of it instead of running the full height.
 const regions = join(desktop, '../lcl/engine/regionLayout.ts');
 const spans = existsSync(regions) && readFileSync(regions, 'utf8').includes('BottomSpan');
+const pins = existsSync(join(desktop, '../lcl/engine/pinnedViews.ts')); // this host keeps pinned views
 const fullBottom = async when => {
   if (!spans) return;
   const g = await win.evaluate(() => {
@@ -78,7 +79,12 @@ const fullBottom = async when => {
 const projectLayout = async when => {
   await win.waitForSelector('.fvs-bin', { timeout: 15000 }).catch(() => assert.fail(`${when}: the media bin on the left`));
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip', { timeout: 30000 });
-  assert.equal(await win.locator('.fvs-nav').count(), 0, `${when}: the navigation gave way`);
+  // the navigation is pinned (space.json): the bin opens as a second tab beside it, in front — on a host without
+  // pinned views the bin replaces it, and there is one tab
+  assert.equal(await win.locator('.fvs-nav').isVisible().catch(() => false), false, `${when}: the bin is in front of the navigation`);
+  if (pins) assert.equal(await win.locator('.wb-tab--left').count(), 2, `${when}: the navigation stays as a tab beside the bin`);
+  // side tabs are icon-only: a view registered without an icon is a tab nobody can see or click
+  if (pins) assert.equal(await win.locator('.wb-tab--left svg').count(), 2, `${when}: both left tabs show their icon`);
   assert.equal(await win.locator('.fvs-studio .fvs-tl').count(), 0, `${when}: the editor keeps no timeline of its own`);
 };
 const more = async item => { await win.locator('.fvs-bar button[aria-label="更多"]').click(); await win.getByRole('menuitem', { name: item }).click(); };

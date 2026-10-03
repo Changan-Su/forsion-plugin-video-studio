@@ -391,11 +391,11 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     return () => { disposed = true; clearInterval(timer); clearInterval(poll); off(); shell.remove(); };
   }
 
-  ctx.registerView?.({ id: 'studio', title: t('app'), workspaceSource: 'projects', singleton: true, mount: (el, view) => mountWorkspace(el, view) });
-  ctx.registerView?.({ id: 'preview', title: t('mini-preview'), singleton: true, mount: (el, view) => mountWorkspace(el, view, true) });
-  ctx.registerView?.({ id: 'timeline', title: t('timeline'), singleton: true, mount: el => mountTimeline(el) });
-  ctx.registerView?.({ id: 'nav', title: t('workspace-welcome'), singleton: true, mount: el => mountNav(el) });
-  ctx.registerView?.({ id: 'media', title: t('bin'), singleton: true, mount: el => mountBin(el) });
+  ctx.registerView?.({ id: 'studio', title: t('app'), icon: 'embed', workspaceSource: 'projects', singleton: true, mount: (el, view) => mountWorkspace(el, view) });
+  ctx.registerView?.({ id: 'preview', title: t('mini-preview'), icon: 'embed', singleton: true, mount: (el, view) => mountWorkspace(el, view, true) });
+  ctx.registerView?.({ id: 'timeline', title: t('timeline'), icon: 'layout', singleton: true, mount: el => mountTimeline(el) });
+  ctx.registerView?.({ id: 'nav', title: t('workspace-welcome'), icon: 'list-view', singleton: true, mount: el => mountNav(el) });
+  ctx.registerView?.({ id: 'media', title: t('bin'), icon: 'image', singleton: true, mount: el => mountBin(el) });
   ctx.registerListSource?.({
     id: 'projects', title: t('projects'), items: filter => rows(filter?.query), search: true, activeKey: () => selected,
     subscribe(fn) { listeners.add(fn); void refresh(); const poll = setInterval(refresh, 8000); return () => { listeners.delete(fn); clearInterval(poll); }; },

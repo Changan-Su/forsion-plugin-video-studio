@@ -2,7 +2,7 @@
   "id": "forsion-video-studio",
   "name": "Forsion Video Studio",
   "nameEn": "Forsion Video Studio",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "apiVersion": 1,
   "author": "Forsion",
   "description": "AI 辅助的网页动画视频编辑器，也能做基础剪辑。视频就是一份 .fvs.md 工程文件：场景是网页，时间线踩在音乐的拍子上；图片和视频素材可以直接拖进时间线，分割、修剪、调整顺序、加转场，还有字幕轨。可以手动改文字和时间线，让 AI 导演写场景、配乐和检查卡点，再导出网页视频或 MP4。",
