@@ -309,7 +309,6 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
 // follows the pointer (⌘/Ctrl + wheel, pinch) and the keys (= - ⇧Z).
 {
   const recipe = RECIPE;
-  assert.equal(recipe.main[0].params.timeline, 'bottom');
   assert.deepEqual(recipe.bottom.map(v => v.type), ['plugin:forsion-video-studio:timeline']);
   const { sp, serr } = await spacePage();
   await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, recipe]);
@@ -430,7 +429,7 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.evaluate(q => {
     const box = document.createElement('div'); box.id = 'second-tab'; box.style.cssText = 'position:fixed;left:0;top:0;width:900px;height:500px;visibility:hidden';
     document.body.append(box);
-    window.__closeSecond = HOST.reg.views.find(v => v.id === 'studio').mount(box, { surface: 'main', getParams: () => ({ timeline: 'bottom', filePath: q }), setParams() {}, onParamsChanged: () => () => {}, showInMainPanel() {} });
+    window.__closeSecond = HOST.reg.views.find(v => v.id === 'studio').mount(box, { surface: 'main', getParams: () => ({ filePath: q }), setParams() {}, onParamsChanged: () => () => {}, showInMainPanel() {} });
   }, other);
   await sp.waitForFunction(() => { const tl = document.querySelector('.fvs-dock-timeline .fvs-tl'); return tl && !tl.dataset.first && tl.querySelector('.fvs-clip'); }, null, { timeout: 10000 });
   await sp.evaluate(async () => { (await window.__closeSecond)?.(); document.getElementById('second-tab').remove(); });
@@ -620,6 +619,19 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(p => /"role": "track",\s*"at": [\d.]+/.test(HOST.text(p)), FILE, { timeout: 5000 }).catch(async () => assert.fail(`a sound becomes a track from the playhead: ${(await text()).match(/"audio"[\s\S]*?\]/)?.[0]}`));
   await undo('a sound from the bin');
   console.log('bin log:', (await sp.evaluate(() => HOST.spaceState.log)).join(' '));
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
+// 18a. A saved layout whose main view lost the recipe's params (seen 2026-10-03 in a real dev: the restored studio
+// carried only filePath). The project layout still comes: it follows the host's bottom panel, not a view param.
+{
+  const { sp, serr } = await spacePage();
+  const lost = { ...RECIPE, main: RECIPE.main.map(({ type }) => ({ type })) };
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, lost]);
+  await sp.waitForSelector('.host-left .fvs-bin', { timeout: 10000 }).catch(() => assert.fail('without the main view params the media bin still replaces the navigation'));
+  await sp.waitForSelector('.host-bottom .fvs-clip', { timeout: 10000 }).catch(() => assert.fail('without the main view params the timeline still docks at the bottom'));
+  assert.equal(await sp.locator('.fvs-studio .fvs-tl').count(), 0, 'and the editor keeps no timeline of its own');
   assert.deepEqual(serr, []);
   await sp.close();
 }

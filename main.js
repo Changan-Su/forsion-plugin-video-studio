@@ -6321,7 +6321,7 @@
     }
     function mountWorkspace(el, view = {}, compact = false) {
       let disposed = false, disposeContent = null, path = null, request = 0;
-      const docked = !compact && view.surface !== "floating" && view.getParams?.().timeline === "bottom" && !!ctx2.viewLocations?.includes("bottom");
+      const docked = !compact && view.surface !== "floating" && !!ctx2.viewLocations?.includes("bottom");
       const jump = docked && typeof ctx2.replaceView === "function";
       const launcher = !compact && view.surface !== "floating";
       const holder = h("div", { class: "fvs-workspace-host" });

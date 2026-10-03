@@ -4,7 +4,7 @@
   "icon": "video",
   "version": "1.2.0",
   "layout": {
-    "main": [{ "type": "plugin:forsion-video-studio:studio", "params": { "timeline": "bottom" } }],
+    "main": [{ "type": "plugin:forsion-video-studio:studio" }],
     "left": [{ "type": "plugin:forsion-video-studio:nav" }],
     "right": [],
     "bottom": [{ "type": "plugin:forsion-video-studio:timeline" }],
@@ -13,7 +13,7 @@
   "mini": {
     "name": { "zh": "视频预览", "en": "Video preview" },
     "view": { "type": "plugin:forsion-video-studio:preview" },
-    "mainView": { "type": "plugin:forsion-video-studio:studio", "params": { "timeline": "bottom" } }
+    "mainView": { "type": "plugin:forsion-video-studio:studio" }
   },
   "requires": { "views": ["plugin:forsion-video-studio:studio", "plugin:forsion-video-studio:timeline", "plugin:forsion-video-studio:nav", "plugin:forsion-video-studio:media"] }
 }

@@ -235,9 +235,11 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
 
   function mountWorkspace(el, view = {}, compact = false) {
     let disposed = false, disposeContent = null, path = null, request = 0;
-    // The Space recipe docks the timeline in the native bottom panel and says so in the studio's params; hosts
-    // without a bottom panel for plugins (older, mobile) keep it inside the editor.
-    const docked = !compact && view.surface !== 'floating' && view.getParams?.().timeline === 'bottom' && !!ctx.viewLocations?.includes('bottom');
+    // The timeline docks in the native bottom panel wherever the host has one for this view; hosts without it (older,
+    // mobile, Mini, floating) keep it inside the editor. It once also needed the recipe's `timeline: 'bottom'` main
+    // param, but restored layouts lose view params (2026-10-03, a real dev: only filePath left) and the whole project
+    // layout then silently never came. Notes' .fvs.md file tabs mount the studio directly and never get here.
+    const docked = !compact && view.surface !== 'floating' && !!ctx.viewLocations?.includes('bottom');
     // Like Coding Studio, the layout follows the state: no project → navigation on the left and no timeline;
     // a project → its media bin on the left and its timeline at the bottom. Hosts without replaceView keep the
     // navigation and have no bin.
