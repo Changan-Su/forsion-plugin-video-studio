@@ -128,7 +128,11 @@
   - 笔记里 `.fvs.md` 的文件标签直接挂工作室，不经过这段代码。
 - e2e 新增 §18a：主视图丢了参数的布局。修前实跑为红（停在「没有素材区」，和用户现场一致），修后为绿；全套 e2e 与 `npm run check` 均为绿。
 - 顺带发现：用户的活动 Space 是 `tangu`，而 `space:tangu` 槽里存的是视频工作室的布局。
-  - 宿主有冷启动纠偏（`settleAsyncStartupSpace`）。推测这是今天在旧宿主（别的工作树、旧分支）上重启留下的残留，没有在当前宿主上复现。
+  - 当前宿主不会自己造成这种情况：插件装完后会调 `settleAsyncStartupSpace`（`amadeusPlugins.ts` 44 / 65 / 134 行），它用 `setActiveSpaceCold` 把上次退出的 Space 切回来并写回 localStorage（`spaceRegistry.ts:90`）。
+  - 只要有一次启动里视频工作室 Space 没注册上（比如插件那次没装载成功），就会出现这个现场，并且之后一直保持：
+    - `registerSpaces()` 开机就把回落值 `tangu` 写进 localStorage（`spaces.tsx:279`）。
+    - 下次启动 `BOOT_ACTIVE_SPACE_ID` 就是 `tangu`，`adoptSpaceLayoutCold` 把当前布局（视频工作室那套）归档进 `space:tangu`。
+  - 是今天哪一次启动没注册上，已查不到。宿主侧「回落值不该落盘」另开了任务。
   - 全宽通栏只在视频工作室 Space 里生效，Tangu Space 按它自己的缺省摆。
 
 ## 未验证 / 已知
