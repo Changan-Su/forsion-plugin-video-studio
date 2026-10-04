@@ -7,9 +7,9 @@ let current = null; // one floating layer at a time
 
 export function closeLayer() { if (current) { const c = current; current = null; c.close(false); } }
 
-/** Viewport rect → fixed position inside a zoomed body. */
-function place(layer, anchor, align) {
-  const r = anchor.getBoundingClientRect(), z = layer.currentCSSZoom || 1;
+/** Viewport rect → fixed position inside a zoomed body. `at` ({ x, y } in the viewport) places it at a pointer instead. */
+function place(layer, anchor, align, at) {
+  const r = at ? { left: at.x, right: at.x, top: at.y, bottom: at.y } : anchor.getBoundingClientRect(), z = layer.currentCSSZoom || 1;
   const w = layer.offsetWidth * z, ht = layer.offsetHeight * z, vw = window.innerWidth, vh = window.innerHeight;
   let x = align === 'end' ? r.right - w : r.left;
   x = Math.max(8, Math.min(x, vw - w - 8));
@@ -19,14 +19,16 @@ function place(layer, anchor, align) {
   layer.style.left = `${x / z}px`; layer.style.top = `${y / z}px`;
 }
 
-function mountLayer(anchor, layer, { align = 'start', onClose } = {}) {
+function mountLayer(anchor, layer, { align = 'start', at = null, onClose } = {}) {
   closeLayer();
   layer.classList.add('fvs-layer');
   document.body.append(layer);
-  place(layer, anchor, align);
+  place(layer, anchor, align, at);
   anchor.setAttribute('aria-expanded', 'true');
   const outside = e => { if (!layer.contains(e.target) && !anchor.contains(e.target)) closeLayer(); };
-  const scroll = e => { if (!layer.contains(e.target)) closeLayer(); };
+  // a scroll that moves the anchor leaves the layer behind; one in another panel (a selection bringing its row
+  // into view in the properties) is not about this layer
+  const scroll = e => { if (!layer.contains(e.target) && e.target.contains?.(anchor)) closeLayer(); };
   const key = e => {
     if (e.key !== 'Escape') return;
     e.preventDefault(); e.stopPropagation();
@@ -56,7 +58,7 @@ function mountLayer(anchor, layer, { align = 'start', onClose } = {}) {
  * items: [{ label, hint?, icon?, kbd?, checked?, disabled?, danger?, run }] | '-' | { heading }.
  * Arrow keys, Home / End, Enter and Escape; focus returns to the anchor when the menu closes.
  */
-export function openMenu(anchor, items, { label = '', align = 'start' } = {}) {
+export function openMenu(anchor, items, { label = '', align = 'start', at = null } = {}) {
   const menu = h('div', { class: 'fvs-menu', role: 'menu', 'aria-label': label });
   const buttons = [];
   for (const it of items) {
@@ -83,7 +85,7 @@ export function openMenu(anchor, items, { label = '', align = 'start' } = {}) {
     else if (e.key === 'Tab') { e.preventDefault(); return; }
     if (next) { e.preventDefault(); next.focus(); }
   });
-  const handle = mountLayer(anchor, menu, { align });
+  const handle = mountLayer(anchor, menu, { align, at });
   buttons.find(b => !b.disabled)?.focus();
   return handle;
 }

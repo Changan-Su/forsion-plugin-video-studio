@@ -810,6 +810,8 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   assert.deepEqual(await sp.evaluate(() => HOST.calls.mountChat), [{ agent: 'fvs-director', folder: 'Forsion Video Studio/对话测试', title: '对话测试' }], 'it works in the project folder, with the Director');
   assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill), ['一支 10 秒的开场']);
   assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
+  // the Director's command line is beside the project, where its skill looks (no hand-off message says where)
+  await sp.waitForFunction(() => HOST.files.has('Forsion Video Studio/.fvs-tools/fvs.mjs'), null, { timeout: 5000 }).catch(() => assert.fail('the tools are in the vault for the conversation'));
   assert.equal(await sp.locator('.fvs-director-panel').count(), 0, 'no Director panel');
   await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 5000 }).catch(() => assert.fail('the properties still open with the project'));
   // the host remounts the editor around layout jumps: the idea was handed over once
@@ -849,6 +851,156 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.locator('.fvs-bar .fvs-ai-action').click();
   await sp.waitForSelector('.host-extend .fvs-director-panel', { timeout: 5000 }).catch(() => assert.fail('…it keeps the Director panel'));
   assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 2);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+// 20. Elements on the timeline. What a scene times declaratively (data-in, the items of a data-seq) sits in a lane
+// under the scenes, on project time: it starts under the hit it enters on. A click selects one (the properties mark
+// its row), a double-click goes to its "in" time, Delete leaves the scene alone. "Quote in chat" (the toolbar, a
+// right-click) hands the conversation where the selection is in the file, in the file's own words: the scene's
+// heading, the tag as written, its text; scenes, hits and captions quote the same way. A scene animated from its
+// script has nothing in the lane, and the selection does not outlive an edit that moves the tags.
+{
+  const { sp, serr } = await spacePage({ chat: true });
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 10000 });
+  const tl = sp.locator('.host-bottom .fvs-dock-timeline'), side = sp.locator('.host-extend');
+  const text = () => sp.evaluate(p => HOST.text(p), FILE), original = await text();
+  const quotes = () => sp.evaluate(() => HOST.calls.chatQuote.slice());
+  const el = (scene, n) => tl.locator(`.fvs-el[data-scene="${scene}"]`).nth(n);
+  // the rail names the lane, between the scenes and the score
+  assert.deepEqual(await tl.locator('.fvs-track-rail > div:not(.fvs-rail-audio), .fvs-rail-audio > div').evaluateAll(xs => xs.map(x => x.textContent.trim())), ['字幕', '场景', '元素', '配乐']);
+  // zoom in around the scene so the blocks are wide enough to read
+  await tl.locator('.fvs-clip[data-id="years"]').click({ position: { x: 6, y: 24 } });
+  for (let i = 0; i < 4; i++) await sp.keyboard.press('=');
+  await sp.waitForTimeout(100);
+  // "years": four lines, each entering on its hit and staying to the end of the scene
+  assert.equal(await tl.locator('.fvs-el[data-scene="years"]').count(), 4);
+  assert.deepEqual(await tl.locator('.fvs-el[data-scene="years"]').evaluateAll(xs => xs.map(x => x.textContent)), ['多年来，', '我们一直在建造', '更好的 Agent。', 'FOR YEARS, WE HAVE BEEN BUILDING BETTER']);
+  const geo = await sp.evaluate(() => {
+    const clip = document.querySelector('.host-bottom .fvs-clip[data-id="years"]'), c = clip.getBoundingClientRect();
+    const hits = [...clip.querySelectorAll('.fvs-hitm')].map(m => { const r = m.getBoundingClientRect(); return r.left + r.width / 2; });
+    const els = [...document.querySelectorAll('.host-bottom .fvs-el[data-scene="years"]')].map(x => { const r = x.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, own: document.elementFromPoint(r.left + 3, r.top + 6) === x || x.contains(document.elementFromPoint(r.left + 3, r.top + 6)) }; });
+    const lane = document.querySelector('.host-bottom .fvs-el-lane').getBoundingClientRect(), audio = document.querySelector('.host-bottom .fvs-lane').getBoundingClientRect();
+    return { clip: { left: c.left, right: c.right, bottom: c.bottom }, hits, els, lane: { top: lane.top, bottom: lane.bottom }, audioTop: audio.top };
+  });
+  geo.els.forEach((e, i) => {
+    assert.ok(Math.abs(e.left - geo.hits[i]) <= 1.5, `element ${i} starts under hit ${i}: ${e.left} vs ${geo.hits[i]}`);
+    assert.ok(e.own, `element ${i} can be reached with the pointer`);
+  });
+  assert.equal(new Set(geo.els.slice(0, 3).map(e => Math.round(e.top))).size, 3, 'three on screen at once take three rows');
+  geo.els.slice(1).forEach((e, i) => assert.ok(Math.abs(e.right - geo.clip.right) <= 3, `element ${i + 1} stays to the end of the scene: ${e.right} vs ${geo.clip.right}`));
+  // the fourth takes the row of the first, which is drawn up to it: no block lies under another
+  assert.equal(Math.round(geo.els[3].top), Math.round(geo.els[0].top));
+  assert.ok(geo.els[0].right <= geo.els[3].left && geo.els[3].left - geo.els[0].right <= 2.5, `the first block ends where the fourth begins: ${geo.els[0].right} vs ${geo.els[3].left}`);
+  assert.ok(geo.lane.top >= geo.clip.bottom && Math.abs(geo.lane.bottom - geo.audioTop) <= 1, `the lane sits between the scenes and the score: ${JSON.stringify(geo)}`);
+  // "cards": a data-seq shows as its items, one hit each
+  assert.deepEqual(await tl.locator('.fvs-el[data-scene="cards"]').evaluateAll(xs => xs.map(x => x.textContent)), ['人格', '记忆', 'SKILLS', '工具', 'HARNESS', '团队', 'PROJECTS', '更强的模型']);
+  const seq = await sp.evaluate(() => {
+    const hits = [...document.querySelectorAll('.host-bottom .fvs-clip[data-id="cards"] .fvs-hitm')].map(m => { const r = m.getBoundingClientRect(); return r.left + r.width / 2; });
+    const els = [...document.querySelectorAll('.host-bottom .fvs-el[data-scene="cards"]')].map(x => { const r = x.getBoundingClientRect(); return [r.left, r.right, r.top]; });
+    return { hits, els };
+  });
+  seq.els.slice(0, 7).forEach(([left, right], i) => assert.ok(Math.abs(left - seq.hits[i]) <= 1.5 && Math.abs(right - seq.hits[i + 1]) <= 2.5, `item ${i} runs from hit ${i} to hit ${i + 1}: ${left}–${right} vs ${seq.hits[i]}–${seq.hits[i + 1]}`));
+  assert.equal(new Set(seq.els.map(e => Math.round(e[2]))).size, 1, 'one after another: a single row');
+  // a scene driven by its script has nothing here
+  assert.equal(await tl.locator('.fvs-el[data-scene="boot"]').count(), 0);
+  // a click selects the element: its block, its scene, its row in the properties; the playhead goes inside it
+  await el('years', 1).click({ position: { x: 4, y: 6 } });
+  assert.deepEqual(await tl.locator('.fvs-el.on').evaluateAll(xs => xs.map(x => `${x.dataset.scene}:${x.dataset.tag}`)), ['years:2']);
+  assert.ok(await tl.locator('.fvs-clip[data-id="years"]').evaluate(x => x.classList.contains('on')));
+  await sp.waitForFunction(() => document.querySelector('.host-extend .fvs-timed.on .lbl')?.textContent === '我们一直在建造', null, { timeout: 3000 }).catch(() => assert.fail('the properties mark the element\'s row'));
+  // (the playhead is drawn on the next frame)
+  await sp.waitForFunction(() => { const h = document.querySelector('.host-bottom .fvs-tl-head').getBoundingClientRect().left, r = document.querySelector('.host-bottom .fvs-el.on').getBoundingClientRect(); return h > r.left && h < r.right; }, null, { timeout: 3000 }).catch(() => assert.fail('the playhead is inside the element'));
+  assert.ok(await sp.evaluate(() => document.querySelector('.fvs-dock-timeline').contains(document.activeElement)), 'a click keeps the keyboard in the timeline');
+  // Delete has nothing to delete: the scene stays
+  assert.equal(await tl.locator('button[aria-label="删除场景"]').isDisabled(), true);
+  await sp.keyboard.press('Delete');
+  await sp.waitForTimeout(200);
+  assert.equal(await tl.locator('.fvs-clip').count(), 20, 'Delete with an element selected leaves the scene');
+  assert.equal(await sp.getAttribute('.fvs-status', 'data-state'), 'saved');
+  // quote it: the toolbar button
+  const reveals = () => sp.evaluate(() => HOST.spaceState.log.filter(x => x === 'right:chat:reveal').length);
+  const shown = await reveals();
+  await tl.locator('button[aria-label="引用到对话"]').click();
+  assert.deepEqual(await quotes(), ['episode-2.12.fvs.md › ## years · 多年来 › 15.20–17.60s\n<span class="fk" style="left:112px;top:470px;font-size:130px" data-in="h1">\n我们一直在建造']);
+  assert.equal(await reveals(), shown + 1, 'quoting brings the conversation forward');
+  // …and a right-click, on an item of a sequence: the container, which child, its own tag, its text
+  // (brought into view first: the timeline scrolling under an open menu closes it, as it should, and the scroll a
+  // click starts would land after the menu opened)
+  await el('cards', 2).scrollIntoViewIfNeeded();
+  await sp.waitForTimeout(150);
+  await el('cards', 2).click({ button: 'right', position: { x: 4, y: 6 } });
+  assert.deepEqual(await tl.locator('.fvs-el.on').evaluateAll(xs => xs.map(x => `${x.dataset.scene}:${x.dataset.tag}`)), ['cards:7'], 'a right-click selects what it is on');
+  await sp.getByRole('menuitem', { name: '引用到对话' }).click();
+  assert.equal((await quotes())[1], 'episode-2.12.fvs.md › ## cards · 标题卡 › 9.60–10.40s\n<div data-seq="h0"> › 3/8 › <div class="fb-card solid">\nSKILLS');
+  await sp.waitForFunction(() => /sequence|seq/.test(document.querySelector('.host-extend .fvs-timed.on .lbl')?.textContent || ''), null, { timeout: 3000 }).catch(() => assert.fail('an item marks its sequence\'s row'));
+  // a hit, a scene
+  await tl.locator('.fvs-clip[data-id="cards"] .fvs-hitm').nth(2).click({ button: 'right' });
+  await sp.getByRole('menuitem', { name: '引用到对话' }).click();
+  assert.equal((await quotes())[2], 'episode-2.12.fvs.md › ## cards · 标题卡 › h2 = 9.60s');
+  await tl.locator('.fvs-clip[data-id="years"]').click({ button: 'right', position: { x: 30, y: 10 } });
+  await sp.getByRole('menuitem', { name: '引用到对话' }).click();
+  assert.equal((await quotes())[3], 'episode-2.12.fvs.md › ## years · 多年来 › 14.40–17.60s');
+  assert.equal(await tl.locator('.fvs-el.on').count(), 0, 'selecting the scene lets the element go');
+  // in a short window the properties have to scroll to show the element's row: that is not the timeline moving,
+  // and the menu stays
+  await sp.setViewportSize({ width: 1600, height: 560 });
+  await sp.waitForTimeout(200);
+  await sp.evaluate(() => { document.querySelector('.host-extend .fvs-panel').scrollTop = 0; });
+  await el('twosides', 1).scrollIntoViewIfNeeded();
+  await sp.waitForTimeout(150);
+  const scrolledBefore = await sp.evaluate(() => document.querySelector('.host-extend .fvs-panel').scrollTop);
+  await el('twosides', 1).click({ button: 'right', position: { x: 4, y: 6 } });
+  await sp.waitForFunction(top => document.querySelector('.host-extend .fvs-panel').scrollTop > top, scrolledBefore, { timeout: 3000 }).catch(() => assert.fail('the properties scrolled to the element\'s row (else this case tests nothing)'));
+  await sp.waitForTimeout(150);
+  assert.equal(await sp.locator('.fvs-menu').count(), 1, 'the menu outlives a scroll in another panel');
+  await sp.getByRole('menuitem', { name: '引用到对话' }).click();
+  assert.equal((await quotes())[4], 'episode-2.12.fvs.md › ## twosides · 两面 › 26.20–27.20s\n<span class="fk" style="left:110px;top:520px;font-size:240px" data-in="h1">\n有两面。');
+  await sp.setViewportSize({ width: 1600, height: 960 });
+  await sp.waitForTimeout(200);
+  // a caption: its time line as the file has it
+  await tl.locator('button[aria-label="添加字幕"]').click();
+  await sp.waitForFunction(p => /-->/.test(HOST.text(p)), FILE, { timeout: 4000 }).catch(() => assert.fail('a caption was added'));
+  const cue = (await text()).match(/^(\d\d:\d\d:\d\d,\d{3} --> \d\d:\d\d:\d\d,\d{3})\n(.+)$/m);
+  await sp.locator('.fvs-dock-timeline').focus();
+  await tl.locator('.fvs-cap').first().click({ button: 'right' });
+  await sp.getByRole('menuitem', { name: '引用到对话' }).click();
+  assert.equal((await quotes())[5], `episode-2.12.fvs.md › srt › ${cue[1]}\n${cue[2]}`);
+  assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent for the person');
+  // a double-click goes to the element's "in" time
+  // (held for a moment, as a hand does: the timeline takes the keyboard back right after a press, see keepKeys)
+  await el('years', 2).dblclick({ position: { x: 4, y: 6 }, delay: 40 });
+  await sp.waitForFunction(() => document.activeElement?.dataset.key === 'tin:years:3', null, { timeout: 3000 }).catch(() => assert.fail('a double-click puts the caret in the element\'s "in" time'));
+  // its own attribute keeps it selected, and the block follows: half a beat (0.2 s at 150 bpm) later
+  const x0 = (await el('years', 2).boundingBox()).x, pps = await sp.evaluate(() => document.querySelector('.host-bottom .fvs-clip[data-id="years"]').getBoundingClientRect().width / 3.2);
+  await sp.keyboard.type('h2+0.5');
+  await sp.keyboard.press('Enter');
+  await sp.waitForFunction(p => HOST.text(p).includes('data-in="h2+0.5"'), FILE, { timeout: 4000 }).catch(() => assert.fail('the "in" time was written'));
+  assert.deepEqual(await tl.locator('.fvs-el.on').evaluateAll(xs => xs.map(x => `${x.dataset.scene}:${x.dataset.tag}`)), ['years:3'], 'an edit to its own attribute keeps the selection');
+  assert.ok(Math.abs((await el('years', 2).boundingBox()).x - x0 - .2 * pps) <= 1.5, 'the block moved half a beat');
+  // an edit from outside that moves the tags lets the selection go (the same index would be another element)
+  const now = await text();
+  await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, now.replace('<span class="fk" style="left:110px;top:200px;font-size:210px" data-in="h0">', '<i></i><span class="fk" style="left:110px;top:200px;font-size:210px" data-in="h0">')]);
+  await sp.waitForFunction(p => HOST.text(p).includes('<i></i>') && !document.querySelector('.host-bottom .fvs-el.on'), FILE, { timeout: 5000 }).catch(() => assert.fail('an outside edit that shifts the tags drops the element selection'));
+  assert.equal(await tl.locator('.fvs-el[data-scene="years"]').count(), 4);
+  // a project with no declarative timing: the lane says what would show up in it
+  await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, original.replace(/ data-(in|seq)="/g, ' data-x-$1="')]);
+  await sp.waitForFunction(() => !document.querySelector('.host-bottom .fvs-el'), null, { timeout: 5000 }).catch(() => assert.fail('no timed elements, no blocks'));
+  assert.match(await tl.locator('.fvs-el-lane.empty').getAttribute('data-hint'), /data-in/);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+// …and without the conversation (an older host) the lane and the selection are there, the quote is not offered
+{
+  const { sp, serr } = await spacePage();
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-el[data-scene="cards"]', { timeout: 10000 });
+  assert.equal(await sp.locator('button[aria-label="引用到对话"]').count(), 0);
+  await sp.locator('.host-bottom .fvs-el[data-scene="cards"]').first().click({ button: 'right', position: { x: 2, y: 6 } });
+  await sp.waitForTimeout(150);
+  assert.equal(await sp.locator('.fvs-menu').count(), 0, 'no menu with nothing to offer');
   assert.deepEqual(serr, []);
   await sp.close();
 }

@@ -140,6 +140,7 @@ select.fvs-input{padding:0 4px}
 .fvs-timed.head small{color:var(--fv-muted)}
 .fvs-timed .fvs-input{height:26px;padding:0 5px;font-size:var(--fv-caption)}
 .fvs-timed .lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fvs-timed.on .lbl{color:var(--fv-accent);font-weight:500}
 .fvs-media-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center}
 .fvs-media-row > input[type=file]{display:none}
 .fvs-media-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:var(--fv-r-sm);background:var(--fv-hover);color:var(--fv-muted)}
@@ -200,7 +201,7 @@ select.fvs-input{padding:0 4px}
 .fvs-zoom-controls input{width:84px;margin:0 4px;accent-color:var(--fv-accent)}
 .fvs-zoom-controls .fvs-btn.ghost{height:24px;padding:0 8px}
 .fvs-tl-body{display:grid;grid-template-columns:76px minmax(0,1fr);min-height:0;overflow:hidden auto}
-.fvs-track-rail{display:grid;grid-template-rows:24px 32px 64px;grid-auto-rows:44px;align-content:start;font-size:var(--fv-caption);color:var(--fv-muted)}
+.fvs-track-rail{display:grid;grid-template-rows:24px 32px 64px 46px;grid-auto-rows:44px;align-content:start;font-size:var(--fv-caption);color:var(--fv-muted)}
 .fvs-rail-ruler{padding:6px 12px 0}
 .fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane{display:flex;align-items:center;gap:6px;min-width:0;padding:0 10px 0 12px}
 .fvs-rail-captions svg,.fvs-rail-video svg,.fvs-rail-lane svg{width:14px;height:14px}
@@ -222,6 +223,14 @@ select.fvs-input{padding:0 4px}
 .fvs-cap-edge.end{right:0}
 .fvs-cap-edge:hover{background:color-mix(in srgb,var(--fv-accent) 45%,transparent)}
 .fvs-tl-lanes{position:absolute;left:0;right:0;top:0}
+/* what is inside the scenes sits under them: three rows of blocks */
+.fvs-el-lane{position:absolute;left:0;right:0;top:120px;height:46px}
+.fvs-el-lane.empty::after{content:attr(data-hint);position:absolute;left:12px;top:15px;color:var(--fv-muted);font-size:var(--fv-caption);pointer-events:none;white-space:nowrap}
+.fvs-el{position:absolute;height:13px;display:flex;align-items:center;min-width:0;padding:0 4px 0 6px;overflow:hidden;border-radius:3px;background:color-mix(in srgb,var(--fv-text) 12%,var(--fv-card));box-shadow:inset 2px 0 0 var(--fv-muted);color:var(--fv-text);font-size:var(--fv-caption);line-height:13px;cursor:pointer}
+.fvs-el span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.fvs-el:hover{background:color-mix(in srgb,var(--fv-text) 20%,var(--fv-card))}
+.fvs-el.on{background:color-mix(in srgb,var(--fv-accent) 26%,var(--fv-card));box-shadow:inset 2px 0 0 var(--fv-accent),0 0 0 1px var(--fv-accent)}
+.fvs-el.err{box-shadow:inset 2px 0 0 var(--fv-bad),0 0 0 1px var(--fv-bad)}
 .fvs-clip{position:absolute;top:6px;height:52px;border:1px solid transparent;border-radius:var(--fv-r-sm);background:color-mix(in srgb,var(--fv-accent) 14%,var(--fv-card));overflow:hidden;cursor:pointer;touch-action:none}
 .fvs-clip.alt{background:color-mix(in srgb,var(--fv-accent) 8%,var(--fv-card))}
 .fvs-clip:hover{border-color:var(--fv-strong)}

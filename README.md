@@ -2,18 +2,18 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-当前版本 **0.8.3**（更新记录见 [CHANGELOG.md](./CHANGELOG.md)），需要 Forsion 2.12.2 或更新的版本。最初从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+当前版本 **0.9.0**（更新记录见 [CHANGELOG.md](./CHANGELOG.md)），需要 Forsion 2.12.2 或更新的版本。最初从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
-工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，时间线在下方。场景只在时间线上出现一次，片段直接显示缩略图。在视频工作室 Space 里，界面全部用原生面板：没打开工程时左栏是导航、主区是启动台（照 Coding Studio），打开工程后左栏换成素材区，时间线在底部面板，属性、AI 导演和导出用右侧的 Extend View；在文件标签页、浮窗和不支持底部面板的旧版 Forsion 里，时间线画在编辑器下方，属性等是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
+工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，时间线在下方。场景只在时间线上出现一次，片段直接显示缩略图。在视频工作室 Space 里，界面全部用原生面板：没打开工程时左栏是导航、主区是启动台（照 Coding Studio），打开工程后左栏换成素材区，时间线在底部面板（只横跨素材区和编辑器），右栏从上到下是属性和「对话」两个标签，导出用右侧的 Extend View（没有 `ctx.tangu.mountChat` 的 Forsion 上，AI 导演也是 Extend View）；在文件标签页、浮窗和不支持底部面板的旧版 Forsion 里，时间线画在编辑器下方，属性等是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
 
 一段视频就是一份 `.fvs.md` 工程文件：每个场景是一页网页（HTML + CSS，加一点关键帧脚本），场景首尾相接地排在时间线上，时间线踩在音乐的拍子上。每个场景写着自己的**拍点**，画面在拍点上切，配乐也在拍点上给重音。
 
-- **时间线**：片段显示同一渲染器生成的真实缩略图（只渲染看得见的片段，遵守脚本信任）；每条音轨一条轨道并画出波形，可拖动改起点；吸附、高度可调。缩放以指针处为锚点（⌘ / Ctrl / Alt + 滚轮，或触控板双指捏合），`=` / `-` 缩放，⇧Z 适应整片，滑块从全片一直放大到逐帧。
+- **时间线**：片段显示同一渲染器生成的真实缩略图（只渲染看得见的片段，遵守脚本信任）；场景轨下面是「元素」轨，写了出现时间的元素（`data-in` / `data-out`、`data-seq` 的每一项）各是一个小块，点一下选中、双击改出现时间；每条音轨一条轨道并画出波形，可拖动改起点；吸附、高度可调。缩放以指针处为锚点（⌘ / Ctrl / Alt + 滚轮，或触控板双指捏合），`=` / `-` 缩放，⇧Z 适应整片，滑块从全片一直放大到逐帧。
 - **手动编辑**：实时预览、播放；双击画面里的文字直接改；属性面板改场景设置（长度可选小节、拍、秒）、全部文字、代码和工程设置。撤销、重做、自动保存。
 - **剪辑**：导入图片、视频、音频（按钮或拖进时间线）；在播放头处分割（S / ⌘B）；拖左边缘修剪入点、拖右边缘改长度，相邻场景让位、后面的切点不动，按住 Alt 推移后面全部；拖动片段调整顺序；⌘D 复制、Delete 删除。视频由运行时接管，预览、网页导出和 MP4 逐帧对齐并混入原声。
 - **字幕轨**：时间线最上面一条字幕轨，双击添加、拖动移动、拖两端修剪；属性面板「字幕」页逐条改时间和文字、设置位置和大小。字幕是工程文件开头的一个 SRT 块（整片时间），可导入 / 导出 `.srt`，预览和网页导出都显示，MP4 默认烧录。
 - **转场与模板**：八种转场（交叉淡化、经背景色、滑入、推入、擦除、缩放、模糊等）；「新场景」提供十个声明式模板，用当前工程的样式实时预览，横屏竖屏都能用。
-- **交给 AI**：「AI 导演」打开原生 Chat Box，把任务交给内置的 **Video Studio 导演** Agent，选中场景和播放位置会一起发送。它直接改这份文件，编辑器自动载入改动；面板显示任务前后的改动，可以恢复。文字面板里每一行都有「AI 改写」。
+- **交给 AI**：在视频工作室 Space 里，和内置的 **Video Studio 导演** Agent 的对话就在右栏（Forsion 自己的对话，一个工程文件夹一条会话，工作目录是工程文件夹）。在时间线上选中场景、拍点、字幕或元素，点「引用到对话」或右键，把它指给 AI 看；让它生成的图片落在工程的 `generated/` 里，素材区随即列出。它直接改这份文件，编辑器自动载入改动。一键任务（配乐、看成片提意见、修正卡点）把请求填进输入框等你发送。文字面板里每一行都有「AI 改写」。没有 `ctx.tangu.mountChat` 的 Forsion、文件标签页和浮窗里，「AI 导演」照旧打开原生 Chat Box 面板，显示任务前后的改动，可以恢复。
 - **卡点检查**：编辑器分析配乐的重音，时间线上的拍点绿色表示落在重音上，黄色表示没有，空心表示切到安静处；「卡点检查」弹层列出偏离的拍点，可以交给 AI 修正。
 - **导出**：「导出网页视频」立刻写出一个单文件 `.html`（图片和配乐内嵌，视频按相对路径引用）；「导出 MP4」打开导出面板，选择尺寸、帧率、画质、区间和声音，再由导演 Agent 在本机渲染。面板从 CLI 状态文件读取真实进度，支持取消、失败重试和预览成品。任务保存启动时的工程快照；导出过程中继续编辑不会改变这一份渲染。成功后才发布 MP4，失败不会覆盖已有成品。
 - **工程文件 AI 读得懂**：它就是 Markdown，里面是 JSON、HTML、CSS、JS 代码块。格式和场景 API 写在内置技能 `forsion-video-studio` 里。
@@ -23,9 +23,9 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。主区编辑器和左栏导航是固定 View（配方里的 `"pinned": true`）：打开工程后素材区作为左栏的第二个标签出现，导航的标签一直在。
 
 - **启动布局**：左栏是导航（新建视频、我的工程、第 2.12 话示例），主区是启动台，底部收起。「我的工程」列出全部工程（片名、路径、画幅、时长），可搜索；「新建视频」一页写想法（可选）、选画幅、起名字，工程建在 `<工作文件夹>/<名字>/` 里。写了想法的，创建后想法填进 AI 导演等你发送。
-- **项目布局**：打开工程后左栏原地换成素材区（工程文件夹里 `media/`、`audio/`、`assets/` 的缩略图，用到的标「已用」；导入只复制不放进时间线，拖到时间线落在切点，双击加到播放头所在场景之后），底部开出时间线。「更多 → 关闭工程」回到启动布局。工程之间切换不动底部面板。
+- **项目布局**：打开工程后左栏原地换成素材区（工程文件夹里 `media/`、`audio/`、`assets/`、`generated/` 的缩略图，用到的标「已用」，AI 生成的带标记，可筛选；导入只复制不放进时间线，拖到时间线落在切点，双击加到播放头所在场景之后），底部开出时间线。「更多 → 关闭工程」回到启动布局。工程之间切换不动底部面板。
 
-主区域是 Video Studio；片名可以打开 Extend View 工程选择器，原生 Extend View 属性面板随工程默认打开（不抢键盘焦点；AI 导演、导出或工程选择器临时占用右侧，关掉后它自动回来；用走带右侧的属性按钮、面板的 × 或 Esc 关掉后，本次会话不再自动打开），「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置。每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
+主区域是 Video Studio；片名可以打开 Extend View 工程选择器，原生 Extend View 属性面板随工程默认打开（不抢键盘焦点；导出或工程选择器临时占用右侧，关掉后它自动回来；用走带右侧的属性按钮、面板的 × 或 Esc 关掉后，本次会话不再自动打开）。支持 `ctx.tangu.mountChat` 的 Forsion 上，右栏另有一个「对话」标签：宿主自己的对话挂在插件的视图里，跟着最新停靠的工程走，换工程就换到那个工程文件夹的会话。更早的 Forsion 上，「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置，每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
 
 主工作台的「更多」菜单可以打开原生浮窗或 Mini。Mini 采用独立预览视图，保留播放、静音和场景切换，点击「完整工作台」把同一工程带回主面板。浮窗缺少 Extend View 时使用内联属性，工程选择使用内联列表；主面板的工程路径通过宿主实体参数保存。原来的 `.fvs.md` 文件标签页和笔记嵌入照常可用，文件标签页增加工作室入口。切换工程前先完成待保存写入。
 
@@ -129,6 +129,8 @@ npm run verify:space             # 真 Space / Extend / Mini / Floating / 待保
 npm run verify:render            # 真实 Chromium + ffmpeg：配乐、取消、错误区间、成品保护
 npm run verify:features          # 真缩略图、原生 Chat Box 草稿与模型选择、Extend 导出设置
 npm run verify:features -- --live # 临时工程的真模型修改、差异/恢复，以及由导演执行的 MP4 导出
+npm run verify:chat               # 隔离的真 Electron：右栏对话、会话接回、引用到对话（需要带 ctx.tangu.mountChat 的宿主）
+npm run verify:skill              # 真引擎 + 真模型：导演按引用只改一处、时间写在元素上、配图落进 generated/
 ```
 
 `install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
@@ -152,6 +154,9 @@ music's beat grid, and each scene lists its **hits** — the picture cuts on the
 Edit by hand (live preview, double-click text in the picture, panels for scene settings, text, code and project),
 cut like a clip editor (import pictures, video and sound, split at the playhead, trim either end, reorder by dragging,
 crossfades and other transitions, ten scene templates, a captions track with SRT import and export, and a timeline
-that zooms around the pointer and, in the Video Studio Space, sits in the native bottom panel), hand work to the bundled **Video Studio Director** agent
-(write scenes, score, check sync, render MP4), and export a single-file web video or an MP4. The format and
+that zooms around the pointer and, in the Video Studio Space, sits in the native bottom panel; elements that carry
+their own timing show up on an Elements lane under the scenes), hand work to the bundled **Video Studio Director** agent
+(write scenes, score, check sync, render MP4; on a Forsion with `ctx.tangu.mountChat` the conversation sits in the right
+side next to Properties, works in the project folder, and anything selected on the timeline can be quoted into it), and
+export a single-file web video or an MP4. The format and
 the scene API are documented in the bundled skill; `examples/episode-2.12` is a complete project.

@@ -60,7 +60,7 @@ export function scan(html) {
       const v = a[2] ?? a[3] ?? a[4];
       attrs.push({ name: a[1].toLowerCase(), value: v === undefined ? '' : decode(v), start: off, end: off + a[0].length });
     }
-    const tag = { index: tags.length, name, start: i, end, attrs, attr: k => (attrs.find(x => x.name === k) || {}).value };
+    const tag = { index: tags.length, name, start: i, end, attrs, parent: stack.length ? stack[stack.length - 1] : -1, attr: k => (attrs.find(x => x.name === k) || {}).value };
     tags.push(tag);
     i = end; textStart = i;
     if (RAW.test(name) && !selfClose) {
@@ -128,11 +128,20 @@ export function videos(html) {
   });
 }
 
-/** Elements with declarative timing, with the first text inside them as a label. */
+/**
+ * Elements with declarative timing. `text` is the first text inside the element ('' when it has none), `label` a
+ * short name for it: that text, else the file of a picture or a clip, else the tag.
+ * A data-seq container also lists its children as `items` ({ tag, name, label, text }): what it shows one after another.
+ */
 export function timedElements(html) {
   const { texts, tags } = scan(html);
-  return tags.filter(t => ['data-in', 'data-out', 'data-seq'].some(k => t.attr(k) !== undefined)).map(t => {
-    const label = texts.find(x => x.start > t.start);
-    return { tag: t.index, name: t.name, in: t.attr('data-in'), out: t.attr('data-out'), fx: t.attr('data-fx'), seq: t.attr('data-seq'), each: t.attr('data-each'), label: label ? label.text.trim().slice(0, 40) : `<${t.name}>` };
-  });
+  const within = (i, root) => { for (; i >= 0; i = tags[i].parent) if (i === root) return true; return false; };
+  const named = t => {
+    const x = texts.find(r => r.start > t.start && within(r.tag, t.index)), text = x ? x.text.trim() : '', src = t.attr('src');
+    return { tag: t.index, name: t.name, text, label: text ? text.slice(0, 40).trim() : src ? src.split('/').pop() : `<${t.name}>` };
+  };
+  return tags.filter(t => ['data-in', 'data-out', 'data-seq'].some(k => t.attr(k) !== undefined)).map(t => ({
+    ...named(t), in: t.attr('data-in'), out: t.attr('data-out'), fx: t.attr('data-fx'), seq: t.attr('data-seq'), each: t.attr('data-each'),
+    ...(t.attr('data-seq') !== undefined ? { items: tags.filter(c => c.parent === t.index).map(named) } : {}),
+  }));
 }

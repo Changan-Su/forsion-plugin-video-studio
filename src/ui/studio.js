@@ -7,6 +7,7 @@ import * as HT from '../lib/html.js';
 import { onsetEnvelope, syncReport } from '../lib/onsets.js';
 import { SCENE_TEMPLATES, sceneFromTemplate, mediaScene } from '../lib/scene-templates.js';
 import RUNTIME from '../generated/runtime-src.js';
+import { timeExpr } from '../runtime/player.js';
 import { CSS as STUDIO_CSS } from './styles.js';
 import { handOff, TASKS, rewrite, notify, ensureTools } from './ai.js';
 import { exportHtml } from './exporter.js';
@@ -25,7 +26,8 @@ const STREAM = /\.(mp4|m4v|webm|mov|ogv)$/i;
 export const BIN_MIME = 'application/x-fvs-media';
 export const KIND = name => (/\.(mp4|m4v|webm|mov)$/i.test(name) ? 'video' : /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(name) ? 'image' : /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name) ? 'audio' : /\.(srt|vtt)$/i.test(name) ? 'captions' : null);
 const MOD = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent || '') ? '⌘' : 'Ctrl+';
-const RULER_H = 24, CAPTION_H = 32, VIDEO_H = 64, AUDIO_H = 44; // track order: what sits on the picture is drawn above it
+const RULER_H = 24, CAPTION_H = 32, VIDEO_H = 64, ELEM_H = 46, AUDIO_H = 44; // track order: what sits on the picture is drawn above it
+const ELEM_ROWS = 3, ELEM_ROW_H = 14; // the elements lane: what is inside the scenes, under them
 // In a Space the properties panel opens with each project until the person closes it (for this session).
 let inspectorPref = true;
 
@@ -93,7 +95,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   let inspectorHandle = null, askHandle = null, exportHandle = null;
   const S = {
     path, text: '', saved: '', p: P.parseProject(''), time: 0, playing: false,
-    sel: null, selText: null, selHit: null, selCap: null, tab: 'scene', codeScope: 'scene', allTexts: false,
+    sel: null, selText: null, selHit: null, selCap: null, selEl: null, tab: 'scene', codeScope: 'scene', allTexts: false,
     zoom: 0, snap: 'half', undo: [], redo: [], trusted: false, gen: 0,
     runtimeErrors: [], counts: null, sync: null, audioKey: '', disposed: false, status: 'saved',
     focus: false, inspectorOpen: false, muted: false, zoomFit: true, timelineHeight: 0, advancedOpen: false,
@@ -180,6 +182,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const splitBtn = tool('Scissors', 'split', () => splitAtPlayhead(), { kbd: 'S' });
   const dupBtn = tool('Copy', 'duplicate', () => duplicateSelected(), { kbd: `${MOD}D` });
   const delBtn = tool('Trash2', 'delete', () => deleteSelected(), { kbd: '⌫' });
+  const quoteBtn = opts.chat ? tool('MessageSquareQuote', 'quote-to-chat', () => quoteSelection()) : null;
   const addBtn = tool('Plus', 'add-scene', e => openTemplates(e.currentTarget), { cls: 'fvs-tl-add' });
   addBtn.setAttribute('aria-haspopup', 'dialog');
   const fileInput = h('input', { type: 'file', multiple: true, accept: 'image/*,video/*,audio/*,.srt,.vtt', hidden: true, onchange: e => { const files = [...e.target.files]; e.target.value = ''; void importFiles(files); } });
@@ -188,7 +191,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const keysBtn = tool('Keyboard', 'shortcuts', e => openShortcuts(e.currentTarget));
   const durationEl = h('span', { class: 'fvs-timeline-duration' });
   const tlBar = h('div', { class: 'fvs-tl-bar', role: 'toolbar', 'aria-label': t('timeline') },
-    h('div', { class: 'fvs-tl-tools' }, splitBtn, dupBtn, delBtn, h('span', { class: 'fvs-tl-sep' }), addBtn, capBtn, importBtn, fileInput),
+    h('div', { class: 'fvs-tl-tools' }, splitBtn, dupBtn, delBtn, quoteBtn, h('span', { class: 'fvs-tl-sep' }), addBtn, capBtn, importBtn, fileInput),
     syncButton, durationEl, h('span', { class: 'fvs-grow' }),
     h('label', { class: 'fvs-snap-control' }, h('span', { text: t('snap') }), snapSel),
     h('div', { class: 'fvs-zoom-controls' }, tool('ZoomOut', 'zoom-out', () => zoomBy(1 / 1.5), { kbd: '-' }), zoomInput,
@@ -200,15 +203,17 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const ruler = h('canvas', { class: 'fvs-tl-ruler' });
   const capLane = h('div', { class: 'fvs-cap-lane' });
   const clips = h('div', { class: 'fvs-tl-scenes' });
+  const elLane = h('div', { class: 'fvs-el-lane' });
   const lanes = h('div', { class: 'fvs-tl-lanes' });
   const head = h('div', { class: 'fvs-tl-head' });
-  inner.append(ruler, capLane, clips, lanes, head);
+  inner.append(ruler, capLane, clips, elLane, lanes, head);
   scroller.append(inner);
   const rulerLabel = h('span', { class: 'fvs-rail-ruler' });
   const audioRail = h('div', { class: 'fvs-rail-audio' });
   const trackRail = h('div', { class: 'fvs-track-rail' }, rulerLabel,
     h('div', { class: 'fvs-rail-captions' }, icon('Captions'), h('span', { text: t('captions-track') })),
-    h('div', { class: 'fvs-rail-video' }, icon('Film'), h('span', { text: t('video-track') })), audioRail);
+    h('div', { class: 'fvs-rail-video' }, icon('Film'), h('span', { text: t('video-track') })),
+    h('div', { class: 'fvs-rail-lane' }, icon('Layers'), h('span', { text: t('elements-track') })), audioRail);
   const resizeHandle = h('div', { class: 'fvs-tl-resize', role: 'separator', tabindex: '0', 'aria-orientation': 'horizontal', 'aria-label': t('resize-timeline'), 'aria-valuemin': '150' });
   resizeHandle.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -246,7 +251,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
   /* lane geometry: the body grows with the number of audio lanes unless the user sized it */
-  const lanesHeight = () => RULER_H + CAPTION_H + VIDEO_H + AUDIO_H * Math.max(1, laneTracks().length) + 10;
+  const lanesHeight = () => RULER_H + CAPTION_H + VIDEO_H + ELEM_H + AUDIO_H * Math.max(1, laneTracks().length) + 10;
   const timelineHeight = () => S.timelineHeight || lanesHeight();
   function resizeTimeline(height) {
     S.timelineHeight = Math.max(150, Math.min(Math.max(150, root.clientHeight * .6), height));
@@ -337,7 +342,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const sceneUnderPlayhead = () => S.p.scenes.find(s => S.time >= s.t0 && S.time < s.t1) || S.p.scenes.at(-1) || null;
   function selectScene(id, { seekTo = true, reveal = true } = {}) {
     const s = P.sceneById(S.p, id); if (!s) return;
-    S.sel = id; S.selHit = null; S.selText = null; S.selCap = null;
+    S.sel = id; S.selHit = null; S.selText = null; S.selCap = null; S.selEl = null;
     if (seekTo) seek(s.t0);
     renderTimeline(); renderSide(); renderToolbar();
     if (reveal) {
@@ -382,9 +387,14 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     watch();
   }
   function reparse() {
+    // an element is its tag's index in the scene's html, so it survives only edits that keep the tags where they
+    // are (its own attributes, a text); after any other the same index may be its neighbour
+    const tagNames = html => HT.scan(html || '').tags.map(x => x.name).join(' ');
+    const el = S.selEl, before = el && S.p ? tagNames(P.sceneById(S.p, el.scene)?.html) : null;
     S.p = P.parseProject(S.text);
     if (S.sel && !P.sceneById(S.p, S.sel)) S.sel = S.p.scenes[0] ? S.p.scenes[0].id : null;
     if (S.selCap !== null && !S.p.captions[S.selCap]) S.selCap = null;
+    if (el) { const s = P.sceneById(S.p, el.scene); if (!s || tagNames(s.html) !== before || !timedOf(s).some(x => x.tag === el.tag)) S.selEl = null; }
   }
 
   let saveTimer = 0, saving = null, writes = Promise.resolve();
@@ -532,7 +542,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const edit = !opts.compact && !!m.scene && m.dbl && m.text != null && textsMatch(m.scene);
     if (!edit) root.focus({ preventScroll: true });
     if (!m.scene) return;
-    S.sel = m.scene; S.selCap = null; S.selHit = null; // Delete now means this scene
+    S.sel = m.scene; S.selCap = null; S.selHit = null; S.selEl = null; // Delete now means this scene
     if (m.text != null) S.selText = { scene: m.scene, index: m.text };
     renderTimeline(); renderToolbar();
     if (edit) openInline(m);
@@ -792,7 +802,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         const r = rows.find(x => x.scene === s.id && x.hit === i);
         const cls = r ? (r.quiet ? 'quiet' : r.ok ? 'ok' : 'weak') : '';
         const on = S.selHit && S.selHit.scene === s.id && S.selHit.index === i;
-        const m = h('div', { class: `fvs-hitm ${cls}${on ? ' on' : ''}`, style: { left: `${(ht - s.t0) * Z}px` },
+        const m = h('div', { class: `fvs-hitm ${cls}${on ? ' on' : ''}`, 'data-hit': String(i), style: { left: `${(ht - s.t0) * Z}px` },
           title: `h${i} · ${fmtTime(ht)}${r ? ` · ${t(r.quiet ? 'sync-quiet' : r.ok ? 'sync-hit' : 'sync-miss')}` : ''}\n${t('hit-hint')}` });
         m.addEventListener('pointerdown', e => dragHit(e, s.id, i, m));
         c.lane.append(m);
@@ -802,13 +812,131 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     clips.querySelector('.fvs-tl-empty')?.remove();
     if (!S.p.scenes.length) clips.append(h('div', { class: 'fvs-tl-empty', text: t('scene-none-yet') }));
     head.style.left = `${S.time * Z}px`;
-    renderCaptions(); renderLanes(); drawRuler(); drawWaves(); renderErrors(); renderToolbar();
+    renderCaptions(); renderElements(); renderLanes(); drawRuler(); drawWaves(); renderErrors(); renderToolbar();
   }
   function renderToolbar() {
     const s = selScene(), under = sceneUnderPlayhead();
     splitBtn.disabled = !under || typeof P.splitScene !== 'function';
-    dupBtn.disabled = !s || S.selCap !== null; delBtn.disabled = !s && !S.selHit && S.selCap === null;
+    dupBtn.disabled = !s || S.selCap !== null; delBtn.disabled = !!S.selEl || (!s && !S.selHit && S.selCap === null);
+    if (quoteBtn) quoteBtn.disabled = !s && S.selCap === null;
   }
+  /* ───────── elements: what a scene times declaratively (data-in / data-out / data-seq), on project time ───────── */
+  // ponytail: every render scans every scene's html (one linear pass each); cache by html when long films make zooming drag
+  function timedOf(s) {
+    const unit = P.hitUnit(S.p.tempo), beat = S.p.tempo ? S.p.tempo.beat : .5;
+    const sc = { t0: s.t0v ?? s.t0, t1: s.t1, hits: s.hitTimes }; // the runtime's scene: content start, hits in seconds
+    const list = [];
+    const put = (x, a, b, error = '') => {
+      if (!error && (a >= s.t1 - 1e-6 || b <= s.t0 + 1e-6)) return; // never inside this scene's window (the other half of a split)
+      a = Math.max(s.t0, a);
+      list.push({ ...x, a, b: Math.min(s.t1, Math.max(a, b)), error });
+    };
+    for (const x of HT.timedElements(s.html)) {
+      const seq = x.seq !== undefined && String(x.seq).match(/^\s*h(\d+)\s*$/);
+      if (seq && x.items.length) {
+        // a sequence is its items, one after another on the hits from hK, the last one to the scene's end (the
+        // runtime's seq()); an item past the last hit never shows
+        x.items.forEach((c, i) => {
+          const a = sc.hits[+seq[1] + i], next = i + 1 < x.items.length ? sc.hits[+seq[1] + i + 1] : undefined;
+          if (a !== undefined) put({ ...c, of: x, n: i + 1 }, a, next ?? s.t1);
+        });
+        continue;
+      }
+      try {
+        if (x.seq !== undefined) throw new Error(`data-seq="${x.seq}"`);
+        put(x, x.in !== undefined ? timeExpr(x.in, sc, unit, beat) : sc.t0, x.out !== undefined ? timeExpr(x.out, sc, unit, beat) : s.t1);
+      } catch (e) { put(x, s.t0, s.t1, String(e && e.message || e)); }
+    }
+    // rows: the first one free at the element's start
+    const ends = [], last = [];
+    for (const x of [...list].sort((p, q) => p.a - q.a)) {
+      let r = ends.findIndex(e => e <= x.a + 1e-6);
+      if (r < 0 && ends.length < ELEM_ROWS) r = ends.length;
+      if (r < 0) {
+        // ponytail: three rows. A fourth element on screen at once takes the row that started earliest, whose block
+        // is then drawn only up to it (the tooltip keeps its real end); a taller or scrolling lane when scenes get
+        // that dense.
+        r = last.reduce((best, y, i) => (y.a < last[best].a ? i : best), 0);
+        if (last[r].b > x.a) last[r].shown = x.a;
+      }
+      ends[r] = Math.max(ends[r] ?? 0, x.b); last[r] = x; x.row = r;
+    }
+    return list;
+  }
+  function renderElements() {
+    const Z = S.zoom || 20, out = [];
+    for (const s of S.p.scenes) for (const x of timedOf(s)) {
+      const on = S.selEl && S.selEl.scene === s.id && S.selEl.tag === x.tag;
+      out.push(h('div', { class: `fvs-el${on ? ' on' : ''}${x.error ? ' err' : ''}`, 'data-scene': s.id, 'data-tag': String(x.tag),
+        style: { left: `${x.a * Z}px`, width: `${Math.max(4, ((x.shown ?? x.b) - x.a) * Z - 1)}px`, top: `${2 + x.row * ELEM_ROW_H}px` },
+        title: x.error ? `${x.label}\n${x.error}` : `${x.label}\n<${x.name}> · ${fmtTime(x.a)} – ${fmtTime(x.b)}\n${t('element-hint')}` }, h('span', { text: x.label })));
+    }
+    elLane.classList.toggle('empty', !out.length);
+    elLane.dataset.hint = t('elements-lane-hint');
+    elLane.replaceChildren(...out);
+  }
+  // The selection's look, in place: a render would replace the block under the pointer, and it has to live on
+  // for the double-click and as the anchor of the menu.
+  function markOn(el, scene) {
+    timeline.querySelectorAll('.fvs-el.on, .fvs-cap.on, .fvs-hitm.on, .fvs-clip.on').forEach(n => n.classList.remove('on'));
+    el?.classList.add('on');
+    if (scene) clipEls.get(scene)?.el.classList.add('on');
+  }
+  /* a click selects (the properties show its row), a double-click goes to its "in" time there */
+  function selectElement(scene, tag) {
+    const s = P.sceneById(S.p, scene), x = s && timedOf(s).find(e => e.tag === tag);
+    if (!x) return null;
+    S.sel = scene; S.selEl = { scene, tag }; S.selHit = null; S.selCap = null; S.tab = 'scene';
+    markOn(elLane.querySelector(`[data-scene="${CSS.escape(scene)}"][data-tag="${tag}"]`), scene);
+    // ponytail: half a second in (or the middle of a shorter one) is past most entrances; the exact end of the entrance when it matters
+    if (S.time < x.a || S.time >= x.b) seek(Math.min(x.a + .5, (x.a + x.b) / 2));
+    renderSide(); renderToolbar();
+    return x;
+  }
+  elLane.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const el = e.target.closest('.fvs-el');
+    if (el) selectElement(el.dataset.scene, +el.dataset.tag); else scrub(e);
+  });
+  elLane.addEventListener('dblclick', e => {
+    const el = e.target.closest('.fvs-el'), x = el && selectElement(el.dataset.scene, +el.dataset.tag);
+    if (x) focusField(`tin:${el.dataset.scene}:${(x.of || x).tag}`); // an item of a sequence: the sequence's row
+  });
+
+  /*
+   * "Quote in chat": where the selection is in the project file, in the file's own words (the scene heading, the
+   * tag as written, the cue's time line) so the agent finds it with a search. No sentences, nothing to translate.
+   */
+  function reference() {
+    const file = path.split('/').pop(), span = (a, b) => `${a.toFixed(2)}–${b.toFixed(2)}s`;
+    if (S.selCap !== null) { const c = cues()[S.selCap]; return c ? `${file} › srt › ${P.srtTime(c.start)} --> ${P.srtTime(c.end)}\n${c.text}` : null; }
+    const s = selScene(); if (!s) return null;
+    const scene = `${file} › ## ${s.id}${s.title ? ` · ${s.title}` : ''}`;
+    if (S.selHit && s.hitTimes[S.selHit.index] !== undefined) return `${scene} › h${S.selHit.index} = ${s.hitTimes[S.selHit.index].toFixed(2)}s`;
+    const x = S.selEl && timedOf(s).find(e => e.tag === S.selEl.tag);
+    if (!x) return `${scene} › ${span(s.t0, s.t1)}`;
+    const tags = HT.scan(s.html).tags, written = k => s.html.slice(tags[k].start, tags[k].end);
+    // an item of a sequence: its container, which of its children it is, then its own tag (the items often share one)
+    const where = x.of ? `${written(x.of.tag)} › ${x.n}/${x.of.items.length} › ${written(x.tag)}` : written(x.tag);
+    return [`${scene} › ${span(x.a, x.b)}`, where, x.text.length > 120 ? `${x.text.slice(0, 120)}…` : x.text].filter(Boolean).join('\n');
+  }
+  function quoteSelection() {
+    const text = opts.chat && reference();
+    if (text) { opts.chat.reveal(); opts.chat.quote(text); }
+  }
+  // right-click selects what is under the pointer, the way a click would, and offers to quote it
+  inner.addEventListener('contextmenu', e => {
+    if (!opts.chat) return;
+    const el = e.target.closest('.fvs-el, .fvs-hitm, .fvs-cap, .fvs-clip');
+    if (!el) return;
+    e.preventDefault();
+    if (el.matches('.fvs-el')) selectElement(el.dataset.scene, +el.dataset.tag);
+    else if (el.matches('.fvs-hitm')) { const id = el.closest('.fvs-clip').dataset.id; S.sel = id; S.selHit = { scene: id, index: +el.dataset.hit }; S.selCap = null; S.selEl = null; markOn(el, id); renderSide(); renderToolbar(); }
+    else if (el.matches('.fvs-cap')) { S.selCap = +el.dataset.index; S.selHit = null; S.selEl = null; S.tab = 'captions'; markOn(el); renderSide(); renderToolbar(); }
+    else selectScene(el.dataset.id, { seekTo: false, reveal: false }); // the clip's element is kept across renders
+    openMenu(el, [{ label: t('quote-to-chat'), icon: 'MessageSquareQuote', run: quoteSelection }], { label: t('timeline'), at: { x: e.clientX, y: e.clientY } });
+  });
+
   /* one lane per audio track: label in the rail, a draggable region with its waveform */
   let laneEls = [];
   function renderLanes() {
@@ -819,7 +947,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       for (let i = 0; i < Math.max(1, tracks.length); i++) {
         const canvas = h('canvas', { class: 'fvs-lane-wave' });
         const region = h('div', { class: 'fvs-lane-region' }, canvas, h('span', { class: 'fvs-lane-name' }));
-        const lane = h('div', { class: 'fvs-lane', style: { top: `${RULER_H + CAPTION_H + VIDEO_H + i * AUDIO_H}px` } }, region);
+        const lane = h('div', { class: 'fvs-lane', style: { top: `${RULER_H + CAPTION_H + VIDEO_H + ELEM_H + i * AUDIO_H}px` } }, region);
         region.addEventListener('pointerdown', e => dragTrack(e, i));
         lane.addEventListener('pointerdown', e => { if (e.target === lane) scrub(e); });
         const label = h('div', { class: 'fvs-rail-lane' }, icon('Music2'), h('span'));
@@ -941,7 +1069,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (ev.type === 'pointercancel') return;
       if (!dragging) {
         const was = S.sel, s = P.sceneById(S.p, id); if (!s) return;
-        S.sel = id; S.selHit = null; S.selCap = null;
+        S.sel = id; S.selHit = null; S.selCap = null; S.selEl = null;
         if (was === id) seek((ev.clientX - r.left) / Z);
         else if (S.time < s.t0 || S.time >= s.t1) seek(s.t0);
         renderTimeline(); renderSide();
@@ -1000,8 +1128,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function dragHit(e, id, i, m) {
     e.preventDefault(); e.stopPropagation();
     const s = P.sceneById(S.p, id); if (!s) return;
-    S.sel = s.id; S.selHit = { scene: s.id, index: i }; S.selCap = null;
-    timeline.querySelectorAll('.fvs-hitm.on').forEach(x => x.classList.remove('on')); m.classList.add('on');
+    S.sel = s.id; S.selHit = { scene: s.id, index: i }; S.selCap = null; S.selEl = null;
+    timeline.querySelectorAll('.fvs-hitm.on, .fvs-el.on').forEach(x => x.classList.remove('on')); m.classList.add('on');
     renderToolbar();
     const Z = S.zoom || 20, r = inner.getBoundingClientRect(), u = P.hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
     let at = s.hitTimes[i], moved = false;
@@ -1092,8 +1220,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const edge = e.target.closest('.fvs-cap-edge'), mode = edge ? (edge.classList.contains('start') ? 'start' : 'end') : 'move';
     const Z = S.zoom || 20, x0 = e.clientX, el = e.currentTarget, minDur = Math.max(1 / fps(), .1);
     if (S.selCap !== i || S.tab !== 'captions') {
-      S.selCap = i; S.selHit = null; S.tab = 'captions';
-      timeline.querySelectorAll('.fvs-cap.on, .fvs-clip.on, .fvs-hitm.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
+      S.selCap = i; S.selHit = null; S.selEl = null; S.tab = 'captions';
+      timeline.querySelectorAll('.fvs-cap.on, .fvs-clip.on, .fvs-hitm.on, .fvs-el.on').forEach(x => x.classList.remove('on')); el.classList.add('on');
       renderSide(); renderToolbar();
     }
     let start = c0.start, end = c0.end, moved = false;
@@ -1131,12 +1259,15 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (i === null || !cues()[i]) return;
     S.selCap = i; S.tab = 'captions';
     renderTimeline(); renderSide();
-    const key = `cap:${i}:text`, field_ = () => panel.querySelector(`[data-key="${key}"]`);
+    focusField(`cap:${i}:text`);
+  }
+  /** Open the properties if they are closed and put the caret in the field with this key. */
+  function focusField(key) {
     if (nativeInspector) {
       inspectorPref = true;
       if (!inspectorHandle?.isOpen) { openInspector({ focusKey: key }); return; }
     } else if (!opts.compact && !S.inspectorOpen) { S.inspectorOpen = true; S.focus = false; layout(); }
-    const ta = field_(); if (ta) { ta.focus(); ta.select(); }
+    const field_ = panel.querySelector(`[data-key="${CSS.escape(key)}"]`); if (field_) { field_.focus(); field_.select?.(); }
   }
   async function importCaptions(file) {
     let text = '';
@@ -1184,6 +1315,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (s) tryCommit(src => P.setHits(src, scene, s.hits.filter((_, k) => k !== index)));
       return;
     }
+    // ponytail: an element has no Delete of its own (clear its times in the properties, or ask the AI); without
+    // this the key falls through and deletes the whole scene
+    if (S.selEl) return;
     const s = selScene(); if (!s) return;
     const next = S.p.scenes[s.index + 1] || S.p.scenes[s.index - 1];
     if (tryCommit(src => P.deleteScene(src, s.id))) {
@@ -1509,13 +1643,16 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       const rows = [h('div', { class: 'fvs-timed head' }, h('small'), h('small', { text: t('appear') }), h('small', { text: t('disappear') }), h('small', { text: t('effect') }))];
       for (const x of timed) {
         const fx = select(`tfx:${s.id}:${x.tag}`, ['cut', 'fade', 'up', 'down', 'left', 'right', 'pop', 'type'].map(k => [k, t(`fx-${k}`)]), x.fx || 'cut', v => setA(x.tag, 'data-fx', v === 'cut' ? '' : v), { 'aria-label': t('effect'), disabled: !!x.seq && x.in === undefined });
-        rows.push(h('div', { class: 'fvs-timed' },
+        const on = S.selEl && S.selEl.scene === s.id && (S.selEl.tag === x.tag || (x.items || []).some(c => c.tag === S.selEl.tag));
+        rows.push(h('div', { class: `fvs-timed${on ? ' on' : ''}` },
           h('span', { class: 'lbl', title: x.label, text: x.seq !== undefined ? `${x.label} · seq` : x.label }),
           input(`tin:${s.id}:${x.tag}`, x.seq !== undefined ? x.seq : x.in ?? '', v => setA(x.tag, x.seq !== undefined ? 'data-seq' : 'data-in', v.trim()), { 'aria-label': t('appear') }),
           input(`tout:${s.id}:${x.tag}`, x.out ?? '', v => setA(x.tag, 'data-out', v.trim()), { 'aria-label': t('disappear') }),
           fx));
       }
       out.push(section(t('timed'), h('small', { class: 'fvs-hint', text: t('timed-hint') }), ...rows));
+      const sel = rows.find(r => r.classList.contains('on'));
+      if (sel) requestAnimationFrame(() => sel.scrollIntoView({ block: 'nearest' }));
     }
     out.push(section(t('scene-actions'), h('div', { class: 'fvs-scene-actions' },
       h('button', { type: 'button', class: 'fvs-btn', disabled: s.index === 0, onclick: () => tryCommit(src => P.moveScene(src, s.id, s.index - 1)) }, icon('ArrowLeft'), t('move-up')),

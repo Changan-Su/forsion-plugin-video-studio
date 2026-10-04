@@ -1,8 +1,8 @@
 ---
 name: forsion-video-studio
-description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when a .fvs.md file is involved, or when asked to render, score, re-time or check the sync of such a video.
+description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
 metadata:
-  version: 0.3.0
+  version: 0.4.0
   author: Forsion
   category: Forsion
 ---
@@ -14,15 +14,54 @@ are a pure function of time; they play back to back on a timeline that sits on t
 The user edits the same file in the Video Studio editor (text, timing, code) and sees your edits live:
 the editor reloads the file whenever it changes on disk.
 
-Your jobs: write new projects and scenes, change pacing and copy, score the video, write captions, check that
-the picture cuts land on the music, and render MP4s.
+Your jobs: write new projects and scenes, change pacing and copy, score the video, write captions, make
+pictures for it, check that the picture cuts land on the music, and render MP4s.
+
+## In the editor's conversation
+
+When the user talks to you from the Video Studio editor (the conversation beside the project), you are working
+**in the project's folder**:
+
+- The project is the `*.fvs.md` file there. The user sees every edit as you save it and can undo it in the
+  editor, so edit that file in place; do not write copies or new versions next to it.
+- `generated/` is where the image tool saves what you generate; the editor's media bin lists it (marked AI)
+  and the user can drag it into a scene. `media/` holds what they imported, `audio/` the score and sounds,
+  `assets/` anything else the project references. Paths in the project are relative to this folder.
+- The editor's one-click requests ("score this video", "check the sync", "review the cut") are the workflows
+  at the end of this document.
+
+**When the user points at something.** A quote at the top of their message is what they selected on the
+editor's timeline. It is written in the file's own words, so search the file for those exact strings:
+
+```
+demo.fvs.md › ## cards · 标题卡 › 8.00–14.40s          a scene: its heading line, when it is on screen
+demo.fvs.md › ## cards · 标题卡 › h2 = 9.60s           hit 2 of that scene (the third entry of "hits"), in project time
+demo.fvs.md › srt › 00:00:01,000 --> 00:00:03,500      a caption: its time line in the srt block; its text follows
+
+demo.fvs.md › ## years · 多年来 › 15.20–17.60s         an element of that scene, and when it is on screen
+<span class="fk" data-in="h1">                         its start tag, exactly as written in the scene's html
+我们一直在建造                                          the first text inside it
+
+<div data-seq="h0"> › 3/8 › <div class="fb-card">      an item of a sequence: the container, "the third of its
+                                                       eight children", then the item's own start tag
+```
+
+Change that thing and nothing else, unless they ask for more. When the same tag is written more than once in
+the scene, the text and the times say which one is meant. The times are project seconds: turn them into the
+scene's own units (its hits, beats from its start) before you write them into the file.
 
 ## Tools
 
-The command line is one file, `fvs.mjs` (Node ≥ 18). The editor's hand-off message gives its absolute path.
-Otherwise look for it in the vault at `<plugin work folder>/.fvs-tools/fvs.mjs`, or in the installed plugin:
-`~/.forsion/plugins/forsion-video-studio/tools/fvs.mjs` (`~/.forsion-dev/…` for dev builds). The music
-toolkit sits beside it in `music/` (read its README.md before scoring).
+The command line is one file, `fvs.mjs` (Node ≥ 18). Use the first of these that exists:
+
+1. the absolute path a hand-off message from the editor gives;
+2. `../.fvs-tools/fvs.mjs` from the project's folder (the Studio keeps a copy beside its projects; elsewhere
+   in the vault it is `<plugin work folder>/.fvs-tools/fvs.mjs`);
+3. the installed plugin: `~/.forsion/plugins/forsion-video-studio/tools/fvs.mjs` (`~/.forsion-dev/…` for dev
+   builds).
+
+`ls ../.fvs-tools/fvs.mjs ~/.forsion*/plugins/forsion-video-studio/tools/fvs.mjs 2>/dev/null` finds it in one
+go. The music toolkit sits beside it in `music/` (read its README.md before scoring).
 
 ```
 node fvs.mjs new <file.fvs.md> [--template eva|blank] [--title T]
@@ -143,6 +182,22 @@ grain('.grain')
   mean to change, keep the rest of the file exactly as it is (the user may be editing it too).
 - Relative paths (`assets/…`, `audio/…`) resolve against the project file's folder.
 
+## Timing on the elements (the default)
+
+Whatever appears, disappears or steps on a hit gets its timing **as attributes on its own element**. No
+script is needed, and the Studio reads exactly these: they are the blocks on the timeline's Elements lane,
+where the user selects an element, re-times it and quotes it to you. An element that only a script moves is
+not on that lane — the user cannot point at it.
+
+- `data-in="h2"` — appears at hit 2. Also `h2+0.5` / `h2-1` (beats), `2b` (beats from the content start), `1.5s`, `end-1`.
+- `data-fx="cut|fade|up|down|left|right|pop|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
+- `data-out="h4"` — gone at hit 4 (`data-fx-out="fade"` to fade).
+- `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart.
+- `data-seq="h0"` on a container — its children show one after another on hits h0, h1, h2 … (last one to the scene end). The EVA intertitle pattern.
+
+Reach for a script only for what attributes cannot say: continuous motion, canvas drawing, counters, a camera
+move. Even then, give the element a `data-in` for its entrance when it has one.
+
 ## Scene API (in scope in every `js` block)
 
 Times are **absolute seconds**. Selectors are strings scoped to the scene (or elements / arrays).
@@ -167,14 +222,6 @@ Times are **absolute seconds**. Selectors are strings scoped to the scene (or el
 | `scenes` | every scene by id: `{ t0, t1, dur, t0v, in, hits, el }`; here `t0`/`t1` are the **visible** window (stage scripts use it for spans) |
 | `during([...ids or [a, b]])`, `inside(t, spans)` | spans of scenes, membership test |
 | `asset(path)`, `width`, `height`, `fps`, `length`, `project` | asset URL, stage size and settings |
-
-**Declarative timing** (no script needed; the Studio edits these):
-
-- `data-in="h2"` — appears at hit 2. Also `h2+0.5` / `h2-1` (beats), `2b` (beats from the content start), `1.5s`, `end-1`.
-- `data-fx="cut|fade|up|down|left|right|pop|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
-- `data-out="h4"` — gone at hit 4 (`data-fx-out="fade"` to fade).
-- `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart.
-- `data-seq="h0"` on a container — its children show one after another on hits h0, h1, h2 … (last one to the scene end). The EVA intertitle pattern.
 
 **Video** — every `<video>` in a scene is owned by the runtime, which shows the right frame for t (the
 renderer waits for it):
@@ -201,12 +248,15 @@ renderer waits for it):
    stutter or freeze.
 2. **Text lives in the HTML**, not in JS strings, so the user can edit it in the Studio (double-click in
    the picture, or the Text tab). Generate only geometry in JS (graph paths, grids).
-3. **Cut on the hits.** Put visual changes on `hits` (declaratively or `hits[i]` in scripts); add or move
+3. **One thing, one element.** Each line, card, picture or figure the user may want to point at is its own
+   element in the scene's html, with its timing on it (above): not a string in a script, not a
+   pseudo-element, not something a script builds. That is what makes it selectable on the timeline.
+4. **Cut on the hits.** Put visual changes on `hits` (declaratively or `hits[i]` in scripts); add or move
    hits in the scene settings rather than hard-coding times. Sub-beat stagger (`beat / 4`) is fine.
-4. Scope global CSS under the project class; absolute-position layers inside a 1920×1080 (or project)
+5. Scope global CSS under the project class; absolute-position layers inside a 1920×1080 (or project)
    frame in px. Fonts: add Google Fonts URLs to `fonts`; CJK needs a CJK family (Noto Sans/Serif SC).
-5. Flashes and rapid cuts: if the video strobes, open with a photosensitivity warning scene.
-6. After every edit: `check --runtime`, then look at `sheet`/`still` frames of what you changed.
+6. Flashes and rapid cuts: if the video strobes, open with a photosensitivity warning scene.
+7. After every edit: `check --runtime`, then look at `sheet`/`still` frames of what you changed.
    To show the user a project, call the UI command `fvs-open-project` with its vault path (if you have
    `run_ui_command`), or tell them the path.
 
@@ -216,6 +266,16 @@ renderer waits for it):
 template (EVA-style intertitles, HUD panels) or `blank`, then write scenes: 1–4 bars each, a hit on every
 change, text in HTML. Pick a tempo that suits the music you will write (120–160 BPM for cut-heavy promos).
 Check, look at the contact sheet, iterate. Then score it.
+
+**A change to what the user pointed at.** Find the quoted heading and tag in the file and make the change on
+that element: its timing attributes, its text, its style. Nothing around it moves. Then `check`, and look at
+a `still` at a time inside its span (`--at <seconds>`).
+
+**Pictures.** Ask the image tool for what the scene needs, in the frame's shape (16:9 for a full 1920×1080
+frame) and without lettering: text stays HTML so it stays editable. In the editor's conversation the file
+lands in `generated/` and shows in the media bin. To put it in the picture yourself, reference it from the
+scene — `<img src="generated/<file>" alt="">`, sized and placed in the scene's css, timed with `data-in` like
+any element — then `check` and look at a still. If no image model is available, say so; do not fake a file.
 
 **Change pacing.** Lengths and hits live in each scene's `fvs` block. Shortening a scene moves every later
 scene earlier and breaks sync with an existing score; either re-score, or move the cut between two scenes

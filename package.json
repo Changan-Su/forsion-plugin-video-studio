@@ -13,12 +13,13 @@
     "verify:docked": "node scripts/verify-docked.mjs",
     "verify:render": "node scripts/verify-render.mjs",
     "verify:features": "node scripts/verify-features.mjs",
-    "verify:chat": "node scripts/verify-chat.mjs"
+    "verify:chat": "node scripts/verify-chat.mjs",
+    "verify:skill": "node scripts/verify-skill-live.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",
     "lucide": "^1.49.0",
     "playwright-core": "1.61.1"
   },
-  "version": "0.8.3"
+  "version": "0.9.0"
 }

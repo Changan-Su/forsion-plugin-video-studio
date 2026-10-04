@@ -179,7 +179,7 @@ export function parseSrt(text) {
   return { cues, errors };
 }
 
-const srtTime = sec => {
+export const srtTime = sec => {
   const ms = Math.max(0, Math.round(sec * 1000)), p = (n, w = 2) => String(n).padStart(w, '0');
   return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)},${p(ms % 1000, 3)}`;
 };

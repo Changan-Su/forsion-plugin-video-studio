@@ -5,7 +5,7 @@ import { CSS } from './styles.js';
 import { parseProject, setProjectMeta } from '../lib/project.js';
 import { evaTemplate } from '../lib/templates.js';
 import { openMenu, closeLayer } from './menu.js';
-import { AGENT } from './ai.js';
+import { AGENT, ensureTools } from './ai.js';
 
 // the create page's frames (the project page offers these and 4K)
 const ASPECTS = [[1920, 1080, 'frame-landscape'], [1080, 1920, 'frame-portrait'], [1080, 1080, 'frame-square'], [1440, 1080, 'frame-classic']];
@@ -259,6 +259,9 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       if (next === folder) return;
       folder = next; handle?.dispose(); body.replaceChildren();
       handle = next ? ctx.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(studio.path)?.title || stemOf(studio.path) }) : null;
+      // the Director gets no hand-off message here to tell it where the command line is: keep the copy beside
+      // the projects, where its skill looks (../.fvs-tools from a project the Studio made)
+      if (next) ensureTools(ctx).catch(() => {});
       empty.hidden = !!handle; chat.bind(handle);
     };
     const off = dock.watch(sync); sync();

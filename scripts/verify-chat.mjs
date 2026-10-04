@@ -136,7 +136,11 @@ try {
   const sid = await win.locator(chatBox).getAttribute('data-session-id');
   assert.equal(sid, 'fvs-chat-1');
   await win.reload({ waitUntil: 'domcontentloaded' });
-  await win.waitForSelector('.fvs-dock-timeline .fvs-clip', { timeout: 30000 });
+  await win.waitForSelector('.fvs-dock-timeline .fvs-clip', { timeout: 30000 }).catch(async () => {
+    await H.captureWindow(app, join(shots, 'fail-reload-timeline.png'));
+    console.log('after reload:', JSON.stringify(await win.evaluate(() => ({ space: document.querySelector('[data-space-id]')?.dataset.spaceId, launch: !!document.querySelector('.fvs-launch'), studio: !!document.querySelector('.fvs-studio'), gate: !!document.querySelector('.fvs-gate'), dock: !!document.querySelector('.fvs-dock-timeline'), clips: document.querySelectorAll('.fvs-clip').length, body: document.body.innerText.slice(0, 300) }))), 'errors:', JSON.stringify(errors));
+    assert.fail('the timeline is back after a reload');
+  });
   await win.locator('.fvs-bar .fvs-ai-action').click();
   await win.waitForSelector(chatBox, { timeout: 20000 }).catch(async () => {
     await H.captureWindow(app, join(shots, 'fail-reload.png'));
@@ -153,6 +157,38 @@ try {
   assert.ok(detailed.includes(sid), 'the host asked the engine whether it is still there');
   await win.waitForTimeout(500);
   await H.captureWindow(app, join(shots, '04-reloaded.png'));
+
+  // 5 · an element picked on the timeline is quoted in the conversation: where it is in the file, in the file's words
+  const quote = '[data-plugin-chat] .t2c-quote-text';
+  const chip = win.locator('.fvs-dock-timeline .fvs-el').first();
+  await chip.waitFor({ timeout: 10000 }).catch(() => assert.fail('the timeline lists the elements the scenes time'));
+  const lanes = await win.evaluate(() => Object.fromEntries(['.fvs-tl-scenes', '.fvs-el-lane', '.fvs-lane'].map(n => { const b = document.querySelector(`.fvs-dock-timeline ${n}`).getBoundingClientRect(); return [n, [Math.round(b.top), Math.round(b.bottom)]]; })));
+  console.log('lanes:', JSON.stringify(lanes));
+  assert.ok(lanes['.fvs-el-lane'][0] >= lanes['.fvs-tl-scenes'][1] && lanes['.fvs-el-lane'][1] <= lanes['.fvs-lane'][0] + 1, 'the elements sit between the scenes and the score');
+  const label = (await chip.textContent()).trim();
+  await chip.click({ position: { x: 3, y: 6 } });
+  assert.equal(await win.locator('.fvs-dock-timeline .fvs-el.on').count(), 1);
+  await win.locator('.fvs-dock-timeline button[aria-label="引用到对话"]').click();
+  await win.waitForFunction(([s, l]) => (document.querySelector(s)?.textContent || '').includes(l), [quote, label], { timeout: 5000 }).catch(() => assert.fail('the quote strip shows the element'));
+  const quoted = await win.locator(quote).textContent();
+  console.log('quoted:', JSON.stringify(quoted));
+  assert.match(quoted, /^对话\.fvs\.md › ## \S+/, 'the file and the scene heading');
+  assert.match(quoted, /<[a-z][^>]*>/, 'the tag as written');
+  await win.waitForTimeout(300);
+  await H.captureWindow(app, join(shots, '05-quote.png'));
+  // with the conversation's tab closed, a quote opens it and still lands once it has mounted
+  await win.locator('[data-plugin-chat] .t2c-quote-x').click();
+  await win.locator('.wb-tab[title="对话"]').click({ button: 'right' }); // a side's icon tab closes from its menu
+  await win.locator('.ctx-menu button').last().click();
+  await win.waitForFunction(() => !document.querySelector('[data-plugin-chat]'), null, { timeout: 5000 }).catch(() => assert.fail('the conversation\'s tab closed'));
+  await win.locator('.fvs-dock-timeline .fvs-clip').first().click({ button: 'right', position: { x: 20, y: 10 } });
+  await win.getByRole('menuitem', { name: '引用到对话' }).click();
+  await win.waitForFunction(s => /\.fvs\.md › ## \S+ .*–.*s$/.test((document.querySelector(s)?.textContent || '').trim()), quote, { timeout: 20000 }).catch(() => assert.fail('a quote made while the conversation was closed lands when it opens'));
+  assert.equal(await win.locator(chatBox).getAttribute('data-session-id'), sid, 'the same conversation again');
+  assert.equal(created.length, 1);
+  assert.equal(stub.seen.runs.length, 0, 'quoting sends nothing');
+  await win.waitForTimeout(300);
+  await H.captureWindow(app, join(shots, '06-quote-reopened.png'));
 
   // 6. closing the project closes the conversation
   await more('关闭工程');
