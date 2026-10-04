@@ -64,6 +64,10 @@ const launchLayout = async when => {
 const regions = join(desktop, '../lcl/engine/regionLayout.ts');
 const spans = existsSync(regions) && readFileSync(regions, 'utf8').includes('BottomSpan');
 const pins = existsSync(join(desktop, '../lcl/engine/pinnedViews.ts')); // this host keeps pinned views
+// this host brings a bottom view opened by a plugin to its default height (a third of the window); before that fix
+// it stayed at the height it was born with, half the window, and the host remembered that as the person's own
+const store = join(desktop, '../lcl/engine/dockviewStore.ts');
+const settles = existsSync(store) && readFileSync(store, 'utf8').includes('bottomSettling');
 const fullBottom = async when => {
   if (!spans) return;
   const g = await win.evaluate(() => {
@@ -75,6 +79,10 @@ const fullBottom = async when => {
   assert.ok(l && b, `${when}: the bin and the timeline are both docked`);
   assert.ok(Math.abs(b.x - l.x) <= 2, `${when}: the timeline spans under the bin (timeline x ${b.x}, bin x ${l.x})`);
   assert.ok(Math.abs(l.y + l.h - b.y) <= 8, `${when}: the bin sits on top of the timeline (bin bottom ${l.y + l.h}, timeline top ${b.y})`);
+  if (!settles) return;
+  const share = b.h / await win.evaluate(() => window.innerHeight);
+  console.log(`${when}: the timeline takes ${Math.round(share * 100)}% of the window`);
+  assert.ok(share > .2 && share < .4, `${when}: the timeline opens at about a third of the window, not half of it (${Math.round(share * 100)}%)`);
 };
 const projectLayout = async when => {
   await win.waitForSelector('.fvs-bin', { timeout: 15000 }).catch(() => assert.fail(`${when}: the media bin on the left`));
@@ -165,9 +173,11 @@ try {
   assert.equal(ids[ids.indexOf('cards') + 1], 'picture', 'a double-click adds after the scene at the playhead');
   await settle(); await win.waitForTimeout(400);
   await H.captureWindow(app, join(shots, '04-bin.png'));
-  await editorKeys();
+  // undo from where the keyboard is, the bin's tile (no click in the editor first: that click hid, until 2026-10-04,
+  // that ⌘Z did nothing after anything done in the bin or the properties)
   await win.keyboard.press('Meta+z');
-  await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 });
+  await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 })
+    .catch(() => assert.fail('⌘Z undoes a file added from the bin, the keyboard still on its tile'));
   ids = await order();
   const at = ids[4], target = await win.locator(`.fvs-dock-timeline .fvs-clip[data-id="${at}"]`).boundingBox();
   const lane = await win.locator('.fvs-dock-timeline .fvs-tl-scroll').boundingBox();
@@ -175,9 +185,18 @@ try {
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { timeout: 5000 }).catch(() => assert.fail('a drag from the bin to the timeline places the picture'));
   ids = await order();
   assert.equal(ids[ids.indexOf(at) - 1], 'picture', `dropped at the cut before ${at}`);
-  await editorKeys();
   await win.keyboard.press('Meta+z');
-  await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 });
+  await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 })
+    .catch(() => assert.fail('⌘Z undoes a file dragged from the bin'));
+  // the same from the properties (the host's right panel): its button is redrawn away and the focus drops to the page
+  await win.locator(clip).click({ position: { x: 14, y: 24 } });
+  const props = win.locator('.fvs-native-properties');
+  await props.getByRole('button', { name: '后移', exact: true }).click();
+  await win.waitForFunction(was => [...document.querySelectorAll('.fvs-dock-timeline .fvs-clip')].sort((a, b) => a.offsetLeft - b.offsetLeft).map(e => e.dataset.id).join() !== was, ids.filter(x => x !== 'picture').join(), { timeout: 5000 })
+    .catch(() => assert.fail('the properties move the scene'));
+  await win.keyboard.press('Meta+z');
+  await win.waitForFunction(was => [...document.querySelectorAll('.fvs-dock-timeline .fvs-clip')].sort((a, b) => a.offsetLeft - b.offsetLeft).map(e => e.dataset.id).join() === was, ids.filter(x => x !== 'picture').join(), { timeout: 5000 })
+    .catch(async () => assert.fail(`⌘Z undoes an edit made in the properties (keyboard on ${await win.evaluate(() => document.activeElement?.tagName + '.' + document.activeElement?.className)})`));
 
   // 6. one state, the editor's keys: pick a clip in the panel, step the playhead from there
   await win.locator(clip).click({ position: { x: 14, y: 24 } });
@@ -209,6 +228,9 @@ try {
   // ⌘J closes the native panel: the editor shows a strip that brings the timeline back, and the stage that grows
   // into the room repaints the same frame
   // the baseline is a painted frame: the music analysis started by the bin edits rebuilds the preview when it ends
+  // (and a light one: an unpainted stage is black, and so, nearly, is a dark scene. With the timeline at half the
+  // window the sample was mostly the page around a small picture, which hid that)
+  await win.locator('.fvs-dock-timeline .fvs-clip[data-id="question"]').click();
   let lit = 0;
   for (let i = 0; i < 30 && lit <= 40; i++) { await win.waitForTimeout(150); lit = await stageLuma(); }
   const editor = () => win.evaluate(() => { const s = document.querySelector('.fvs-studio'); s.dataset.seen ||= String(Math.random()); return s.dataset.seen; });

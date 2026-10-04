@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.3 — 2026-10-04
+
+- 修复：撤销快捷键（⌘Z / Ctrl+Z，重做同理）在属性面板里改过东西、或从素材区加了文件之后不起作用，只有撤销按钮能用。属性面板和素材区在 Forsion 的侧栏里，不在编辑器里面，按键到不了编辑器；改完之后被重绘掉的按钮还会让焦点落到页面上。现在键盘跟着工程走：在编辑器、时间线、属性面板或素材区里点过之后，快捷键（撤销、重做、空格播放、方向键、删除等）都算这个工程的，直到你去点 Forsion 的别处。素材区只认撤销和重做（在素材上按 Delete 不会删掉场景）；文本框里正在输入时照旧用文本框自己的撤销。
+- 修复：点预览画面里没有内容的地方，或双击不是文字的地方之后，键盘留在预览画面里、快捷键全部失效。
+- 时间线刚打开时占窗口的一半：这是 Forsion 的问题（插件直接打开的底部面板没有落到默认高度，还把这个高度当成你拖出来的记住了），已在 Forsion 里修复，默认约为窗口的三分之一。更早的 Forsion（含 2.12.2）上仍是一半，拖一次分隔线就会记住你的高度。
+- **English:** Fixed: the undo shortcut (⌘Z / Ctrl+Z, and redo) did nothing after a change made in the properties panel or a file added from the media bin; only the undo button worked. Those panels sit in Forsion's side areas, outside the editor, so keys never reached it, and a button that was redrawn away left the focus on the page. The keyboard now stays with the project: after a click in the editor, the timeline, the properties or the bin, shortcuts (undo, redo, Space to play, arrows, Delete and the rest) belong to the project until you click elsewhere in Forsion. The bin passes only undo and redo (Delete on a file there does not delete a scene); a text box you are typing in keeps its own undo. Fixed: a click on an empty part of the preview, or a double-click on something that is not text, left the keyboard in the preview and every shortcut dead. The timeline opening at half the window is a Forsion issue (a bottom panel opened by a plugin was not brought to its default height, and that height was remembered as yours); it is fixed in Forsion, where the default is about a third of the window. Earlier Forsion versions (2.12.2 included) still open it at half: drag the divider once and your height is kept.
+
 ## 0.8.2 — 2026-10-04
 
 - Space 图标换成插件自己的图标,不再和别的插件共用图标库里的同一枚(`space.json` 的 `iconFile`)。需要支持 Space 自绘图标的 Forsion(2.12.2 之后的版本);更早的版本照旧显示原来的图标。配方版本不变,已保存的布局不受影响。

@@ -588,8 +588,8 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   assert.ok(await sp.evaluate(p => HOST.files.has(p), `${DIR}/media/logo.png`));
   assert.equal(await text(), before, 'importing into the bin does not touch the cut');
   assert.equal(await sp.locator(`${logo} .fvs-bin-used`).isVisible(), false);
+  // (no focus first: the key is pressed where the bin left the keyboard — see 17a)
   const undo = async label => {
-    await sp.locator('.fvs-studio').focus();
     await sp.keyboard.press('Control+z');
     await sp.waitForFunction(([p, b]) => HOST.text(p) === b, [FILE, before], { timeout: 4000 }).catch(() => assert.fail(`undo restores the file after ${label}`));
   };
@@ -619,6 +619,78 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(p => /"role": "track",\s*"at": [\d.]+/.test(HOST.text(p)), FILE, { timeout: 5000 }).catch(async () => assert.fail(`a sound becomes a track from the playhead: ${(await text()).match(/"audio"[\s\S]*?\]/)?.[0]}`));
   await undo('a sound from the bin');
   console.log('bin log:', (await sp.evaluate(() => HOST.spaceState.log)).join(' '));
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
+// 17a. The keyboard stays with the project. Its panels sit in the host's areas, outside the editor, and a redraw that
+// removes the focused control drops the focus to the page: an edit made in the properties or from the bin is undone
+// with the key from where the person is (2026-10-04: after either, only the undo button worked). A press elsewhere
+// in the host gives the keyboard up, and the bin passes nothing but undo and redo.
+{
+  const { sp, serr } = await spacePage();
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await sp.waitForSelector('.host-left .fvs-bin .fvs-bin-item', { timeout: 10000 });
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  const side = sp.locator('.host-extend'), text = () => sp.evaluate(p => HOST.text(p), FILE);
+  const is = (want, label) => sp.waitForFunction(([p, b]) => HOST.text(p) === b, [FILE, want], { timeout: 3000 }).catch(() => assert.fail(label));
+  const changes = (from, label) => sp.waitForFunction(([p, b]) => HOST.text(p) !== b, [FILE, from], { timeout: 4000 }).catch(() => assert.fail(label));
+  const keyboard = () => sp.evaluate(() => { const a = document.activeElement; return !a || a === document.body ? 'page' : a.closest('.fvs-bin') ? 'bin' : a.closest('.fvs-native-properties') ? 'properties' : 'other'; });
+  // "the key did nothing" is read from the editor, not from the file: a save lands 600 ms after an edit, so the file
+  // alone would still look untouched right after a key that did change the project
+  const saved = () => sp.waitForFunction(() => document.querySelector('.fvs-status')?.dataset.state === 'saved', null, { timeout: 4000 });
+  const untouched = async (keys, label) => {
+    await saved();
+    for (const k of keys) await sp.keyboard.press(k);
+    await sp.waitForTimeout(150);
+    assert.equal(await sp.getAttribute('.fvs-status', 'data-state'), 'saved', label);
+  };
+  const pick = async () => {
+    await sp.locator('.host-bottom .fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
+    await sp.waitForFunction(() => document.querySelector('.host-extend [data-key="stitle"]')?.value === '标题卡');
+  };
+  await pick();
+  const before = await text();
+  // a field of the properties, committed with Enter: the focus is on the page
+  await side.locator('[data-key="stitle"]').fill('改过的标题'); await sp.keyboard.press('Enter');
+  await changes(before, 'the title field commits');
+  const renamed = await text();
+  assert.equal(await keyboard(), 'page');
+  await sp.keyboard.press('Control+z'); await is(before, 'undo after an edit in the properties, the focus on the page');
+  await sp.keyboard.press('Control+Shift+z'); await is(renamed, 'and redo');
+  await sp.keyboard.press('Control+z'); await is(before, 'and undo again');
+  // a button of the properties: the redraw takes it away
+  await side.getByRole('button', { name: '后移', exact: true }).click();
+  await changes(before, 'the scene moves');
+  await sp.keyboard.press('Control+z'); await is(before, 'undo after a button of the properties');
+  // a file added from the bin: the focus is on its tile
+  await sp.dblclick('.fvs-bin-item[data-rel="assets/aria.jpg"]');
+  await changes(before, 'a double-click adds the picture');
+  assert.equal(await keyboard(), 'bin');
+  await untouched(['Delete'], 'Delete on a file in the bin does not delete a scene');
+  await sp.keyboard.press('Control+z'); await is(before, 'undo from the bin');
+  // a press elsewhere gives the keyboard up (another part of the host, or the page itself); one in the editor takes
+  // it back. Delete is the key that would hurt: it deletes the selected scene.
+  const elsewhere = [
+    ['in the host', async () => { await sp.locator('.host-list-row').click(); await sp.evaluate(() => document.activeElement.blur()); }],
+    ['on the page', () => sp.evaluate(() => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); })],
+  ];
+  for (const [where, leave] of elsewhere) {
+    await pick();
+    await side.getByRole('button', { name: '后移', exact: true }).click();
+    await changes(before, 'the scene moves again');
+    await leave();
+    assert.equal(await keyboard(), 'page');
+    await untouched(['Delete', 'Control+z'], `after a press elsewhere (${where}) the keys are not ours`);
+    await sp.locator('.fvs-studio .fvs-time').click();
+    await sp.keyboard.press('Control+z'); await is(before, 'and a press in the editor takes them back');
+  }
+  // the editor behind another main tab: the bin still adds to the project, and undo works from it
+  await sp.evaluate(() => HOST.spaceState.hide());
+  await sp.dblclick('.fvs-bin-item[data-rel="assets/aria.jpg"]');
+  await changes(before, 'the bin adds to the project while its editor is hidden');
+  await sp.keyboard.press('Control+z'); await is(before, 'undo from the bin while the editor is hidden');
+  await sp.evaluate(() => HOST.spaceState.show());
   assert.deepEqual(serr, []);
   await sp.close();
 }

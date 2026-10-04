@@ -526,12 +526,16 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     return s && S.counts && S.counts.texts[id] === HT.scan(s.html).texts.length;
   }
   function onPick(m) {
+    // a click in the preview leaves the keyboard in its frame, where no key reaches the editor: take it back, also
+    // when there was nothing to pick or the second click of a double-click put it there again (the in-place text
+    // box takes it for itself)
+    const edit = !opts.compact && !!m.scene && m.dbl && m.text != null && textsMatch(m.scene);
+    if (!edit) root.focus({ preventScroll: true });
     if (!m.scene) return;
     S.sel = m.scene; S.selCap = null; S.selHit = null; // Delete now means this scene
     if (m.text != null) S.selText = { scene: m.scene, index: m.text };
     renderTimeline(); renderToolbar();
-    if (!m.dbl) root.focus({ preventScroll: true }); // take the keyboard back from the preview
-    if (!opts.compact && m.dbl && m.text != null && textsMatch(m.scene)) openInline(m);
+    if (edit) openInline(m);
     else if (!opts.compact && m.dbl && m.img != null) { S.tab = 'scene'; toggleInspector(true); renderSide(); }
     else if (S.tab === 'text' || S.tab === 'scene') renderSide();
   }
@@ -1793,6 +1797,35 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       layout();
     },
   });
+  // The keyboard stays with the project until the person goes elsewhere. In a Space its panels sit in the host's
+  // areas, outside this element (the properties on the right, the media bin on the left), and a redraw that removes
+  // the focused control drops the focus to the page: from either, no key reached the editor (2026-10-04: ⌘Z did
+  // nothing after an edit in the properties or a file added from the bin, while the undo button worked).
+  // `heldBox`: the panel of this project the last press or focus was in (null: somewhere else).
+  let heldBox = null;
+  const onPage = x => x === document.body || x === document.documentElement;
+  const binOurs = () => opts.dock?.top()?.timeline === timeline; // the bin is shared: it works for the newest studio
+  const boxOf = x => {
+    if (!x?.closest) return null;
+    for (const b of [root, side, dockShell, timeline]) if (b && b.contains(x)) return b;
+    return binOurs() ? x.closest('.fvs-bin') : null;
+  };
+  // A press on the page itself is going elsewhere too; the focus only falls there (no event) when a redraw drops it.
+  // Our menus and popovers hang on document.body: a press in one is not going elsewhere.
+  const track = e => { const x = e.target; if (x?.closest && !x.closest('.fvs-layer')) heldBox = boxOf(x); };
+  const onStrayKey = e => {
+    const x = e.target;
+    if (e.defaultPrevented || typeof e.key !== 'string' || S.disposed || root.contains(x) || dockShell?.contains(x)) return; // (those two hear their own)
+    // from the page: ours while the panel that had the keyboard is still on screen (a hidden project takes no keys);
+    // from one of the panels: ours, also when the editor itself is behind another tab
+    const box = onPage(x) ? (heldBox?.getClientRects().length ? heldBox : null) : boxOf(x);
+    if (!box) return;
+    // the bin is a list of files: undo and redo only (Delete on a file must not delete a scene)
+    if (box.classList.contains('fvs-bin') && !(binOurs() && (e.metaKey || e.ctrlKey) && /^[zy]$/i.test(e.key))) return;
+    onKey(e);
+  };
+  window.addEventListener('pointerdown', track, true); window.addEventListener('focusin', track, true);
+  window.addEventListener('keydown', onStrayKey);
   const ro = new ResizeObserver(() => {
     const w = root.clientWidth;
     // entering the narrow layout closes the inline inspector: there it would sit on top of the picture
@@ -1820,6 +1853,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (unwatch) unwatch();
     clearInterval(poll);
     window.removeEventListener('message', onMessage);
+    window.removeEventListener('pointerdown', track, true); window.removeEventListener('focusin', track, true);
+    window.removeEventListener('keydown', onStrayKey);
     ro.disconnect(); cancelAnimationFrame(rulerFrame);
     undock?.(); timeline.remove();
     for (const clear of drags) clear();
