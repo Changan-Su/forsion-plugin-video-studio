@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.2 — 2026-10-04
+
+- Space 图标换成插件自己的图标,不再和别的插件共用图标库里的同一枚(`space.json` 的 `iconFile`)。需要支持 Space 自绘图标的 Forsion(2.12.2 之后的版本);更早的版本照旧显示原来的图标。配方版本不变,已保存的布局不受影响。
+- **English:** The Space now shows the plugin's own icon instead of a shared library icon (`iconFile` in `space.json`). Needs a Forsion version that supports custom Space icons (later than 2.12.2); earlier versions keep the previous icon. The recipe version is unchanged, so saved layouts are not affected.
+
 ## 0.8.1 — 2026-10-03
 
 - 导航一直找得回来：视频工作室 Space 的主区编辑器和左栏导航标成固定 View（Space 配方 `"pinned": true`）。打开工程后素材区不再把导航整栏换掉，而是作为左栏的第二个标签开在导航旁边并显示在前面，点导航的标签随时回到「新建视频 / 我的工程」；关闭工程时素材区的标签收走。固定的视图关不掉，也拖不出自己所在的面板。
