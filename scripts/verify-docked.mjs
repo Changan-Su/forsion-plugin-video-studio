@@ -59,8 +59,9 @@ const launchLayout = async when => {
     .catch(() => assert.fail(`${when}: no timeline at the bottom`));
   assert.equal(await win.locator('.fvs-bin').count(), 0, `${when}: no media bin`);
 };
-// The recipe asks for a full-width bottom panel (layout.bottomSpan 'full'): on hosts that know bottomSpan the
-// timeline runs under the media bin too, and the bin sits on top of it instead of running the full height.
+// The recipe asks for a bottom panel under the left side and the main area (layout.bottomSpan 'left'): on hosts that
+// know bottomSpan the timeline runs under the media bin and stops where the right side begins; the bin sits on top
+// of it, and the right side (properties, the conversation) runs the full height.
 const regions = join(desktop, '../lcl/engine/regionLayout.ts');
 const spans = existsSync(regions) && readFileSync(regions, 'utf8').includes('BottomSpan');
 const pins = existsSync(join(desktop, '../lcl/engine/pinnedViews.ts')); // this host keeps pinned views
@@ -68,17 +69,23 @@ const pins = existsSync(join(desktop, '../lcl/engine/pinnedViews.ts')); // this 
 // it stayed at the height it was born with, half the window, and the host remembered that as the person's own
 const store = join(desktop, '../lcl/engine/dockviewStore.ts');
 const settles = existsSync(store) && readFileSync(store, 'utf8').includes('bottomSettling');
-const fullBottom = async when => {
+const spanned = async when => {
   if (!spans) return;
   const g = await win.evaluate(() => {
     const rect = sel => { const el = document.querySelector(sel)?.closest('.dv-groupview'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
-    return { left: rect('.fvs-bin'), main: rect('.fvs-studio'), bottom: rect('.fvs-dock-timeline') };
+    return { left: rect('.fvs-bin'), main: rect('.fvs-studio'), bottom: rect('.fvs-dock-timeline'), right: rect('.fvs-native-properties') };
   });
-  const { left: l, bottom: b } = g;
-  console.log(`${when}: bin ${JSON.stringify(l)} · timeline ${JSON.stringify(b)}`);
+  const { left: l, bottom: b, main: m, right: r } = g;
+  console.log(`${when}: bin ${JSON.stringify(l)} · timeline ${JSON.stringify(b)} · main ${JSON.stringify(m)} · right ${JSON.stringify(r)}`);
   assert.ok(l && b, `${when}: the bin and the timeline are both docked`);
   assert.ok(Math.abs(b.x - l.x) <= 2, `${when}: the timeline spans under the bin (timeline x ${b.x}, bin x ${l.x})`);
   assert.ok(Math.abs(l.y + l.h - b.y) <= 8, `${when}: the bin sits on top of the timeline (bin bottom ${l.y + l.h}, timeline top ${b.y})`);
+  assert.ok(m && Math.abs(b.x + b.w - (m.x + m.w)) <= 8, `${when}: the timeline ends where the main area ends (timeline right ${b.x + b.w}, main right ${m && m.x + m.w})`);
+  // the right side is beside the timeline, not above it: it starts where the timeline ends and reaches as far down
+  if (r) {
+    assert.ok(r.x >= b.x + b.w - 2, `${when}: the right side is beside the timeline (right x ${r.x}, timeline right ${b.x + b.w})`);
+    assert.ok(Math.abs(r.y + r.h - (b.y + b.h)) <= 8, `${when}: the right side runs the full height (its bottom ${r.y + r.h}, the timeline's ${b.y + b.h})`);
+  }
   if (!settles) return;
   const share = b.h / await win.evaluate(() => window.innerHeight);
   console.log(`${when}: the timeline takes ${Math.round(share * 100)}% of the window`);
@@ -116,7 +123,7 @@ try {
   await H.captureWindow(app, join(shots, '01-create.png'));
   await win.locator('.fvs-launch-create').click();
   await projectLayout('a new project');
-  await steady(); await fullBottom('a new project');
+  await steady(); await spanned('a new project');
   const made = find(join(home, 'vault'), '宣传片.fvs.md');
   assert.ok(made && basename(dirname(made)) === '宣传片', `the project has its own folder (${made})`);
   const madeText = readFileSync(made, 'utf8');
@@ -261,7 +268,7 @@ try {
   await win.reload({ waitUntil: 'domcontentloaded' });
   await win.waitForSelector('.dv-groupview', { timeout: 30000 });
   await projectLayout('after a reload');
-  await steady(); await fullBottom('after a reload');
+  await steady(); await spanned('after a reload');
   await settle(); await win.waitForTimeout(600);
   await H.captureWindow(app, join(shots, '05-reloaded.png'));
 

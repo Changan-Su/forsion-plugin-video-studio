@@ -9,7 +9,7 @@
     "left": [{ "type": "plugin:forsion-video-studio:nav", "pinned": true }],
     "right": [],
     "bottom": [{ "type": "plugin:forsion-video-studio:timeline" }],
-    "bottomSpan": "full"
+    "bottomSpan": "left"
   },
   "mini": {
     "name": { "zh": "视频预览", "en": "Video preview" },
