@@ -695,6 +695,65 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.close();
 }
 
+// 17b. Generated media and the bin's tools. A file under generated/ (where the host's image tool writes when the
+// Director is asked for a picture) is listed with an AI mark, also when it arrives while the bin is open; the filter
+// narrows the bin without touching the files; a tile's menu places it and reveals it.
+{
+  const { sp, serr } = await spacePage();
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  const old = 'generated/1700000000000.png', made = `.fvs-bin-item[data-rel="${old}"]`;
+  await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/${old}`, Array.from(PNG)]);
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await sp.waitForSelector(`.host-left .fvs-bin ${made}`, { timeout: 10000 }).catch(() => assert.fail('the bin lists the files under generated/'));
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  const text = () => sp.evaluate(p => HOST.text(p), FILE);
+  const is = (want, label) => sp.waitForFunction(([p, b]) => HOST.text(p) === b, [FILE, want], { timeout: 4000 }).catch(() => assert.fail(label));
+  const changes = (from, label) => sp.waitForFunction(([p, b]) => HOST.text(p) !== b, [FILE, from], { timeout: 4000 }).catch(() => assert.fail(label));
+  assert.equal(await sp.locator(`${made} .fvs-bin-ai`).count(), 1, 'a generated file carries the AI mark');
+  assert.equal(await sp.locator('.fvs-bin-item[data-rel="assets/aria.jpg"] .fvs-bin-ai').count(), 0, 'an imported one does not');
+  // the filter: one at a time, the tiles outside it hide
+  // (what is on screen, not the hidden property: a tile the style sheet still shows would count)
+  const visible = () => sp.$$eval('.fvs-bin-item', els => els.filter(e => e.getClientRects().length).map(e => e.dataset.rel));
+  const filter = async name => { await sp.click('.fvs-bin [data-bin="filter"]'); await sp.getByRole('menuitemradio', { name, exact: true }).click(); };
+  await sp.waitForFunction(() => !document.querySelector('.fvs-bin-item[data-rel="assets/aria.jpg"] .fvs-bin-used').hidden, null, { timeout: 3000 });
+  assert.equal(await sp.textContent('.fvs-bin-count'), '4');
+  await filter('AI 生成');
+  assert.deepEqual(await visible(), [old]);
+  assert.equal(await sp.textContent('.fvs-bin-count'), '1 / 4');
+  assert.equal(await sp.getAttribute('.fvs-bin [data-bin="filter"]', 'aria-pressed'), 'true');
+  await filter('图片');
+  assert.deepEqual(await visible(), ['assets/aria.jpg', 'assets/arioso.jpg', 'assets/recita.jpg', old]);
+  await filter('声音');
+  assert.deepEqual(await visible(), []);
+  assert.equal(await sp.textContent('.fvs-bin-empty'), '没有符合筛选的素材。');
+  await filter('未使用');
+  assert.deepEqual(await visible(), [old], 'the pictures the project uses are outside "unused"');
+  // the file leaves "unused" once a scene uses it, and comes back with the undo
+  const before = await text();
+  await sp.locator('.host-bottom .fvs-clip[data-id="cards"]').click({ position: { x: 14, y: 24 } });
+  await sp.dblclick(made);
+  await changes(before, 'a generated file is placed like any other');
+  await sp.waitForFunction(s => document.querySelector(s).hidden, made, { timeout: 4000 }).catch(() => assert.fail('a file that got used leaves the "unused" filter'));
+  await sp.locator('.fvs-studio .fvs-time').click();
+  await sp.keyboard.press('Control+z'); await is(before, 'undo');
+  await sp.waitForFunction(s => !document.querySelector(s).hidden, made, { timeout: 4000 }).catch(() => assert.fail('and it is back among the unused'));
+  await filter('全部');
+  assert.equal((await visible()).length, 4);
+  // the tile's menu: what works today, and the two that wait for the host
+  await sp.click(made, { button: 'right' });
+  assert.deepEqual(await sp.$$eval('.fvs-menu button', els => els.map(e => [e.textContent.trim(), e.disabled])),
+    [['放到播放头之后', false], ['在文件夹中显示', false], ['重命名…', true], ['删除', true]]);
+  await shot(sp, '24-bin-menu');
+  await sp.getByRole('menuitem', { name: '在文件夹中显示' }).click();
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.reveal), [`${DIR}/${old}`]);
+  // a picture the Director makes while the bin is open arrives on its own (the bin looks again every few seconds)
+  await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/generated/1700000000001.png`, Array.from(PNG)]);
+  await sp.waitForFunction(() => document.querySelectorAll('.fvs-bin-item[data-ai]').length === 2, null, { timeout: 9000 }).catch(() => assert.fail('the bin lists a picture generated while it is open'));
+  assert.equal(await sp.textContent('.fvs-bin-count'), '5');
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+
 // 18a. A saved layout whose main view lost the recipe's params (seen 2026-10-03 in a real dev: the restored studio
 // carried only filePath). The project layout still comes: it follows the host's bottom panel, not a view param.
 {

@@ -26,7 +26,8 @@ for (const k of used) {
 const prefixed = { 'tr-': ['none', 'fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur'], 'tab-': ['scene', 'text', 'captions', 'code', 'project'],
   'fx-': ['cut', 'fade', 'up', 'down', 'left', 'right', 'pop', 'type'], 'snap-': ['bar', 'beat', 'half', 'quarter', 'off'],
   'director-': ['added', 'removed', 'changed', 'waiting', 'idle', 'thinking', 'speaking', 'tool', 'done', 'error'],
-  'export-status-': ['queued', 'preparing', 'frames', 'encoding', 'done', 'failed', 'cancelled'] };
+  'export-status-': ['queued', 'preparing', 'frames', 'encoding', 'done', 'failed', 'cancelled'],
+  'bin-filter-': ['all', 'image', 'video', 'audio', 'unused', 'ai'] };
 for (const [pre, keys] of Object.entries(prefixed)) for (const k of keys) {
   if (zh(pre + k) === pre + k) missing.push(`zh:${pre}${k}`);
   if (en(pre + k) === pre + k) missing.push(`en:${pre}${k}`);

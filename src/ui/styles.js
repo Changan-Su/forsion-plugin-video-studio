@@ -409,6 +409,11 @@ button.fvs-chip:hover{border-color:var(--fv-accent);color:var(--fv-accent)}
 .fvs-bin-head{display:flex;align-items:center;gap:8px;padding:12px 10px 8px 14px;font-size:var(--fv-heading)}
 .fvs-bin-head strong{font-weight:600}
 .fvs-bin-head .fvs-btn{height:26px;padding:0 8px;font-size:var(--fv-meta)}
+.fvs-bin-tools{display:flex;align-items:center;gap:8px;padding:0 14px 6px 8px;color:var(--fv-muted);font-size:var(--fv-caption)}
+.fvs-bin-tools .fvs-btn{height:24px;padding:0 6px;gap:5px;font-size:var(--fv-meta)}
+.fvs-bin-tools .fvs-btn svg{width:13px;height:13px}
+.fvs-bin-tools .fvs-btn[aria-pressed=true]{background:var(--fv-accent-soft);color:var(--fv-accent)}
+.fvs-bin-count{font-variant-numeric:tabular-nums}
 .fvs-bin-empty{margin:0;padding:8px 14px}
 .fvs-bin-grid{flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:4px;align-content:start;padding:2px 8px 14px}
 .fvs-bin-item{position:relative;display:grid;gap:6px;min-width:0;padding:6px;border:1px solid transparent;border-radius:var(--fv-r-md);background:transparent;color:var(--fv-text);text-align:left;cursor:grab}
@@ -419,7 +424,9 @@ button.fvs-chip:hover{border-color:var(--fv-accent);color:var(--fv-accent)}
 .fvs-bin-thumb svg{width:20px;height:20px}
 .fvs-bin-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fv-caption);color:var(--fv-muted)}
 /* on top of the picture: a fixed dark chip, the theme cannot promise contrast there (as clip titles) */
-.fvs-bin-used{position:absolute;top:10px;left:10px;padding:1px 6px;border-radius:var(--radius-pill,999px);background:rgba(0,0,0,.6);color:#fff;font-size:var(--fv-caption);line-height:1.4}
+.fvs-bin-used,.fvs-bin-ai{position:absolute;top:10px;left:10px;padding:1px 6px;border-radius:var(--radius-pill,999px);background:rgba(0,0,0,.6);color:#fff;font-size:var(--fv-caption);line-height:1.4}
+.fvs-bin-ai{left:auto;right:10px}
+
 
 /* the launchpad: Coding Studio's project list and create page, in the plugin's own tokens */
 .fvs-launch{container-type:inline-size;color:var(--fv-text)}

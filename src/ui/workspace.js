@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 import { CSS } from './styles.js';
 import { parseProject, setProjectMeta } from '../lib/project.js';
 import { evaTemplate } from '../lib/templates.js';
+import { openMenu, closeLayer } from './menu.js';
 
 // the create page's frames (the project page offers these and 4K)
 const ASPECTS = [[1920, 1080, 'frame-landscape'], [1080, 1920, 'frame-portrait'], [1080, 1080, 'frame-square'], [1440, 1080, 'frame-classic']];
@@ -222,6 +223,8 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       },
     };
   })();
+  // The 「生成」 panel opens on the same side as the bin, as a tab beside it; the bin lists what it makes.
+
   function mountTimeline(el) {
     const empty = h('p', { class: 'fvs-hint fvs-dock-empty', text: t('timeline-no-project') });
     const shell = h('div', { class: 'fvs-extension fvs-dock-timeline', tabindex: '-1' }, h('style', { text: CSS }), empty);
@@ -333,14 +336,22 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     return () => { listeners.delete(paint); shell.remove(); };
   }
 
-  /** The open project's media (its media/, audio/ and assets/ folders) on the Space's left side: import into it,
-   *  drag a file to a cut on the timeline, or double-click it to add it at the playhead. */
+  /** The open project's media (its media/, audio/ and assets/ folders, and generated/, where the host's image tool
+   *  writes) on the Space's left side: import into it, drag a file to a cut on the timeline,
+   *  or double-click it to add it at the playhead. */
   function mountBin(el) {
     const input = h('input', { type: 'file', multiple: true, hidden: true, accept: 'image/*,video/*,audio/*' });
     const importBtn = h('button', { type: 'button', class: 'fvs-btn ghost', 'data-bin': 'import', title: t('bin-import-hint'), onclick: () => input.click() }, icon('Upload'), h('span', { text: t('bin-import') }));
+    // one filter at a time: a kind, the files no scene uses yet, or the generated ones
+    const FILTERS = ['all', 'image', 'video', 'audio', '-', 'unused', 'ai'];
+    let filter = 'all';
+    const filterName = h('span'), count = h('span', { class: 'fvs-bin-count' });
+    const filterBtn = h('button', { type: 'button', class: 'fvs-btn ghost', 'data-bin': 'filter', 'aria-haspopup': 'menu', title: t('bin-filter'),
+      onclick: () => openMenu(filterBtn, FILTERS.map(f => (f === '-' ? f : { label: t(`bin-filter-${f}`), checked: filter === f, run: () => { filter = f; show(); } })), { label: t('bin-filter') }) }, icon('ListFilter'), filterName, icon('ChevronDown'));
     const grid = h('div', { class: 'fvs-bin-grid' }), empty = h('p', { class: 'fvs-hint fvs-bin-empty' });
     const shell = h('div', { class: 'fvs-extension fvs-bin' }, h('style', { text: CSS }),
-      h('div', { class: 'fvs-bin-head' }, h('strong', { text: t('bin') }), h('span', { class: 'fvs-grow' }), importBtn), input, empty, grid);
+      h('div', { class: 'fvs-bin-head' }, h('strong', { text: t('bin') }), h('span', { class: 'fvs-grow' }), importBtn),
+      h('div', { class: 'fvs-bin-tools' }, filterBtn, h('span', { class: 'fvs-grow' }), count), input, empty, grid);
     el.append(shell);
     let studio = null, items = [], gen = 0, disposed = false, shown = null;
     const store = async files => { if (studio && files.length) { await studio.store(files); void scan(); } };
@@ -357,38 +368,63 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       if (g !== gen || disposed) return;
       const dir = studio ? dirOf(studio.path) : '';
       items = all.map(p => ({ path: p, rel: !dir ? p : p.startsWith(`${dir}/`) ? p.slice(dir.length + 1) : '' }))
-        .filter(x => /^(media|audio|assets)\//.test(x.rel) && !x.rel.split('/').some(part => part.startsWith('.')) && ['image', 'video', 'audio'].includes(KIND(x.rel)))
+        .filter(x => /^(media|audio|assets|generated)\//.test(x.rel) && !x.rel.split('/').some(part => part.startsWith('.')) && ['image', 'video', 'audio'].includes(KIND(x.rel)))
         .sort((a, b) => a.rel.localeCompare(b.rel));
       // the same files for the same studio keep their tiles: a repaint would reload every thumbnail
       const key = `${studio?.path}\n${items.map(x => x.path).join('\n')}`;
       if (key === shown) badges(); else { shown = key; paint(); }
     }
+    /** What a file can do besides being dragged. Renaming and deleting wait for the host: ctx.app has no seam for
+     *  either (2026-10-04), so they show what is missing instead of pretending. */
+    const menu = (anchor, x) => openMenu(anchor, [
+      { label: t('bin-place'), icon: 'Plus', run: () => void studio?.place(x.path) },
+      app.reveal ? { label: t('bin-reveal'), icon: 'FolderOpen', run: () => app.reveal(x.path) } : null,
+      '-', { heading: t('bin-needs-host') },
+      { label: t('bin-rename'), icon: 'Pencil', disabled: true, run() {} },
+      { label: t('bin-delete'), icon: 'Trash2', danger: true, disabled: true, run() {} },
+    ], { label: x.rel });
     function tile(x) {
       const kind = KIND(x.rel), url = app.assetUrl?.(x.path), thumb = h('span', { class: 'fvs-bin-thumb' });
       if (url && kind === 'image') thumb.append(h('img', { src: url, alt: '', loading: 'lazy', draggable: 'false' }));
       else if (url && kind === 'video') thumb.append(h('video', { src: `${url}#t=0.1`, preload: 'metadata', muted: true, playsinline: true, tabindex: '-1' }));
       else thumb.append(icon(kind === 'audio' ? 'Music2' : 'Film'));
-      return h('button', { type: 'button', class: 'fvs-bin-item', draggable: 'true', 'data-rel': x.rel, 'data-kind': kind, title: `${x.rel}\n${t('bin-hint')}`,
+      const ai = x.rel.startsWith('generated/');
+      return h('button', { type: 'button', class: 'fvs-bin-item', draggable: 'true', 'data-rel': x.rel, 'data-kind': kind, 'data-ai': ai ? '' : null,
+        title: `${x.rel}\n${t('bin-hint')}`,
         ondragstart: e => { e.dataTransfer.setData(BIN_MIME, JSON.stringify({ path: x.path })); e.dataTransfer.effectAllowed = 'copy'; },
         ondblclick: () => void studio?.place(x.path),
         onclick: e => { if (e.detail === 0) void studio?.place(x.path); }, // Enter or Space
-      }, thumb, h('span', { class: 'fvs-bin-name', text: x.rel.split('/').pop() }), h('span', { class: 'fvs-bin-used', text: t('bin-used'), hidden: true }));
+        oncontextmenu: e => { e.preventDefault(); menu(e.currentTarget, x); },
+      }, thumb, h('span', { class: 'fvs-bin-name', text: x.rel.split('/').pop() }), h('span', { class: 'fvs-bin-used', text: t('bin-used'), hidden: true }),
+      ai ? h('span', { class: 'fvs-bin-ai', text: t('bin-ai') }) : null);
+    }
+    /** Apply the filter. Tiles stay mounted (their thumbnails are loaded); the ones outside it hide. */
+    function show() {
+      let on = 0;
+      for (const b of grid.children) {
+        const match = filter === 'all' || (filter === 'unused' ? b.querySelector('.fvs-bin-used').hidden : filter === 'ai' ? 'ai' in b.dataset : b.dataset.kind === filter);
+        b.hidden = !match; if (match) on++;
+      }
+      filterName.textContent = t(`bin-filter-${filter}`);
+      filterBtn.setAttribute('aria-pressed', String(filter !== 'all'));
+      count.textContent = items.length ? (filter === 'all' ? String(items.length) : `${on} / ${items.length}`) : '';
+      empty.textContent = !studio ? t('bin-no-project') : !items.length ? t('bin-empty') : on ? '' : t('bin-filter-none');
+      empty.hidden = !empty.textContent;
     }
     let seen = null;
     // ponytail: "used" = the project text mentions the path; a file named in a comment counts too
-    const badges = () => { seen = studio?.text() ?? null; for (const b of grid.children) b.querySelector('.fvs-bin-used').hidden = !seen?.includes(b.dataset.rel); };
+    const badges = () => { seen = studio?.text() ?? null; for (const b of grid.children) b.querySelector('.fvs-bin-used').hidden = !seen?.includes(b.dataset.rel); show(); };
     function paint() {
-      importBtn.disabled = !studio;
+      importBtn.disabled = filterBtn.disabled = !studio;
       grid.replaceChildren(...items.map(tile));
-      empty.textContent = !studio ? t('bin-no-project') : items.length ? '' : t('bin-empty');
-      empty.hidden = !empty.textContent;
       badges();
     }
     // edits change the badges; imports, the timeline's drops and the Director add files
     const timer = setInterval(() => { if (studio && studio.text() !== seen) badges(); }, 1000);
     const poll = setInterval(() => { if (shell.isConnected) void scan(); }, 6000);
     const off = dock.watch(() => void scan()); void scan();
-    return () => { disposed = true; clearInterval(timer); clearInterval(poll); off(); shell.remove(); };
+    // (a menu of the bin hangs on the page, not in the bin: it goes with it)
+    return () => { disposed = true; clearInterval(timer); clearInterval(poll); off(); closeLayer(); shell.remove(); };
   }
 
   ctx.registerView?.({ id: 'studio', title: t('app'), icon: 'embed', workspaceSource: 'projects', singleton: true, mount: (el, view) => mountWorkspace(el, view) });

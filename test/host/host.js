@@ -3,7 +3,7 @@
 window.HOST = (() => {
   const files = new Map();           // vault path → string | Uint8Array
   const watchers = new Map();
-  const calls = { notify: [], startChat: [], openFile: [], complete: [] };
+  const calls = { notify: [], startChat: [], openFile: [], complete: [], reveal: [] };
   const reg = { fileTypes: [], creators: [], commands: [], slash: [], embeds: [], views: [], lists: [] };
   const enc = new TextEncoder(), dec = new TextDecoder();
   let data = {};
@@ -21,6 +21,7 @@ window.HOST = (() => {
     workFolder: () => 'Forsion Video Studio',
     watchFile: (p, cb) => { watchers.set(p, cb); return () => watchers.delete(p); },
     openFile: p => { calls.openFile.push(p); open(p); },
+    reveal: p => { calls.reveal.push(p); },
     notify: m => calls.notify.push(m),
     prompt: async (title, initial) => initial,
   };
