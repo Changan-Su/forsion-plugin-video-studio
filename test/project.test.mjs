@@ -173,6 +173,7 @@ test('templates parse cleanly', () => {
 test('captions: SubRip and WebVTT cues, errors with file lines, look settings', () => {
   const { cues, errors } = P.parseSrt('WEBVTT\n\nNOTE skipped\n\n1\n00:00:01.5 --> 00:00:03,250 line:0\n<i>你好</i>\n世界\n\n2\n00:04,000 --> 00:05,000\n\n3\n00:00:09,000 --> 00:00:08,000\nbackwards\n\nno time line');
   assert.deepEqual(cues.map(c => [c.start, c.end, c.text]), [[1.5, 3.25, '<i>你好</i>\n世界'], [4, 5, '']]);
+  assert.deepEqual(cues.map(c => c.raw), ['00:00:01.5 --> 00:00:03,250 line:0', '00:04,000 --> 00:05,000'], 'the time line as written (what a quote points at)');
   assert.deepEqual(errors.map(e => e.line), [14, 17]); // the backwards time line; the block without one
   const doc = DOC.replace('## warning', '```srt\n1\n00:00:01,000 --> 00:00:02,000\nhello\n\n2\n00:00:30,000 --> 00:00:31,000\nlate\n```\n\n## warning');
   const p = P.parseProject(doc);

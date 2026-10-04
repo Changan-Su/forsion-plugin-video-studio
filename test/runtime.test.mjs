@@ -12,6 +12,8 @@ import { spawnSync } from 'node:child_process';
 import * as P from '../src/lib/project.js';
 import { compile, buildHtml } from '../src/lib/compile.js';
 import { EASE } from '../src/runtime/engine.js';
+import { timeExpr } from '../src/runtime/player.js';
+import { scan, timedSpans } from '../src/lib/html.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -191,6 +193,96 @@ root.dataset.api = JSON.stringify({ t0, t1, dur, at1: at(1), hits, h2: hit(2) })
   assert.deepEqual(await at(1.2), { b: true, x: false, y: false, li: [false, true, false, false] });
   assert.deepEqual(await at(1.6), { b: true, x: true, y: true, li: [false, false, true, false] });
   assert.deepEqual(await at(2.9), { b: true, x: true, y: true, li: [false, false, false, true] });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+/* ───────── the Elements lane: what the editor's timeline says is what the picture does ───────── */
+
+test('elements lane: the spans the editor draws are when each element is on screen', { skip: !browser }, async () => {
+  const { page, errors, p } = await capture(`# Lane
+
+\`\`\`fvs
+{ "fvs": 1, "width": 320, "height": 180, "fps": 30, "tempo": { "bpm": 120, "beatsPerBar": 4 } }
+\`\`\`
+
+## a · A
+
+\`\`\`fvs
+{ "length": "2 beats" }
+\`\`\`
+
+\`\`\`html
+<p>A</p>
+\`\`\`
+
+## z · Z
+
+\`\`\`fvs
+{ "length": "10 beats", "hits": [0, 2, 4] }
+\`\`\`
+
+\`\`\`html
+<div data-in="2s" data-out="3s"><span data-in="1s">nested</span></div>
+<div data-in="1s" data-each="1"><span>each a</span><span>each b</span></div>
+<div data-seq="h0"><span class="never" data-in="h1">seq with its own in</span><span>seq b</span></div>
+<p data-out="3s" data-fx-out="fade" data-dur="2">fades out</p>
+<div data-seq="h0" data-seq-end="3s"><b>x</b><b>y</b></div>
+<div data-seq="h1"><i>1</i><i>2</i><i>3</i></div>
+<p class="never" data-in="3s" data-out="1s">out before in</p>
+<p data-in="nonsense">cannot be read</p>
+<p data-in="h1" data-fx="fade">fades in</p>
+<p data-in="h2" data-fx="up" data-out="end-1">up, then out</p>
+<div data-seq="h0"><div><b data-in="h0+1">inside an item</b></div><div>two</div></div>
+\`\`\`
+
+## y · Y
+
+\`\`\`fvs
+{ "length": "4 beats", "in": "2 beats", "hits": [0, 2, 3, 5] }
+\`\`\`
+
+\`\`\`html
+<p data-in="h0">from before the visible start</p><p data-in="3b">X</p>
+<ol data-seq="h0"><li class="never">0</li><li>1</li><li>2</li><li>3</li></ol>
+\`\`\`
+`, 'lane');
+  const unit = P.hitUnit(p.tempo), beat = p.tempo.beat;
+  for (const id of ['z', 'y']) {
+    const s = P.sceneById(p, id), tags = scan(s.html).tags;
+    const content = { t0: s.t0v ?? s.t0, t1: s.t1, hits: s.hitTimes };
+    const spans = timedSpans(s.html, { s0: s.t0, t1: s.t1, hits: s.hitTimes }, expr => timeExpr(expr, content, unit, beat), { unit, beat });
+    assert.equal(new Set(spans.map(x => x.tag)).size, spans.length, 'one block per element');
+    const never = tags.filter(t => /\bnever\b/.test(t.attr('class') || '')).map(t => t.index);
+    assert.ok(never.length && never.every(k => !spans.some(x => x.tag === k)), `${id}: what is never on screen has no block`);
+    const names = await page.evaluate(i => [...document.querySelector(`[data-scene="${i}"]`).querySelectorAll('*')].map(el => el.tagName.toLowerCase()), id);
+    assert.deepEqual(names, tags.map(t => t.name), `${id}: the page's elements are the scanned tags, in order`);
+    const wrong = [];
+    for (let t = s.t0 + .025; t < s.t1; t += .05) {
+      const seen = await page.evaluate(async ([i, at]) => {
+        await window.__stage.seek(at);
+        const root = document.querySelector(`[data-scene="${i}"]`), on = el => el.style.display !== 'none' && el.style.visibility !== 'hidden' && el.style.opacity !== '0';
+        return [...root.querySelectorAll('*')].map(el => { for (let n = el; n !== root.parentElement; n = n.parentElement) if (!on(n)) return false; return true; });
+      }, [id, t]);
+      for (const x of spans) if (seen[x.tag] !== (t >= x.a && t < x.b)) wrong.push(`${x.label} at ${t.toFixed(3)}: on screen ${seen[x.tag]}, block ${x.a}–${x.b}`);
+      for (const k of never) if (seen[k]) wrong.push(`<${tags[k].name} class="never"> is on screen at ${t.toFixed(3)}`);
+    }
+    assert.deepEqual(wrong, [], `${id}: lane and picture agree`);
+  }
+  // the blocks, as the editor draws them (z starts at 1 s; a beat is half a second)
+  const z = P.sceneById(p, 'z'), content = { t0: z.t0v ?? z.t0, t1: z.t1, hits: z.hitTimes };
+  assert.deepEqual(timedSpans(z.html, { s0: z.t0, t1: z.t1, hits: z.hitTimes }, expr => timeExpr(expr, content, unit, beat), { unit, beat }).map(x => [x.label, x.a, x.b, x.of ? `${x.n}/${x.of.items.length}` : '', x.error ? 'error' : '']), [
+    ['nested', 3, 4, '', ''], ['nested', 3, 4, '', ''],
+    ['each a', 2, 6, '1/2', ''], ['each b', 2.5, 6, '2/2', ''],
+    ['seq b', 2, 6, '2/2', ''],
+    ['fades out', 1, 5, '', ''],
+    ['x', 1, 2, '1/2', ''], ['y', 2, 4, '2/2', ''],
+    ['1', 2, 3, '1/3', ''], ['2', 3, 6, '2/3', ''], ['3', 1, 6, '3/3', 'error'],
+    ['cannot be read', 1, 6, '', 'error'],
+    ['fades in', 2, 6, '', ''],
+    ['up, then out', 3, 5.5, '', ''], // end-1: one beat before the end
+    ['inside an item', 1, 2, '1/2', ''], ['inside an item', 1.5, 2, '', ''], ['two', 2, 6, '2/2', ''],
+  ]);
   assert.deepEqual(errors, []);
   await page.close();
 });

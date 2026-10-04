@@ -157,7 +157,8 @@ const CUE_TIME = /^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,3}))?$/;
 const cueTime = s => { const m = String(s).trim().match(CUE_TIME); return m ? (+(m[1] || 0)) * 3600 + +m[2] * 60 + +m[3] + (m[4] ? +m[4].padEnd(3, '0') / 1000 : 0) : NaN; };
 
 /**
- * Cues of a SubRip (or WebVTT) text: { cues: [{ start, end, text, line }], errors: [{ line, message }] }.
+ * Cues of a SubRip (or WebVTT) text: { cues: [{ start, end, text, line, raw }], errors: [{ line, message }] };
+ * `raw` is the cue's time line as written.
  * `line` counts from 1 within `text` (add the fence's line for file lines). Never throws.
  */
 export function parseSrt(text) {
@@ -174,7 +175,7 @@ export function parseSrt(text) {
     const [a, rest] = block[k].split('-->'), start = cueTime(a), end = cueTime(rest.trim().split(/\s+/)[0]);
     if (!Number.isFinite(start) || !Number.isFinite(end)) { errors.push({ line: from + k + 1, message: `cannot read caption times "${block[k].trim()}" (use 00:00:01,000 --> 00:00:03,000)` }); continue; }
     if (!(end > start)) { errors.push({ line: from + k + 1, message: `caption ends before it starts (${block[k].trim()})` }); continue; }
-    cues.push({ start, end, text: block.slice(k + 1).join('\n').trim(), line: from + k + 1 });
+    cues.push({ start, end, text: block.slice(k + 1).join('\n').trim(), line: from + k + 1, raw: block[k].trim() });
   }
   return { cues, errors };
 }

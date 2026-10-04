@@ -152,7 +152,7 @@ window.HOST = (() => {
     // own, kept out of the layout (the Extend View keeps the column): enough for the wiring, the real-Electron rig
     // looks at the geometry.
     const rightBox = document.createElement('div'); rightBox.className = 'host-right'; rightBox.hidden = true; shell.append(rightBox);
-    let rightView = null;
+    let rightView = null, heldRight = null; // heldRight: ids opened while the side is held (the real host mounts a view a moment after openView)
     const closeRight = () => {
       const d = rightView; if (!d) return;
       rightView = null;
@@ -162,6 +162,7 @@ window.HOST = (() => {
     const openRight = id => {
       log.push(`right:${id}:reveal`); // opening a view that is already there brings its tab forward
       if (rightView?.id === id) return;
+      if (heldRight) { heldRight.push(id); return; }
       closeRight();
       const v = reg.views.find(x => x.id === id); if (!v) return;
       rightView = { id, cleanup: v.mount(rightBox, { surface: 'main', getParams: () => ({}), setParams() {}, onParamsChanged: () => () => {} }) || null };
@@ -191,23 +192,26 @@ window.HOST = (() => {
       openBottom, closeBottom, get docked() { return docked?.id || null; },
       openLeft, closeLeft, get leftView() { return leftView?.id || null; },
       get rightView() { return rightView?.id || null; },
+      closeRight, holdRight() { heldRight = []; }, releaseRight() { const ids = heldRight || []; heldRight = null; ids.forEach(openRight); },
       // keepSize: hidden without a size change (visibility), so only an interaction shows the editor is back
       hide({ keepSize = false } = {}) { visible = false; if (keepSize) main.style.visibility = 'hidden'; else main.style.display = 'none'; close('owner'); },
       show() { visible = true; main.style.display = ''; main.style.visibility = ''; },
       // the host rebuilds the main column around layout jumps: the view is cleaned up and mounted again, same params
       remount() { if (typeof unmountMain === 'function') unmountMain(); main.replaceChildren(); unmountMain = view.mount(main, props); },
+      // the person closes the editor's tab (possible where the view is not pinned): unmounted, and not mounted again
+      closeMain() { if (typeof unmountMain === 'function') unmountMain(); unmountMain = null; main.replaceChildren(); },
     };
     return space;
   }
   /** A newer host: the native conversation mounts inside a plugin view (ctx.tangu.mountChat). Call before load(). */
   function enableChat() {
-    Object.assign(calls, { mountChat: [], chatQuote: [], chatPrefill: [], chatDisposed: 0 });
+    Object.assign(calls, { mountChat: [], chatQuote: [], chatPrefill: [], chatInto: [], chatDisposed: 0 }); // chatInto: [folder, text] of every prefill
     ctx.tangu.mountChat = (el, o) => {
       calls.mountChat.push({ ...o });
       const box = document.createElement('div'); box.className = 'host-chat'; box.dataset.folder = o.folder || ''; el.append(box);
       return {
         ready: Promise.resolve({ ok: true, sessionId: `chat:${o.folder || ''}` }),
-        quote: text => calls.chatQuote.push(text), prefill: text => calls.chatPrefill.push(text),
+        quote: text => calls.chatQuote.push(text), prefill: text => { calls.chatPrefill.push(text); calls.chatInto.push([o.folder || '', text]); },
         dispose() { calls.chatDisposed++; box.remove(); },
       };
     };

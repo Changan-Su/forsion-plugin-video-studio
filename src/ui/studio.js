@@ -387,14 +387,27 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     watch();
   }
   function reparse() {
-    // an element is its tag's index in the scene's html, so it survives only edits that keep the tags where they
-    // are (its own attributes, a text); after any other the same index may be its neighbour
-    const tagNames = html => HT.scan(html || '').tags.map(x => x.name).join(' ');
-    const el = S.selEl, before = el && S.p ? tagNames(P.sceneById(S.p, el.scene)?.html) : null;
+    // An element is selected by its tag's index in its scene's html, and an edit can put another element there.
+    // After one, the selection is the one element that still looks exactly as it did (it may have moved: a line
+    // added above it, two lines changing places). Failing that, the same place, if the edit kept the tags where
+    // they are and left it recognisable: its opening tag or its words unchanged (one of its attributes was
+    // edited, or its text). Otherwise it is let go.
+    // ponytail: recognised by its looks, so of two identical elements the one at the old place wins; an id per
+    // element when that bites.
+    const faces = scene => {
+      const s = S.p && P.sceneById(S.p, scene); if (!s) return null;
+      const tags = HT.scan(s.html).tags;
+      return { names: tags.map(k => k.name).join(' '), all: timedOf(s).map(x => ({ tag: x.tag, open: s.html.slice(tags[x.tag].start, tags[x.tag].end), text: x.text })) };
+    };
+    const el = S.selEl, before = el && faces(el.scene), was = before && before.all.find(f => f.tag === el.tag);
     S.p = P.parseProject(S.text);
     if (S.sel && !P.sceneById(S.p, S.sel)) S.sel = S.p.scenes[0] ? S.p.scenes[0].id : null;
     if (S.selCap !== null && !S.p.captions[S.selCap]) S.selCap = null;
-    if (el) { const s = P.sceneById(S.p, el.scene); if (!s || tagNames(s.html) !== before || !timedOf(s).some(x => x.tag === el.tag)) S.selEl = null; }
+    if (el) {
+      const now = was && faces(el.scene), same = now ? now.all.filter(f => f.open === was.open && f.text === was.text) : [], at = now && now.all.find(f => f.tag === el.tag);
+      S.selEl = same.length === 1 ? { scene: el.scene, tag: same[0].tag }
+        : at && now.names === before.names && (at.open === was.open || at.text === was.text) ? el : null;
+    }
   }
 
   let saveTimer = 0, saving = null, writes = Promise.resolve();
@@ -820,33 +833,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     dupBtn.disabled = !s || S.selCap !== null; delBtn.disabled = !!S.selEl || (!s && !S.selHit && S.selCap === null);
     if (quoteBtn) quoteBtn.disabled = !s && S.selCap === null;
   }
-  /* ───────── elements: what a scene times declaratively (data-in / data-out / data-seq), on project time ───────── */
+  /* ───────── elements: what a scene times declaratively (data-in / data-out / data-seq / data-each), on project time ───────── */
   // ponytail: every render scans every scene's html (one linear pass each); cache by html when long films make zooming drag
   function timedOf(s) {
     const unit = P.hitUnit(S.p.tempo), beat = S.p.tempo ? S.p.tempo.beat : .5;
-    const sc = { t0: s.t0v ?? s.t0, t1: s.t1, hits: s.hitTimes }; // the runtime's scene: content start, hits in seconds
-    const list = [];
-    const put = (x, a, b, error = '') => {
-      if (!error && (a >= s.t1 - 1e-6 || b <= s.t0 + 1e-6)) return; // never inside this scene's window (the other half of a split)
-      a = Math.max(s.t0, a);
-      list.push({ ...x, a, b: Math.min(s.t1, Math.max(a, b)), error });
-    };
-    for (const x of HT.timedElements(s.html)) {
-      const seq = x.seq !== undefined && String(x.seq).match(/^\s*h(\d+)\s*$/);
-      if (seq && x.items.length) {
-        // a sequence is its items, one after another on the hits from hK, the last one to the scene's end (the
-        // runtime's seq()); an item past the last hit never shows
-        x.items.forEach((c, i) => {
-          const a = sc.hits[+seq[1] + i], next = i + 1 < x.items.length ? sc.hits[+seq[1] + i + 1] : undefined;
-          if (a !== undefined) put({ ...c, of: x, n: i + 1 }, a, next ?? s.t1);
-        });
-        continue;
-      }
-      try {
-        if (x.seq !== undefined) throw new Error(`data-seq="${x.seq}"`);
-        put(x, x.in !== undefined ? timeExpr(x.in, sc, unit, beat) : sc.t0, x.out !== undefined ? timeExpr(x.out, sc, unit, beat) : s.t1);
-      } catch (e) { put(x, s.t0, s.t1, String(e && e.message || e)); }
-    }
+    const content = { t0: s.t0v ?? s.t0, t1: s.t1, hits: s.hitTimes }; // the runtime's scene: content start, hits in seconds
+    // when each one is on screen, by the runtime's rules (a scene that is the other half of a split shows only its part)
+    const list = HT.timedSpans(s.html, { s0: s.t0, t1: s.t1, hits: s.hitTimes }, expr => timeExpr(expr, content, unit, beat), { unit, beat });
     // rows: the first one free at the element's start
     const ends = [], last = [];
     for (const x of [...list].sort((p, q) => p.a - q.a)) {
@@ -859,7 +852,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         r = last.reduce((best, y, i) => (y.a < last[best].a ? i : best), 0);
         if (last[r].b > x.a) last[r].shown = x.a;
       }
-      ends[r] = Math.max(ends[r] ?? 0, x.b); last[r] = x; x.row = r;
+      ends[r] = x.b; last[r] = x; x.row = r; // the row is this block's now: what it took over ends where it begins
     }
     return list;
   }
@@ -909,7 +902,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
    */
   function reference() {
     const file = path.split('/').pop(), span = (a, b) => `${a.toFixed(2)}–${b.toFixed(2)}s`;
-    if (S.selCap !== null) { const c = cues()[S.selCap]; return c ? `${file} › srt › ${P.srtTime(c.start)} --> ${P.srtTime(c.end)}\n${c.text}` : null; }
+    // (the block may be ```vtt, and a time line written by hand need not be in SubRip's form: both as the file has them)
+    if (S.selCap !== null) { const c = cues()[S.selCap]; return c ? `${file} › ${S.p.toks[S.p.captionsTok]?.lang || 'srt'} › ${c.raw || `${P.srtTime(c.start)} --> ${P.srtTime(c.end)}`}\n${c.text}` : null; }
     const s = selScene(); if (!s) return null;
     const scene = `${file} › ## ${s.id}${s.title ? ` · ${s.title}` : ''}`;
     if (S.selHit && s.hitTimes[S.selHit.index] !== undefined) return `${scene} › h${S.selHit.index} = ${s.hitTimes[S.selHit.index].toFixed(2)}s`;

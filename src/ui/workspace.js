@@ -231,16 +231,19 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   // docked studio, like the bin. A project file that sits directly in the library root has no folder to work in and
   // keeps the Director panel.
   const canChat = typeof ctx.tangu?.mountChat === 'function';
+  const CHAT_LINGER_MS = 2000; // a remount around a layout jump takes a frame or two and a file read; a missed one only mounts the same conversation again
   // (no app.hostPath check here: at startup the host is not ready to answer, and it resolves the folder itself later)
   const chatFolder = path => (canChat && dirOf(path)) || null;
   const chat = (() => {
-    let handle = null, waiting = []; // what the editor sent before the view was up: [method, text]
-    const send = (method, text) => { if (!text) return; if (handle) handle[method](text); else waiting.push([method, text]); };
+    let handle = null, bound = null, waiting = []; // what an editor sent before its conversation was up: [method, text, folder]
+    const send = (method, text, folder) => { if (!text) return; if (handle && bound === folder) handle[method](text); else waiting.push([method, text, folder]); };
+    const reveal = () => ctx.openView?.('chat', { location: 'right' });
     return {
-      reveal: () => ctx.openView?.('chat', { location: 'right' }),
-      quote: text => send('quote', text),
-      prefill: text => send('prefill', text),
-      bind(next) { handle = next; if (next) for (const [method, text] of waiting.splice(0)) next[method](text); },
+      reveal,
+      /** What one editor gets: its words go to its own project's conversation, never to the one that follows it. */
+      of: folder => ({ reveal, quote: text => send('quote', text, folder), prefill: text => send('prefill', text, folder) }),
+      // text that was waiting for another project's conversation goes with the switch
+      bind(next, folder = null) { handle = next; bound = next ? folder : null; if (next) for (const [method, text, to] of waiting.splice(0)) if (to === folder) next[method](text); },
     };
   })();
   function mountChat(el) {
@@ -250,22 +253,27 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const body = h('div', { class: 'fvs-chat-body' });
     const shell = h('div', { class: 'fvs-chat' }, empty, body);
     el.append(shell);
-    let folder = null, handle = null;
-    const sync = () => {
-      // An empty dock is the editor between two mounts (the host rebuilds it around layout jumps): the conversation
-      // stays, and with it the text waiting in its input. Closing the project closes this view.
-      const studio = dock.top(); if (!studio) return;
-      const next = chatFolder(studio.path);
+    let folder = null, handle = null, gone = 0;
+    const show = (next, path) => {
       if (next === folder) return;
       folder = next; handle?.dispose(); body.replaceChildren();
-      handle = next ? ctx.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(studio.path)?.title || stemOf(studio.path) }) : null;
+      handle = next ? ctx.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(path)?.title || stemOf(path) }) : null;
       // the Director gets no hand-off message here to tell it where the command line is: keep the copy beside
       // the projects, where its skill looks (../.fvs-tools from a project the Studio made)
       if (next) ensureTools(ctx).catch(() => {});
-      empty.hidden = !!handle; chat.bind(handle);
+      empty.hidden = !!handle; chat.bind(handle, next);
+    };
+    const sync = () => {
+      clearTimeout(gone);
+      const studio = dock.top();
+      // An empty dock is usually the editor between two mounts (the host rebuilds it around layout jumps): the
+      // conversation stays, and with it the text waiting in its input. An editor that does not come back was
+      // closed (its tab, where it is not pinned): the conversation of a project nobody has open goes too.
+      if (!studio) { gone = setTimeout(() => { if (!dock.top()) show(null); }, CHAT_LINGER_MS); return; }
+      show(chatFolder(studio.path), studio.path);
     };
     const off = dock.watch(sync); sync();
-    return () => { off(); chat.bind(null); handle?.dispose(); shell.remove(); };
+    return () => { clearTimeout(gone); off(); chat.bind(null); handle?.dispose(); shell.remove(); };
   }
 
   function mountTimeline(el) {
@@ -320,7 +328,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
         idea: !compact && pendingIdea?.path === next ? pendingIdea.text : '', ideaDraft: text => { if (pendingIdea?.path === next) pendingIdea = text ? { path: next, text } : null; },
         closeProject: launcher ? closeProject : null,
         dock: docked ? dock : null, showTimeline: () => ctx.openView?.('timeline', { location: 'bottom' }),
-        chat: docked && chatFolder(next) ? chat : null,
+        chat: docked && chatFolder(next) ? chat.of(chatFolder(next)) : null,
         showInMain: () => { view.setParams?.({ filePath: next }); view.showInMainPanel?.(); },
         openMini: ctx.openMiniPanel ? () => ctx.openMiniPanel('preview', { title: t('mini-preview'), params: { filePath: next }, mainViewId: 'studio', mainViewParams: { filePath: next } }) : null,
         openFloating: ctx.openFloatingPanel ? () => ctx.openFloatingPanel('studio', { title: t('app'), params: { filePath: next }, width: 1120, height: 820, minWidth: 480, minHeight: 580 }) : null,

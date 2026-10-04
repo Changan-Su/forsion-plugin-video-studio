@@ -142,6 +142,57 @@ export function timedElements(html) {
   };
   return tags.filter(t => ['data-in', 'data-out', 'data-seq'].some(k => t.attr(k) !== undefined)).map(t => ({
     ...named(t), in: t.attr('data-in'), out: t.attr('data-out'), fx: t.attr('data-fx'), seq: t.attr('data-seq'), each: t.attr('data-each'),
-    ...(t.attr('data-seq') !== undefined ? { items: tags.filter(c => c.parent === t.index).map(named) } : {}),
+    fxOut: t.attr('data-fx-out'), dur: t.attr('data-dur'), seqEnd: t.attr('data-seq-end'),
+    // the children a data-seq or a data-each times one by one
+    ...(t.attr('data-seq') !== undefined || t.attr('data-each') !== undefined ? { items: tags.filter(c => c.parent === t.index).map(named) } : {}),
   }));
+}
+
+/**
+ * When each timed element of a scene is on screen, the way the runtime plays it (player.js, declarative()): one
+ * entry per element that gets a block on the timeline, [{ tag, name, text, label, a, b, of?, n?, error? }], in
+ * document order.
+ *   - a data-seq container is its children, one per hit from hK, the last one to data-seq-end or the scene's end.
+ *     A child past the last hit is never scheduled: it stays on screen, and is an error;
+ *   - data-in with data-each is the children too, each one `each` after the one before;
+ *   - an element is on screen only while everything around it is: its own times, its turn in a sequence and those
+ *     of its ancestors all hold at once. What is left may be nothing: then it has no entry.
+ * sc = { s0, t1, hits }: the scene's visible start, its end and its hit times. at(expr) reads a time expression (the
+ * runtime's timeExpr: it throws on one it cannot read, and the runtime then leaves that side open).
+ */
+export function timedSpans(html, sc, at, { unit, beat }) {
+  const { tags } = scan(html);
+  const win = new Map(), blocks = new Map(); // tag → the [from, to] it is limited to; tag → its entry
+  const limit = (tag, a, b) => { const w = win.get(tag); win.set(tag, w ? [Math.max(w[0], a), Math.min(w[1], b)] : [a, b]); };
+  const block = (c, more) => blocks.set(c.tag, { ...blocks.get(c.tag), ...c, ...more });
+  for (const x of timedElements(html)) {
+    let error = '';
+    const read = expr => { if (expr === undefined) return null; try { return at(expr); } catch (e) { error = String(e && e.message || e); return null; } };
+    if (x.seq !== undefined) {
+      const m = String(x.seq).match(/^\s*h(\d+)\s*$/);
+      if (!m) block(x, { error: `data-seq="${x.seq}" must name the first hit, e.g. data-seq="h0"` });
+      else {
+        const times = x.items.map((_, i) => sc.hits[+m[1] + i]).filter(v => v !== undefined), end = read(x.seqEnd) ?? sc.t1;
+        x.items.forEach((c, i) => {
+          if (i < times.length) limit(c.tag, times[i], times[i + 1] ?? end);
+          block(c, { of: x, n: i + 1, ...(i < times.length ? {} : { error: `data-seq has ${x.items.length} items but only ${times.length} hits from h${+m[1]}` }) });
+        });
+        error = ''; // a data-seq-end that cannot be read: the sequence ends with the scene
+      }
+    }
+    if (x.in === undefined && x.out === undefined) continue;
+    const tin = read(x.in), tout = read(x.out), step = +x.each * unit;
+    const gone = tout === null ? Infinity : tout + (String(x.fxOut || '').toLowerCase() === 'fade' ? (x.dur !== undefined ? +x.dur * unit : beat / 2) : 0);
+    if (x.each !== undefined && tin !== null && Number.isFinite(step)) x.items.forEach((c, i) => { limit(c.tag, tin + step * i, gone); block(c, { of: x, n: i + 1 }); });
+    else limit(x.tag, tin ?? -Infinity, gone);
+    // the container of a sequence or of staggered children is those children; anything else is its own block
+    if (error || (x.seq === undefined && !(x.each !== undefined && tin !== null && Number.isFinite(step)))) block(x, error ? { error } : {});
+  }
+  const out = [];
+  for (const e of blocks.values()) {
+    let a = sc.s0, b = sc.t1;
+    for (let k = e.tag; k >= 0; k = tags[k].parent) { const w = win.get(k); if (w) { a = Math.max(a, w[0]); b = Math.min(b, w[1]); } }
+    if (b > a + 1e-6) out.push({ ...e, a, b });
+  }
+  return out.sort((p, q) => p.tag - q.tag);
 }

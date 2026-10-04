@@ -9,8 +9,11 @@
 //   picture   "make a background picture for the title cards and put it in": the image tool is used, the file is in
 //             generated/ (what the media bin lists) and the scene references it
 //
-// The model is the host live harness's (the Codex subscription: FVS_LIVE_MODEL, default codex/gpt-5.6-luna; the
-// credentials file is linked in for the engine to read and unlinked once it has). Pixels come from a local stub
+// The model is the host live harness's (the Codex subscription: FVS_LIVE_MODEL, default codex/gpt-5.6-luna). The
+// credentials file is linked in for the engine to read and unlinked once it has, the way the host's own live
+// harness does it: a token the engine refreshes while it starts is saved through the link into that file, which is
+// what keeps the sign-in it came from valid. Nothing else of the run leaves its temporary home: the engine is
+// stopped before this script ends, and a passing run removes the home. Pixels come from a local stub
 // (an OpenAI-compatible /images/generations that answers with a small PNG): a real image model costs the person's
 // cloud credits, and what is under test is what the agent does around the picture.
 //
@@ -224,12 +227,15 @@ try {
   console.log(`FAIL setup\n     ${String(e?.message || e)}`);
 } finally {
   rmSync(authLink, { force: true });
-  child.kill('SIGTERM');
+  // the engine is gone before this script is: nothing of the run stays behind on the machine
+  if (!exited) { child.kill('SIGTERM'); await Promise.race([new Promise(r => child.once('exit', r)), sleep(5000).then(() => { if (!exited) child.kill('SIGKILL'); })]); }
   images.close();
   report.push('', `Image requests to the stub: ${JSON.stringify(imageAsks.map(a => ({ size: a.size, prompt: String(a.prompt || '').slice(0, 160) })))}`);
   writeFileSync(join(artifacts, 'report.md'), report.join('\n'));
   writeFileSync(join(artifacts, 'results.json'), JSON.stringify({ model: MODEL, results }, null, 2));
   try { cpSync(file, join(artifacts, 'demo.fvs.md')); } catch { /* no project */ }
-  console.log(`${failed ? 'live: FAILED' : 'live: ok'} · ${join(artifacts, 'report.md')} · home ${out}`);
+  // a failed run keeps its home for a look; a passed one leaves only the report
+  if (!failed) rmSync(out, { recursive: true, force: true });
+  console.log(`${failed ? 'live: FAILED' : 'live: ok'} · ${join(artifacts, 'report.md')}${failed ? ` · home ${out}` : ''}`);
 }
 process.exit(failed ? 1 : 0);

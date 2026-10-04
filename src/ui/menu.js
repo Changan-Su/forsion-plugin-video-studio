@@ -27,8 +27,8 @@ function mountLayer(anchor, layer, { align = 'start', at = null, onClose } = {})
   anchor.setAttribute('aria-expanded', 'true');
   const outside = e => { if (!layer.contains(e.target) && !anchor.contains(e.target)) closeLayer(); };
   // a scroll that moves the anchor leaves the layer behind; one in another panel (a selection bringing its row
-  // into view in the properties) is not about this layer
-  const scroll = e => { if (!layer.contains(e.target) && e.target.contains?.(anchor)) closeLayer(); };
+  // into view in the properties) is not about this layer. An anchor that was redrawn away is behind already.
+  const scroll = e => { if (!layer.contains(e.target) && (!anchor.isConnected || e.target.contains?.(anchor))) closeLayer(); };
   const key = e => {
     if (e.key !== 'Escape') return;
     e.preventDefault(); e.stopPropagation();

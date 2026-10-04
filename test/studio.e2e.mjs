@@ -831,18 +831,34 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.getByRole('menuitem', { name: /配乐/ }).click();
   assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill.slice(1)), ['为这个视频配乐']);
   assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent for the person');
+  // The person closed the conversation's tab, then asked for a task: the request waits for the view to come up (the
+  // real host mounts it a moment after openView). If the project changes in that moment, the request was for the
+  // other project: it does not land in this one's conversation.
+  await sp.evaluate(() => { HOST.spaceState.closeRight(); HOST.spaceState.holdRight(); });
+  assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 1, 'closing the tab lets the conversation go');
+  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
+  await sp.getByRole('menuitem', { name: /看一遍成片/ }).click();
   // another project, another folder: its own conversation
   await sp.evaluate(p => HOST.reg.lists.find(l => l.id === 'projects').open({ key: p }), FILE);
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  await sp.evaluate(() => HOST.spaceState.releaseRight());
   await sp.waitForFunction(() => HOST.calls.mountChat.length === 2, null, { timeout: 10000 }).catch(() => assert.fail('switching the project switches the conversation'));
   assert.equal((await sp.evaluate(() => HOST.calls.mountChat[1])).folder, DIR);
-  assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 1, 'the first one was let go');
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatInto.map(x => x[0])), ['Forsion Video Studio/对话测试', 'Forsion Video Studio/对话测试'], 'a request written for the other project is not handed to this one');
   assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
+  // …and one made here, while the view is still coming up, does arrive
+  await sp.evaluate(() => { HOST.spaceState.closeRight(); HOST.spaceState.holdRight(); });
+  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
+  await sp.getByRole('menuitem', { name: /看一遍成片/ }).click();
+  await sp.evaluate(() => HOST.spaceState.releaseRight());
+  await sp.waitForFunction(() => HOST.calls.mountChat.length === 3, null, { timeout: 5000 }).catch(() => assert.fail('the conversation came back'));
+  assert.deepEqual(await sp.evaluate(d => HOST.calls.chatInto.filter(x => x[0] === d).map(x => x[1]), DIR), ['看一遍成片提意见'], 'a request waits for its own conversation');
   // closing the project takes the conversation with it
   await sp.locator('.fvs-bar button[aria-label="更多"]').click();
   await sp.getByRole('menuitem', { name: '关闭工程' }).click();
   await sp.waitForSelector('.fvs-launch', { timeout: 10000 });
   assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), null, 'the conversation closed with the project');
-  assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 2);
+  assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 3);
   // a project file directly in the library root has no folder to work in: the Director panel, as before
   await sp.evaluate(t => { HOST.files.set('根目录.fvs.md', t); return HOST.ctx.saveData({ ...HOST.data, trusted: [...HOST.data.trusted, '根目录.fvs.md'] }); }, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8'));
   await sp.evaluate(() => HOST.reg.lists.find(l => l.id === 'projects').open({ key: '根目录.fvs.md' }));
@@ -850,7 +866,20 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), null, 'no conversation for a project without a folder');
   await sp.locator('.fvs-bar .fvs-ai-action').click();
   await sp.waitForSelector('.host-extend .fvs-director-panel', { timeout: 5000 }).catch(() => assert.fail('…it keeps the Director panel'));
-  assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 2);
+  assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 3);
+  // The editor's tab closed (a Space where it is not pinned) is not a project closed from the menu, and it is not
+  // the host rebuilding the editor either: after a moment the conversation of a project nobody has open is let go.
+  await sp.evaluate(p => HOST.reg.lists.find(l => l.id === 'projects').open({ key: p }), FILE);
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  await sp.locator('.fvs-bar .fvs-ai-action').click();
+  await sp.waitForFunction(() => HOST.calls.mountChat.length === 4, null, { timeout: 10000 }).catch(() => assert.fail('the project is back with its conversation'));
+  assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
+  const lettingGo = await sp.evaluate(() => HOST.calls.chatDisposed);
+  await sp.evaluate(() => HOST.spaceState.closeMain());
+  await sp.waitForTimeout(600);
+  assert.equal(await sp.locator('.host-right .host-chat').count(), 1, 'it waits: the host may only be rebuilding the editor');
+  await sp.waitForFunction(n => HOST.calls.chatDisposed === n + 1 && !document.querySelector('.host-right .host-chat'), lettingGo, { timeout: 5000 }).catch(() => assert.fail('an editor that does not come back takes its conversation with it'));
+  assert.equal(await sp.locator('.host-right .fvs-chat-empty:not([hidden])').count(), 1, 'the view says to open a project');
   assert.deepEqual(serr, []);
   await sp.close();
 }
@@ -968,6 +997,30 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await tl.locator('.fvs-cap').first().click({ button: 'right' });
   await sp.getByRole('menuitem', { name: '引用到对话' }).click();
   assert.equal((await quotes())[5], `episode-2.12.fvs.md › srt › ${cue[1]}\n${cue[2]}`);
+  // …also when the block is ```vtt and the time is written the WebVTT way: the agent searches for what is quoted
+  {
+    const held = await text(), vtt = held.replace('```srt', '```vtt').replace(cue[1], '00:01.000 --> 00:03.500');
+    assert.notEqual(vtt, held);
+    await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, vtt]);
+    await sp.waitForFunction(() => { const c = document.querySelector('.host-bottom .fvs-cap'), s = document.querySelector('.host-bottom .fvs-clip'); return c && s && Math.abs(c.getBoundingClientRect().left - s.getBoundingClientRect().left) > 4; }, null, { timeout: 5000 }).catch(() => assert.fail('the caption moved to 1 s'));
+    // (in view first: the caption is now at 1 s, and the scroll a click starts would land after the menu opened)
+    await tl.locator('.fvs-cap').first().scrollIntoViewIfNeeded();
+    await sp.waitForTimeout(150);
+    await tl.locator('.fvs-cap').first().click({ button: 'right' });
+    await sp.getByRole('menuitem', { name: '引用到对话' }).click();
+    assert.equal((await quotes())[6], `episode-2.12.fvs.md › vtt › 00:01.000 --> 00:03.500\n${cue[2]}`);
+    // an open menu whose block was redrawn away (an outside edit) does not hang on: the next scroll takes it
+    await el('years', 1).scrollIntoViewIfNeeded();
+    await sp.waitForTimeout(150);
+    const block = await el('years', 1).elementHandle();
+    await el('years', 1).click({ button: 'right', position: { x: 4, y: 6 } });
+    assert.equal(await sp.locator('.fvs-menu').count(), 1);
+    await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, vtt.replace('00:01.000 --> 00:03.500', '00:01.000 --> 00:03.000')]);
+    await sp.waitForFunction(b => !b.isConnected, block, { timeout: 5000 }).catch(() => assert.fail('the timeline was redrawn by the outside edit'));
+    assert.equal(await sp.locator('.fvs-menu').count(), 1, 'the redraw itself leaves the menu');
+    await sp.evaluate(() => { document.querySelector('.host-extend .fvs-panel').scrollTop += 1; document.querySelector('.host-extend .fvs-panel').dispatchEvent(new Event('scroll')); });
+    await sp.waitForFunction(() => !document.querySelector('.fvs-menu'), null, { timeout: 3000 }).catch(() => assert.fail('a menu whose anchor is gone closes on the next scroll, wherever it is'));
+  }
   assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent for the person');
   // a double-click goes to the element's "in" time
   // (held for a moment, as a hand does: the timeline takes the keyboard back right after a press, see keepKeys)
@@ -980,11 +1033,54 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(p => HOST.text(p).includes('data-in="h2+0.5"'), FILE, { timeout: 4000 }).catch(() => assert.fail('the "in" time was written'));
   assert.deepEqual(await tl.locator('.fvs-el.on').evaluateAll(xs => xs.map(x => `${x.dataset.scene}:${x.dataset.tag}`)), ['years:3'], 'an edit to its own attribute keeps the selection');
   assert.ok(Math.abs((await el('years', 2).boundingBox()).x - x0 - .2 * pps) <= 1.5, 'the block moved half a beat');
-  // an edit from outside that moves the tags lets the selection go (the same index would be another element)
-  const now = await text();
-  await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, now.replace('<span class="fk" style="left:110px;top:200px;font-size:210px" data-in="h0">', '<i></i><span class="fk" style="left:110px;top:200px;font-size:210px" data-in="h0">')]);
-  await sp.waitForFunction(p => HOST.text(p).includes('<i></i>') && !document.querySelector('.host-bottom .fvs-el.on'), FILE, { timeout: 5000 }).catch(() => assert.fail('an outside edit that shifts the tags drops the element selection'));
+  // Edits from outside (the Director, a hand in the code) can put another element at the selected one's place.
+  // The selection stays on the element, wherever it went…
+  const selected = () => tl.locator('.fvs-el.on').evaluateAll(xs => xs.map(x => `${x.dataset.tag}:${x.textContent}`));
+  // (the editor takes an outside edit a moment later: wait for the selection it should end up with)
+  const outside = async (change, want, why) => {
+    const held = await text(), next = change(held);
+    assert.notEqual(next, held, `the edit this case makes (${why})`);
+    await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, next]);
+    await sp.waitForFunction(w => JSON.stringify([...document.querySelectorAll('.host-bottom .fvs-el.on')].map(x => `${x.dataset.tag}:${x.textContent}`)) === w, JSON.stringify(want), { timeout: 5000 })
+      .catch(async () => assert.fail(`${why}: ${JSON.stringify(await selected())} instead of ${JSON.stringify(want)}`));
+  };
+  const A = '  <span class="fk" style="left:112px;top:470px;font-size:130px" data-in="h1">我们一直在建造</span>', B = '  <span class="fk" style="left:112px;top:640px;font-size:130px" data-in="h2+0.5">更好的 Agent。</span>';
+  assert.deepEqual(await selected(), ['3:更好的 Agent。']);
+  // …two lines of the same kind changing places
+  await outside(x => x.replace(`${A}\n${B}`, `${B}\n${A}`), ['2:更好的 Agent。'], 'two same-named elements swapped: the selection goes with its element');
+  // …a tag added above it
+  await outside(x => x.replace('<span class="fk" style="left:110px;top:200px;font-size:210px" data-in="h0">', '<i></i><span class="fk" style="left:110px;top:200px;font-size:210px" data-in="h0">'), ['3:更好的 Agent。'], 'a tag added above: the selection goes with its element');
+  // an element rewritten, tag and words, is not the one that was selected: nothing takes its place
+  await outside(x => x.replace(A.trim(), '<span class="fk" data-in="h1">甲</span>').replace(B.trim(), '<span class="fk" data-in="h1">乙</span>'), [], 'the element was rewritten: nothing is selected in its place');
+  // two that are written the same and differ only in their words: the words say which one it is
+  await tl.locator('.fvs-el[data-scene="years"]', { hasText: '甲' }).click({ position: { x: 2, y: 6 } });
+  assert.deepEqual(await selected(), ['4:甲']);
+  await outside(x => x.replace('<span class="fk" data-in="h1">乙</span>\n  <span class="fk" data-in="h1">甲</span>', '<span class="fk" data-in="h1">甲</span>\n  <span class="fk" data-in="h1">乙</span>'), ['3:甲'], 'two elements written the same swapped: the selection goes with its words');
   assert.equal(await tl.locator('.fvs-el[data-scene="years"]').count(), 4);
+  // rows: three lines hold the three rows to the end; a fourth takes the first one's row for a beat; a fifth, later,
+  // finds that row free and takes it — it does not cut a second line short
+  {
+    const scene = original.match(/## years · 多年来[\s\S]*?```html\n([\s\S]*?)```/)[1];
+    const packed = '<div>\n  <p data-in="h0">A</p><p data-in="h0">B</p><p data-in="h0">C</p>\n  <p data-in="h1" data-out="h2">D</p><p data-in="h3">E</p>\n</div>\n';
+    await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, original.replace(scene, packed)]);
+    await sp.waitForFunction(() => document.querySelectorAll('.host-bottom .fvs-el[data-scene="years"]').length === 5, null, { timeout: 5000 }).catch(() => assert.fail('the five lines are on the lane'));
+    const rows = await sp.evaluate(() => {
+      const end = document.querySelector('.host-bottom .fvs-clip[data-id="years"]').getBoundingClientRect().right;
+      return Object.fromEntries([...document.querySelectorAll('.host-bottom .fvs-el[data-scene="years"]')].map(x => { const r = x.getBoundingClientRect(); return [x.textContent, { top: Math.round(r.top), toEnd: Math.abs(r.right - end) <= 3 }]; }));
+    });
+    assert.equal(new Set([rows.A.top, rows.B.top, rows.C.top]).size, 3);
+    assert.deepEqual([rows.D.top, rows.E.top], [rows.A.top, rows.A.top], `D takes A's row, and E the same row once D is over: ${JSON.stringify(rows)}`);
+    assert.deepEqual([rows.B.toEnd, rows.C.toEnd, rows.E.toEnd], [true, true, true], `nothing else is cut short: ${JSON.stringify(rows)}`);
+  }
+  // data-seq-end: the last item of a sequence ends there, not at the end of the scene (as the picture does)
+  {
+    const open = '<div data-seq="h0">\n  <div class="fb-card solid"><span class="fk" style="left:110px;top:250px;font-size:340px">人格';
+    assert.ok(original.includes(open));
+    await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, original.replace(open, open.replace('data-seq="h0"', 'data-seq="h0" data-seq-end="h7+1"'))]);
+    await sp.waitForFunction(p => HOST.text(p).includes('data-seq-end="h7+1"') && document.querySelectorAll('.host-bottom .fvs-el[data-scene="cards"]').length === 8, FILE, { timeout: 5000 }).catch(() => assert.fail('the sequence is back with its end'));
+    const widths = await tl.locator('.fvs-el[data-scene="cards"]').evaluateAll(xs => xs.map(x => x.getBoundingClientRect().width));
+    assert.ok(Math.abs(widths[7] - widths[0] / 2) <= 2, `the last item ends one beat after its hit, half of the two beats the others take: ${widths[7]} vs ${widths[0]}`);
+  }
   // a project with no declarative timing: the lane says what would show up in it
   await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, original.replace(/ data-(in|seq)="/g, ' data-x-$1="')]);
   await sp.waitForFunction(() => !document.querySelector('.host-bottom .fvs-el'), null, { timeout: 5000 }).catch(() => assert.fail('no timed elements, no blocks'));
