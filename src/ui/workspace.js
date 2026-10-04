@@ -256,7 +256,9 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     let folder = null, handle = null, gone = 0;
     const show = (next, path) => {
       if (next === folder) return;
-      folder = next; handle?.dispose(); body.replaceChildren();
+      // dispose() is all the cleaning there is: the host takes its own mount away. Emptying the element here took
+      // the conversation's nodes from under the host while its unmount was still pending (a page error per project switch)
+      folder = next; handle?.dispose();
       handle = next ? ctx.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(path)?.title || stemOf(path) }) : null;
       // the Director gets no hand-off message here to tell it where the command line is: keep the copy beside
       // the projects, where its skill looks (../.fvs-tools from a project the Studio made)

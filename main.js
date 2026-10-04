@@ -6723,7 +6723,6 @@
         if (next === folder) return;
         folder = next;
         handle?.dispose();
-        body.replaceChildren();
         handle = next ? ctx2.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(path)?.title || stemOf(path) }) : null;
         if (next) ensureTools(ctx2).catch(() => {
         });

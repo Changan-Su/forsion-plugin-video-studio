@@ -3,7 +3,8 @@
 // Launches the desktop's built out/ through its uiux-electron harness (stub engine, throwaway home, user data and
 // vault — nothing of yours is read, touched or killed), seeds this bundle into <home>/plugins and checks:
 //   launch layout (navigation, launchpad, no timeline) → a project made on the create page (its folder, its frame,
-//   the idea waiting in the Director) → the project layout (media bin, docked timeline) → closing it → the person's
+//   the idea waiting in the Director; on a host with ctx.tangu.mountChat the conversation is a tab of the right side
+//   instead, and verify-chat.mjs checks the idea in it) → the project layout (media bin, docked timeline) → closing it → the person's
 //   ⌘J surviving a project switch → the bin (double-click, drag to a cut) → keys, zoom, ⌘J repaint → a reload.
 // Needs a host with ctx.viewLocations and ctx.replaceView: point FVS_DESKTOP_ROOT at that checkout's desktop/ and
 // run `npx electron-vite build` there first. No model calls.
@@ -22,7 +23,7 @@ const errors = [];
 const find = (dir, name) => { for (const e of readdirSync(dir)) { const p = join(dir, e); if (e === name) return p; if (statSync(p).isDirectory()) { const q = find(p, name); if (q) return q; } } return null; };
 
 const { app, win, home, close } = await H.launch({ tag: 'fvs-docked' });
-win.on('pageerror', e => errors.push(String(e)));
+win.on('pageerror', e => { errors.push(String(e)); console.log(`[pageerror] ${e.stack || e}`); });
 const logs = []; win.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`${m.type()}: ${m.text()}`); });
 // mean brightness (0–255) of the middle of the stage, from a real window capture: the DOM can't tell a painted
 // scene from a black frame
@@ -69,11 +70,15 @@ const pins = existsSync(join(desktop, '../lcl/engine/pinnedViews.ts')); // this 
 // it stayed at the height it was born with, half the window, and the host remembered that as the person's own
 const store = join(desktop, '../lcl/engine/dockviewStore.ts');
 const settles = existsSync(store) && readFileSync(store, 'utf8').includes('bottomSettling');
+// this host has ctx.tangu.mountChat: the conversation is a tab of the right side, in front of the properties, and
+// the idea goes there. This rig's engine is a stub with no sessions, so what the conversation holds is
+// verify-chat.mjs's to check; here it only has to be in its place.
+const chats = existsSync(join(desktop, 'frontend/src/views/pluginChat.tsx'));
 const spanned = async when => {
   if (!spans) return;
   const g = await win.evaluate(() => {
     const rect = sel => { const el = document.querySelector(sel)?.closest('.dv-groupview'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
-    return { left: rect('.fvs-bin'), main: rect('.fvs-studio'), bottom: rect('.fvs-dock-timeline'), right: rect('.fvs-native-properties') };
+    return { left: rect('.fvs-bin'), main: rect('.fvs-studio'), bottom: rect('.fvs-dock-timeline'), right: rect('.fvs-native-properties') || rect('[data-plugin-chat]') };
   });
   const { left: l, bottom: b, main: m, right: r } = g;
   console.log(`${when}: bin ${JSON.stringify(l)} · timeline ${JSON.stringify(b)} · main ${JSON.stringify(m)} · right ${JSON.stringify(r)}`);
@@ -108,11 +113,13 @@ try {
   await H.boot(app, win, { space: 'forsion-video-studio' }); // boot reloads, which picks up the seeded plugin
   if ((await H.activeSpace(win)) !== 'forsion-video-studio') assert.ok(await H.enterSpace(win, 'forsion-video-studio', { timeout: 15000 }), 'the plugin Space is on the ribbon');
 
+  console.log('· step 1');
   // 1. launch layout: navigation, the project list, nothing at the bottom
   await launchLayout('first open');
   await settle(); await win.waitForTimeout(500);
   await H.captureWindow(app, join(shots, '00-launch.png'));
 
+  console.log('· step 2');
   // 2. the create page: a portrait project with an idea → its own folder, the project layout, the idea in the Director
   await win.locator('.fvs-nav [data-nav="create"]').click();
   await win.waitForSelector('.fvs-launch-card');
@@ -132,16 +139,21 @@ try {
   // the host remounts the studio around the layout jump, before or after the idea reached the Director: check the
   // settled window, not the first mount
   await settle(); await win.waitForTimeout(800); await steady();
-  await win.waitForFunction(() => /15 秒的新品预告/.test(document.querySelector('.fvs-director-panel')?.innerText + (document.querySelector('.fvs-director-panel textarea, .fvs-director-panel [contenteditable]')?.value || document.querySelector('.fvs-director-panel [contenteditable]')?.textContent || '')), null, { timeout: 10000 })
+  if (chats) {
+    await win.waitForSelector('[data-plugin-chat]', { timeout: 20000 }).catch(() => assert.fail('the conversation is on the right side'));
+    assert.equal(await win.locator('.fvs-director-panel').count(), 0, 'no Director panel beside a conversation');
+  } else await win.waitForFunction(() => /15 秒的新品预告/.test(document.querySelector('.fvs-director-panel')?.innerText + (document.querySelector('.fvs-director-panel textarea, .fvs-director-panel [contenteditable]')?.value || document.querySelector('.fvs-director-panel [contenteditable]')?.textContent || '')), null, { timeout: 10000 })
     .catch(() => assert.fail('the Director holds the idea'));
   await H.captureWindow(app, join(shots, '02-created.png'));
 
+  console.log('· step 3');
   // 3. closing the project jumps back
   await more('关闭工程');
   await launchLayout('closed');
   await win.waitForTimeout(400);
   await H.captureWindow(app, join(shots, '03-closed.png'));
 
+  console.log('· step 4');
   // 4. the person's ⌘J wins over a project switch: open the bottom in the launch layout, open a project, collapse
   //    it, switch projects from the title — it stays collapsed
   await win.locator('.fvs-launch-search input').click();
@@ -160,6 +172,13 @@ try {
   await win.waitForFunction(() => document.querySelector('.fvs-project-name')?.textContent === '宣传片', null, { timeout: 10000 });
   await win.waitForTimeout(600);
   assert.equal(await bottomOn(), 0, 'a project switch keeps the bottom panel collapsed');
+  // the conversation follows the project: the old one is taken down, the new one is drawn in the same place
+  // (its tab is behind the properties after a project opened without an idea, and a tab behind is not in the page)
+  if (chats) {
+    await win.locator('.wb-tab[title="对话"]').click();
+    await win.waitForFunction(() => document.querySelector('.fvs-chat-body [data-plugin-chat]')?.childElementCount > 0, null, { timeout: 10000 })
+      .catch(() => assert.fail('the conversation is drawn again after a project switch'));
+  }
   assert.equal(await win.locator('.fvs-dock-strip').isVisible(), true);
   await win.locator('.fvs-project').click();
   await win.locator('.fvs-project-item', { hasText: '第 2.12 话' }).first().click({ timeout: 10000 });
@@ -167,6 +186,7 @@ try {
   await win.waitForSelector(clip, { timeout: 10000 });
   await steady();
 
+  console.log('· step 5');
   // 5. the media bin: the example's pictures with thumbnails; a double-click adds one after the scene at the
   //    playhead, a drag drops one at a cut
   await win.waitForFunction(() => document.querySelectorAll('.fvs-bin-item').length >= 3, null, { timeout: 15000 });
@@ -196,6 +216,7 @@ try {
   await win.waitForSelector('.fvs-dock-timeline .fvs-clip[data-id="picture"]', { state: 'detached', timeout: 5000 })
     .catch(() => assert.fail('⌘Z undoes a file dragged from the bin'));
   // the same from the properties (the host's right panel): its button is redrawn away and the focus drops to the page
+  if (chats) { await win.locator('.wb-tab[title="属性"]').click(); await win.waitForSelector('.fvs-native-properties', { state: 'visible', timeout: 5000 }); }
   await win.locator(clip).click({ position: { x: 14, y: 24 } });
   const props = win.locator('.fvs-native-properties');
   await props.getByRole('button', { name: '后移', exact: true }).click();
@@ -205,6 +226,7 @@ try {
   await win.waitForFunction(was => [...document.querySelectorAll('.fvs-dock-timeline .fvs-clip')].sort((a, b) => a.offsetLeft - b.offsetLeft).map(e => e.dataset.id).join() === was, ids.filter(x => x !== 'picture').join(), { timeout: 5000 })
     .catch(async () => assert.fail(`⌘Z undoes an edit made in the properties (keyboard on ${await win.evaluate(() => document.activeElement?.tagName + '.' + document.activeElement?.className)})`));
 
+  console.log('· step 6');
   // 6. one state, the editor's keys: pick a clip in the panel, step the playhead from there
   await win.locator(clip).click({ position: { x: 14, y: 24 } });
   await win.waitForTimeout(80);
@@ -264,6 +286,7 @@ try {
   await steady();
   console.log(`reopening the timeline ${before === await editor() ? 'kept' : 'remounted'} the editor`);
 
+  console.log('· step 7');
   // 7. a reload restores the project layout
   await win.reload({ waitUntil: 'domcontentloaded' });
   await win.waitForSelector('.dv-groupview', { timeout: 30000 });
