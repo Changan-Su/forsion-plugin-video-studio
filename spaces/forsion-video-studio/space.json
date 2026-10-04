@@ -2,6 +2,7 @@
   "id": "forsion-video-studio",
   "name": { "zh": "视频工作室", "en": "Video Studio" },
   "icon": "video",
+  "iconFile": "icon.png",
   "version": "1.3.0",
   "layout": {
     "main": [{ "type": "plugin:forsion-video-studio:studio", "pinned": true }],
