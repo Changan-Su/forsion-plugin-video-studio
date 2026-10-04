@@ -12,7 +12,8 @@
     "verify:space": "node scripts/verify-space.mjs",
     "verify:docked": "node scripts/verify-docked.mjs",
     "verify:render": "node scripts/verify-render.mjs",
-    "verify:features": "node scripts/verify-features.mjs"
+    "verify:features": "node scripts/verify-features.mjs",
+    "verify:chat": "node scripts/verify-chat.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

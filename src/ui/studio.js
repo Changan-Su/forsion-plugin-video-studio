@@ -1346,7 +1346,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (bad.length) {
         body.append(h('div', { class: 'fvs-sync-list' }, ...bad.slice(0, 40).map(r => h('button', { type: 'button', onclick: () => { handle.close(); S.sel = r.scene; seek(r.t); renderTimeline(); } },
           h('span', { text: fmtTime(r.t) }), h('span', { text: `${P.sceneById(S.p, r.scene)?.title || r.scene} · h${r.hit}` })))));
-        body.append(h('button', { type: 'button', class: 'fvs-btn', onclick: () => { handle.close(); void handOff(ctx, S, TASKS.sync(), t); } }, icon('Sparkles'), t('sync-fix')));
+        body.append(h('button', { type: 'button', class: 'fvs-btn', onclick: () => { handle.close(); askFor('ai-chip-sync', TASKS.sync); } }, icon('Sparkles'), t('sync-fix')));
       }
     }
     const handle = openPopover(anchor, body, { label: t('sync') });
@@ -1373,8 +1373,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       !opts.view && opts.openWorkspace ? { icon: 'Clapperboard', label: t('open-workspace'), run: opts.openWorkspace } : null,
       !opts.compact && opts.openMini ? { icon: 'PictureInPicture2', label: t('mini-preview'), run: opts.openMini } : null,
       !opts.compact && opts.openFloating ? { icon: 'AppWindow', label: t('floating-workspace'), run: opts.openFloating } : null,
-      { icon: 'Music2', label: t('score'), hint: t('score-hint'), run: () => void handOff(ctx, S, TASKS.score(), t) },
-      { icon: 'Eye', label: t('ai-chip-review'), run: () => void handOff(ctx, S, TASKS.review(), t) },
+      { icon: 'Music2', label: t('score'), hint: t('score-hint'), run: () => askFor('ai-chip-score', TASKS.score) },
+      { icon: 'Eye', label: t('ai-chip-review'), run: () => askFor('ai-chip-review', TASKS.review) },
       ...(opts.closeProject ? ['-', { icon: 'X', label: t('close-project'), run: () => void opts.closeProject() }] : []),
     ], { label: t('more'), align: 'end' });
   }
@@ -1394,7 +1394,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /* ───────── side panels: director and export ───────── */
   const flush = async () => { if (saving) await saving.catch(() => {}); await save(); return S.text === S.saved; };
   const exports = exportController(ctx, () => S, assets, t, flush);
-  const director = directorController(ctx, () => S, t, flush);
+  const director = opts.chat ? null : directorController(ctx, () => S, t, flush); // with the conversation in the Space there is no Director panel
   /* hosts without Extend View (file tab, floating window) get the same panels as a sheet over the editor */
   let inlinePanel = null;
   function openInlinePanel(kind, mount, label) {
@@ -1417,7 +1417,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (opts.view?.extendView) exportHandle = opts.view.extendView.open({ id: 'fvs-export', title: t('export'), side: 'right', mount: exports.mount, onClose(reason) { exportHandle = null; sidePanelClosed(reason); } });
     else openInlinePanel('export', exports.mount, t('export'));
   }
+  // Where the Space has the conversation on its right side (opts.chat), the Director is that conversation: the button
+  // brings it forward, and a one-click task puts its request in the input for the person to send. Elsewhere (older
+  // hosts, a notes tab, a floating window) the Director panel hands the work to a new conversation as before.
+  const askFor = (key, task) => { if (opts.chat) { opts.chat.reveal(); opts.chat.prefill(t(key)); } else void handOff(ctx, S, task(), t); };
   function openAsk() {
+    if (opts.chat) { opts.chat.reveal(); return; }
     if (askHandle?.isOpen) { askHandle.close(); return; }
     if (opts.view?.extendView) {
       askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount: director.mount, onClose(reason) { askHandle = null; aiBtn.setAttribute('aria-pressed', 'false'); sidePanelClosed(reason); } });
@@ -1840,12 +1845,17 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   layout();
 
   // a project made from the launchpad with an idea: the idea waits in the Director for the person to send
-  void load().then(() => { if (opts.idea && !S.disposed && S.p.scenes.length) { director.seed(opts.idea, opts.ideaDraft); openAsk(); } });
+  void load().then(() => {
+    if (!opts.idea || S.disposed || !S.p.scenes.length) return;
+    // handed to the conversation once: its input keeps the text across this view's remounts, so the draft is ours no more
+    if (opts.chat) { opts.chat.reveal(); opts.chat.prefill(opts.idea); opts.ideaDraft?.(''); }
+    else { director.seed(opts.idea, opts.ideaDraft); openAsk(); }
+  });
   raf = requestAnimationFrame(loop);
   const dispose = () => {
     commitFocusedField();
     S.disposed = true; closeLayer(); closeInlinePanel();
-    thumbs.dispose(); exports.dispose(); director.dispose(); exportHandle?.close();
+    thumbs.dispose(); exports.dispose(); director?.dispose(); exportHandle?.close();
     inspectorHandle?.close(); askHandle?.close();
     cancelAnimationFrame(raf);
     clearTimeout(previewTimer); clearTimeout(pendingTimer);

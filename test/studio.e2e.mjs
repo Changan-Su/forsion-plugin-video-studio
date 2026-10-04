@@ -202,7 +202,7 @@ assert.equal(await page.getByRole('button', { name: 'Next scene', exact: true })
 await shot(page, '13-english');
 
 /** A fresh host page with the example project trusted and the plugin loaded (for the Space sections). */
-async function spacePage() {
+async function spacePage({ chat = false } = {}) {
   const sp = await browser.newPage({ viewport: { width: 1600, height: 960 } });
   const serr = [];
   sp.on('pageerror', e => serr.push(String(e)));
@@ -216,6 +216,7 @@ async function spacePage() {
   await sp.goto(`${ORIGIN}/host.html`);
   await sp.evaluate(([p, t]) => { HOST.files.set(p, t); HOST.ctx.saveData({ trusted: [p], last: p }); }, [FILE, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8')]);
   for (const f of readdirSync(join(EX, 'assets'))) await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/assets/${f}`, Array.from(readFileSync(join(EX, 'assets', f)))]);
+  if (chat) await sp.evaluate(() => HOST.enableChat()); // a host with ctx.tangu.mountChat
   await sp.evaluate(src => HOST.load(src), readFileSync(join(root, 'main.js'), 'utf8'));
   return { sp, serr };
 }
@@ -786,6 +787,68 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.click('.fvs-nav [data-nav="projects"]');
   await sp.waitForSelector('.fvs-launch-empty', { timeout: 25000 }).catch(() => assert.fail('the list finishes loading while the host keeps polling it'));
   console.log(`no library: the empty list after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+// 19. On a host that can mount the native conversation in a plugin view (ctx.tangu.mountChat), the Director is a
+// conversation on the Space's right side: it comes with the project, works in the project's folder, takes the idea
+// from the create page once, takes the one-click tasks as text for the person to send, follows the project, and
+// goes when the project closes. Nothing is sent for the person, and the Director panel is not used.
+{
+  const { sp, serr } = await spacePage({ chat: true });
+  await sp.evaluate(() => HOST.ctx.saveData({ ...HOST.data, last: null }));
+  await sp.evaluate(r => HOST.space(null, r), RECIPE);
+  await sp.waitForSelector('.fvs-launch', { timeout: 10000 });
+  assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), null, 'no conversation while no project is open');
+  await sp.click('.fvs-nav [data-nav="create"]');
+  await sp.fill('.fvs-launch-name input', '对话测试');
+  await sp.fill('.fvs-launch-idea', '一支 10 秒的开场');
+  await sp.click('.fvs-launch-create');
+  await sp.waitForSelector('.host-left .fvs-bin', { timeout: 10000 });
+  await sp.waitForFunction(() => HOST.calls.chatPrefill.length === 1, null, { timeout: 5000 }).catch(() => assert.fail('the idea goes to the conversation'));
+  assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), 'chat', 'the conversation came to the right side');
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.mountChat), [{ agent: 'fvs-director', folder: 'Forsion Video Studio/对话测试', title: '对话测试' }], 'it works in the project folder, with the Director');
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill), ['一支 10 秒的开场']);
+  assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
+  assert.equal(await sp.locator('.fvs-director-panel').count(), 0, 'no Director panel');
+  await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 5000 }).catch(() => assert.fail('the properties still open with the project'));
+  // the host remounts the editor around layout jumps: the idea was handed over once
+  await sp.evaluate(() => HOST.spaceState.remount());
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip');
+  await sp.waitForTimeout(400);
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill), ['一支 10 秒的开场'], 'a remount does not hand the idea over again');
+  assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 1, 'the conversation stays mounted through it');
+  // the AI button brings the conversation forward; the properties keep the side's Extend View
+  const reveals = () => sp.evaluate(() => HOST.spaceState.log.filter(x => x === 'right:chat:reveal').length);
+  const before = await reveals();
+  await sp.locator('.fvs-bar .fvs-ai-action').click();
+  assert.equal(await reveals(), before + 1, 'the AI button reveals the conversation');
+  assert.equal(await sp.evaluate(() => HOST.spaceState.current()), 'fvs-properties');
+  // a one-click task: its request waits in the input
+  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
+  await sp.getByRole('menuitem', { name: /配乐/ }).click();
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill.slice(1)), ['为这个视频配乐']);
+  assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent for the person');
+  // another project, another folder: its own conversation
+  await sp.evaluate(p => HOST.reg.lists.find(l => l.id === 'projects').open({ key: p }), FILE);
+  await sp.waitForFunction(() => HOST.calls.mountChat.length === 2, null, { timeout: 10000 }).catch(() => assert.fail('switching the project switches the conversation'));
+  assert.equal((await sp.evaluate(() => HOST.calls.mountChat[1])).folder, DIR);
+  assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 1, 'the first one was let go');
+  assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
+  // closing the project takes the conversation with it
+  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
+  await sp.getByRole('menuitem', { name: '关闭工程' }).click();
+  await sp.waitForSelector('.fvs-launch', { timeout: 10000 });
+  assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), null, 'the conversation closed with the project');
+  assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 2);
+  // a project file directly in the library root has no folder to work in: the Director panel, as before
+  await sp.evaluate(t => { HOST.files.set('根目录.fvs.md', t); return HOST.ctx.saveData({ ...HOST.data, trusted: [...HOST.data.trusted, '根目录.fvs.md'] }); }, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8'));
+  await sp.evaluate(() => HOST.reg.lists.find(l => l.id === 'projects').open({ key: '根目录.fvs.md' }));
+  await sp.waitForSelector('.host-left .fvs-bin', { timeout: 10000 });
+  assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), null, 'no conversation for a project without a folder');
+  await sp.locator('.fvs-bar .fvs-ai-action').click();
+  await sp.waitForSelector('.host-extend .fvs-director-panel', { timeout: 5000 }).catch(() => assert.fail('…it keeps the Director panel'));
+  assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 2);
   assert.deepEqual(serr, []);
   await sp.close();
 }

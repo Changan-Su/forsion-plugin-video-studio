@@ -347,6 +347,10 @@ select.fvs-input{padding:0 4px}
 .fvs-dock-timeline .fvs-tl-resize{display:none}
 .fvs-dock-timeline .fvs-tl-bar{padding-top:6px}
 .fvs-dock-empty{margin:auto;padding:16px;text-align:center}
+.fvs-chat{display:flex;flex-direction:column;height:100%;overflow:hidden}
+.fvs-chat-empty{display:flex}
+.fvs-chat-empty[hidden],.fvs-chat-body:empty{display:none}
+.fvs-chat-body{flex:1;min-height:0}
 .fvs-dock-strip{display:flex;align-items:center;gap:8px;min-width:0;padding:4px 10px 4px 12px;background:var(--fv-hover);font-size:var(--fv-meta);color:var(--fv-muted)}
 .fvs-dock-strip svg{width:14px;height:14px}
 .fvs-dock-strip span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

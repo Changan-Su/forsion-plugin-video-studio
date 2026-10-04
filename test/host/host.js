@@ -148,9 +148,28 @@ window.HOST = (() => {
       leftView = { id, cleanup: v.mount(left, { surface: 'main', getParams: () => ({}), setParams() {}, onParamsChanged: () => () => {} }) || null };
       log.push(`left:${id}:open`);
     };
+    // the right side's own views: in the real host a tab beside the Extend View. Here they mount in a box of their
+    // own, kept out of the layout (the Extend View keeps the column): enough for the wiring, the real-Electron rig
+    // looks at the geometry.
+    const rightBox = document.createElement('div'); rightBox.className = 'host-right'; rightBox.hidden = true; shell.append(rightBox);
+    let rightView = null;
+    const closeRight = () => {
+      const d = rightView; if (!d) return;
+      rightView = null;
+      try { d.cleanup?.(); } catch (e) { console.error(e); }
+      rightBox.replaceChildren(); log.push(`right:${d.id}:close`);
+    };
+    const openRight = id => {
+      log.push(`right:${id}:reveal`); // opening a view that is already there brings its tab forward
+      if (rightView?.id === id) return;
+      closeRight();
+      const v = reg.views.find(x => x.id === id); if (!v) return;
+      rightView = { id, cleanup: v.mount(rightBox, { surface: 'main', getParams: () => ({}), setParams() {}, onParamsChanged: () => () => {} }) || null };
+      log.push(`right:${id}:open`);
+    };
     const bottomPanel = !!recipe && !oldHost;
     ctx.viewLocations = bottomPanel ? ['main', 'left', 'right', 'bottom'] : undefined;
-    ctx.openView = (id, o) => { if (o?.location === 'bottom' && bottomPanel) openBottom(id); else if (o?.location === 'left') openLeft(id); };
+    ctx.openView = (id, o) => { if (o?.location === 'bottom' && bottomPanel) openBottom(id); else if (o?.location === 'left') openLeft(id); else if (o?.location === 'right') openRight(id); };
     if (bottomPanel) {
       ctx.replaceView = (from, to) => {
         let n = 0;
@@ -158,7 +177,7 @@ window.HOST = (() => {
         if (docked?.id === from) { openBottom(to); n++; }
         return n;
       };
-      ctx.closeView = id => { if (docked?.id === id) closeBottom(); if (leftView?.id === id) closeLeft(); };
+      ctx.closeView = id => { if (docked?.id === id) closeBottom(); if (leftView?.id === id) closeLeft(); if (rightView?.id === id) closeRight(); };
     } else { delete ctx.replaceView; delete ctx.closeView; }
     let params = { ...(recipe?.main?.[0]?.params || {}), ...(file ? { filePath: file } : {}) };
     const view = reg.views.find(v => v.id === 'studio');
@@ -171,6 +190,7 @@ window.HOST = (() => {
       log, main, side, bottom, left, current: () => entry?.options.id || null, get params() { return params; },
       openBottom, closeBottom, get docked() { return docked?.id || null; },
       openLeft, closeLeft, get leftView() { return leftView?.id || null; },
+      get rightView() { return rightView?.id || null; },
       // keepSize: hidden without a size change (visibility), so only an interaction shows the editor is back
       hide({ keepSize = false } = {}) { visible = false; if (keepSize) main.style.visibility = 'hidden'; else main.style.display = 'none'; close('owner'); },
       show() { visible = true; main.style.display = ''; main.style.visibility = ''; },
@@ -179,8 +199,21 @@ window.HOST = (() => {
     };
     return space;
   }
+  /** A newer host: the native conversation mounts inside a plugin view (ctx.tangu.mountChat). Call before load(). */
+  function enableChat() {
+    Object.assign(calls, { mountChat: [], chatQuote: [], chatPrefill: [], chatDisposed: 0 });
+    ctx.tangu.mountChat = (el, o) => {
+      calls.mountChat.push({ ...o });
+      const box = document.createElement('div'); box.className = 'host-chat'; box.dataset.folder = o.folder || ''; el.append(box);
+      return {
+        ready: Promise.resolve({ ok: true, sessionId: `chat:${o.folder || ''}` }),
+        quote: text => calls.chatQuote.push(text), prefill: text => calls.chatPrefill.push(text),
+        dispose() { calls.chatDisposed++; box.remove(); },
+      };
+    };
+  }
   return {
-    files, calls, reg, ctx, open, get data() { return data; }, space: openSpace, get spaceState() { return space; },
+    files, calls, reg, ctx, open, enableChat, get data() { return data; }, space: openSpace, get spaceState() { return space; },
     get locale() { return locale; }, set locale(value) { locale = value; },
     load(src) { new Function('ctx', src)(ctx); },
     external(p, text) { files.set(p, text); const cb = watchers.get(p); if (cb) cb(); },

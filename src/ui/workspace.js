@@ -5,6 +5,7 @@ import { CSS } from './styles.js';
 import { parseProject, setProjectMeta } from '../lib/project.js';
 import { evaTemplate } from '../lib/templates.js';
 import { openMenu, closeLayer } from './menu.js';
+import { AGENT } from './ai.js';
 
 // the create page's frames (the project page offers these and 4K)
 const ASPECTS = [[1920, 1080, 'frame-landscape'], [1080, 1920, 'frame-portrait'], [1080, 1080, 'frame-square'], [1440, 1080, 'frame-classic']];
@@ -223,7 +224,46 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       },
     };
   })();
-  // The 「生成」 panel opens on the same side as the bin, as a tab beside it; the bin lists what it makes.
+
+  // The conversation with the Director, on the Space's right side while a project is open (hosts with
+  // ctx.tangu.mountChat). One conversation per project folder, working in that folder: what the agent generates
+  // lands in the project's files (generate_image writes generated/, which the bin lists). It follows the newest
+  // docked studio, like the bin. A project file that sits directly in the library root has no folder to work in and
+  // keeps the Director panel.
+  const canChat = typeof ctx.tangu?.mountChat === 'function';
+  // (no app.hostPath check here: at startup the host is not ready to answer, and it resolves the folder itself later)
+  const chatFolder = path => (canChat && dirOf(path)) || null;
+  const chat = (() => {
+    let handle = null, waiting = []; // what the editor sent before the view was up: [method, text]
+    const send = (method, text) => { if (!text) return; if (handle) handle[method](text); else waiting.push([method, text]); };
+    return {
+      reveal: () => ctx.openView?.('chat', { location: 'right' }),
+      quote: text => send('quote', text),
+      prefill: text => send('prefill', text),
+      bind(next) { handle = next; if (next) for (const [method, text] of waiting.splice(0)) next[method](text); },
+    };
+  })();
+  function mountChat(el) {
+    // The conversation is the host's own interface: it mounts beside the plugin's styled box, not inside it (the
+    // plugin's rules for buttons, inputs and focus rings would restyle the host's input otherwise).
+    const empty = h('div', { class: 'fvs-extension fvs-chat-empty' }, h('style', { text: CSS }), h('p', { class: 'fvs-hint fvs-dock-empty', text: t('chat-no-project') }));
+    const body = h('div', { class: 'fvs-chat-body' });
+    const shell = h('div', { class: 'fvs-chat' }, empty, body);
+    el.append(shell);
+    let folder = null, handle = null;
+    const sync = () => {
+      // An empty dock is the editor between two mounts (the host rebuilds it around layout jumps): the conversation
+      // stays, and with it the text waiting in its input. Closing the project closes this view.
+      const studio = dock.top(); if (!studio) return;
+      const next = chatFolder(studio.path);
+      if (next === folder) return;
+      folder = next; handle?.dispose(); body.replaceChildren();
+      handle = next ? ctx.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(studio.path)?.title || stemOf(studio.path) }) : null;
+      empty.hidden = !!handle; chat.bind(handle);
+    };
+    const off = dock.watch(sync); sync();
+    return () => { off(); chat.bind(null); handle?.dispose(); shell.remove(); };
+  }
 
   function mountTimeline(el) {
     const empty = h('p', { class: 'fvs-hint fvs-dock-empty', text: t('timeline-no-project') });
@@ -277,6 +317,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
         idea: !compact && pendingIdea?.path === next ? pendingIdea.text : '', ideaDraft: text => { if (pendingIdea?.path === next) pendingIdea = text ? { path: next, text } : null; },
         closeProject: launcher ? closeProject : null,
         dock: docked ? dock : null, showTimeline: () => ctx.openView?.('timeline', { location: 'bottom' }),
+        chat: docked && chatFolder(next) ? chat : null,
         showInMain: () => { view.setParams?.({ filePath: next }); view.showInMainPanel?.(); },
         openMini: ctx.openMiniPanel ? () => ctx.openMiniPanel('preview', { title: t('mini-preview'), params: { filePath: next }, mainViewId: 'studio', mainViewParams: { filePath: next } }) : null,
         openFloating: ctx.openFloatingPanel ? () => ctx.openFloatingPanel('studio', { title: t('app'), params: { filePath: next }, width: 1120, height: 820, minWidth: 480, minHeight: 580 }) : null,
@@ -285,7 +326,11 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
         // 0 swapped: the bin is already there (a switch, a restored layout) — then leave the bottom panel as the
         // person left it (⌘J). Never fall back to openView for the bin: that would expand a collapsed side.
         const swapped = ctx.replaceView('nav', 'media');
-        if (swapped || (fromLaunch && !initial)) ctx.openView?.('timeline', { location: 'bottom' });
+        if (swapped || (fromLaunch && !initial)) {
+          // the conversation first: the properties open after it (when the file is read) and stay in front
+          if (chatFolder(next)) chat.reveal();
+          ctx.openView?.('timeline', { location: 'bottom' });
+        }
       }
       return true;
     }
@@ -306,7 +351,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     }
     function launch() {
       // another studio tab may still hold a project: the bin and the timeline stay with it
-      if (jump && !dock.size()) { ctx.replaceView('media', 'nav'); ctx.closeView?.('timeline'); }
+      if (jump && !dock.size()) { ctx.replaceView('media', 'nav'); ctx.closeView?.('timeline'); if (canChat) ctx.closeView?.('chat'); }
       disposeContent = launcher ? launchpad(holder, (p, idea) => show(p, { idea })) : library(holder, show, true);
     }
     const record = { show, compact, launcher, leave: closeProject }; mounts.add(record);
@@ -432,6 +477,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   ctx.registerView?.({ id: 'timeline', title: t('timeline'), icon: 'layout', singleton: true, mount: el => mountTimeline(el) });
   ctx.registerView?.({ id: 'nav', title: t('workspace-welcome'), icon: 'list-view', singleton: true, mount: el => mountNav(el) });
   ctx.registerView?.({ id: 'media', title: t('bin'), icon: 'image', singleton: true, mount: el => mountBin(el) });
+  if (canChat) ctx.registerView?.({ id: 'chat', title: t('chat'), icon: 'quote', singleton: true, mount: el => mountChat(el) });
   ctx.registerListSource?.({
     id: 'projects', title: t('projects'), items: filter => rows(filter?.query), search: true, activeKey: () => selected,
     subscribe(fn) { listeners.add(fn); void refresh(); const poll = setInterval(refresh, 8000); return () => { listeners.delete(fn); clearInterval(poll); }; },
