@@ -94,8 +94,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   // In a Space the properties open with the project until the person turns them off, for as long as this editor
   // lives: a layout that is rebuilt (reset to the default, another Space and back) starts from the open panel again.
   let inspectorPref = true;
-  // The host folded the right side with the conversation on it (see `dismissed`): nothing of ours opens there on its
-  // own until the side is back. The conversation on the page again means it is.
+  // The host folded the right side (it says so, or the conversation went with our panel: see `taken`, `dismissed`):
+  // nothing of ours opens there on its own until the side is back. The conversation on the page again means it is.
   let sideFolded = false;
   // …and while a dismissal beside the conversation is still being told apart (folded, or only this panel closed),
   // nothing opens either: a click in that moment would open the panel into a side that is on its way out.
@@ -297,11 +297,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
    * The native panel shares the right side with the Director and the export panel (the host shows one at a
    * time). It is the side's resting state: it opens with the project and comes back when they close, unless
    * the person turned it off (our toggle). A hidden view loses it; it returns on show.
-   * The host says "dismiss" for every way the panel goes: closed from its tab, but also the whole side folding
-   * and the layout being rebuilt (reset to the default, another Space). Beside the conversation that is not the
-   * person's word on the properties (2026-10-05: one reset, and no click on the timeline showed anything again):
+   * Hosts up to 2.12.2 say "dismiss" for every way the panel goes: closed from its tab, but also the whole side
+   * folding and the layout being rebuilt (reset to the default, another Space). Beside the conversation that is not
+   * the person's word on the properties (2026-10-05: one reset, and no click on the timeline showed anything again):
    * the panel comes back with the side (restoreSide) and with the next thing they select (showProperties). Where
    * the properties are all the side holds, the host taking the panel away is the person closing it, as before.
+   * Later hosts say "layout" when it was them (the side folded, the layout rebuilt, another view's panel there) and
+   * keep "dismiss" for the person closing this panel: `taken` needs no conversation to tell by.
    */
   let reopenOnShow = false;
   let endRedirect = null; // the one redirect that is waiting for the host's focus (see openInspector)
@@ -314,6 +316,15 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     clearTimeout(sideSettling);
     sideSettling = setTimeout(() => { sideSettling = 0; if (S.disposed) return; if (opts.chat.shown()) then?.(); else sideFolded = true; }, SIDE_SETTLES_MS);
     return false;
+  }
+  /** The host says it took the panel with its place ("layout"). Folded until something shows the side again; and for
+   *  a moment nothing opens there on its own: the conversation leaves the page a little after our panel did.
+   *  ponytail: a side that held only our panel gives no sign when the person opens it again (no conversation mounts);
+   *  the properties button and a double-click still open it. A host signal for "this side is shown" would close that. */
+  function taken() {
+    sideFolded = true;
+    clearTimeout(sideSettling);
+    sideSettling = setTimeout(() => { sideSettling = 0; }, SIDE_SETTLES_MS);
   }
   /** The conversation left the page and the host did it (its side folded, or its tab was closed). With none of our
    *  panels there either, the side has nothing left to show: as folded. A fold that takes no panel of ours with it
@@ -336,7 +347,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         },
         onClose(reason) {
           inspectorHandle = null;
-          if (reason === 'dismiss' && dismissed()) inspectorPref = false;
+          if (reason === 'layout') taken();
+          else if (reason === 'dismiss' && dismissed()) inspectorPref = false;
           if (reason === 'owner') reopenOnShow = inspectorPref;
           if (!S.disposed) { root.querySelector('.fvs-main').append(side); layout(); }
         },
@@ -373,7 +385,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /** A click on something that has properties shows them: opens the panel the host took away, or brings its tab
    *  forward from behind the conversation. A collapsed side stays collapsed; the keyboard stays where it is. */
   const showProperties = () => { if (wantsProperties()) openInspector({ quiet: true }); };
-  const sidePanelClosed = reason => { if (reason === 'close') restoreInspector(); else if (reason === 'dismiss') dismissed(restoreInspector); else if (reason === 'owner') reopenOnShow = inspectorPref; };
+  const sidePanelClosed = reason => { if (reason === 'close') restoreInspector(); else if (reason === 'layout') taken(); else if (reason === 'dismiss') dismissed(restoreInspector); else if (reason === 'owner') reopenOnShow = inspectorPref; };
   function layout() {
     const inspectorShown = nativeInspector ? !!inspectorHandle?.isOpen : S.inspectorOpen;
     root.classList.toggle('inspector-hidden', nativeInspector || !S.inspectorOpen || !!opts.compact);
@@ -1464,8 +1476,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /** Copy files into the project's media/ or audio/ folder and, unless `place` is false, into the cut. */
   async function importBatch(files, afterId, place = true) {
     if (!files.length || S.disposed) return;
-    let existing = null;
-    try { const list = await app.listFiles?.(); existing = list ? new Set(list) : null; } catch { existing = null; }
+    const listed = async () => { try { const list = await app.listFiles?.(); return list ? new Set(list) : null; } catch { return null; } };
+    let existing = await listed();
     let after = afterId !== undefined ? afterId : insertAfter(), added = null, tracks = 0, stored = 0;
     for (const file of files) {
       const kind = KIND(file.name);
@@ -1473,8 +1485,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (kind === 'captions') { await importCaptions(file); continue; } // the text goes into the project
       if (!app.writeBytes) { notify(ctx, t('import-unsupported'), 'warn'); continue; }
       try {
+        // The bytes first, then the name, then the write: reading a large file takes a while, and a name picked before
+        // it can be taken by the time it ends. An editor that was closed meanwhile lists the folder again: its successor
+        // may have stored another file under that name since this import began (and would be written over).
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (S.disposed) existing = await listed();
         const rel = await freeRel(kind === 'audio' ? 'audio' : 'media', sanitize(file.name), existing);
-        await app.writeBytes(joinPath(dirOf(path), rel), new Uint8Array(await file.arrayBuffer()));
+        await app.writeBytes(joinPath(dirOf(path), rel), bytes);
         existing?.add(joinPath(dirOf(path), rel));
         if (!place || S.disposed) { stored++; continue; } // (the editor closed meanwhile: the file is in the folder, the bin lists it)
         const got = await placeMedia(rel, kind, { after, title: file.name.replace(/\.[^.]+$/, ''), duration: () => mediaDuration(file) });
@@ -1794,8 +1811,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   async function replaceMedia(s, tag, file, kind) {
     if (!file || !app.writeBytes) return;
     try {
+      const bytes = new Uint8Array(await file.arrayBuffer()); // (the bytes first: see importBatch)
       const rel = await freeRel('media', sanitize(file.name), null);
-      await app.writeBytes(joinPath(dirOf(path), rel), new Uint8Array(await file.arrayBuffer()));
+      await app.writeBytes(joinPath(dirOf(path), rel), bytes);
       assets.cache.delete(joinPath(dirOf(path), rel));
       tryCommit(src => {
         let out = P.setSceneBlock(src, s.id, 'html', HT.setAttr(P.sceneById(P.parseProject(src), s.id).html, tag, 'src', rel));

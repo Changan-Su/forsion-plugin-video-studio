@@ -193,6 +193,15 @@ window.HOST = (() => {
       openLeft, closeLeft, get leftView() { return leftView?.id || null; },
       get rightView() { return rightView?.id || null; },
       closeRight, holdRight() { heldRight = []; }, releaseRight() { const ids = heldRight || []; heldRight = null; ids.forEach(openRight); },
+      // A host that says who took the panel (after 2.12.2): folding the right side closes the Extend View with
+      // 'layout', then unmounts the side's own view a moment later (the real one: ~100 ms). Unfolding mounts that view
+      // again on the host's own initiative (no openView from the plugin); the Extend View is not restored.
+      foldRight() { const id = rightView?.id || null; close('layout'); setTimeout(closeRight, 100); return id; },
+      unfoldRight(id) {
+        const v = reg.views.find(x => x.id === id); if (!v || rightView) return;
+        rightView = { id, cleanup: v.mount(rightBox, { surface: 'main', getParams: () => ({}), setParams() {}, onParamsChanged: () => () => {} }) || null };
+        log.push(`right:${id}:open`);
+      },
       // keepSize: hidden without a size change (visibility), so only an interaction shows the editor is back
       hide({ keepSize = false } = {}) { visible = false; if (keepSize) main.style.visibility = 'hidden'; else main.style.display = 'none'; close('owner'); },
       show() { visible = true; main.style.display = ''; main.style.visibility = ''; },

@@ -33,7 +33,7 @@ const CAPTIONED = setCaptions(EXAMPLE, [
   { start: 15.2, end: 19.2, text: '这一话，补完计划开始。\nThe other half begins here.' },
 ]);
 
-async function open(viewport, { dark = false, locale = 'zh', text = EXAMPLE } = {}) {
+async function open(viewport, { dark = false, locale = 'zh', text = EXAMPLE, chat = false } = {}) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 2 });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
@@ -62,6 +62,7 @@ async function open(viewport, { dark = false, locale = 'zh', text = EXAMPLE } = 
     HOST.ctx.app.listFiles = async () => [...HOST.files.keys()];
     HOST.ctx.saveData({ trusted: [file], last: file });
   }, [FILE, locale]);
+  if (chat) await page.evaluate(() => HOST.enableChat()); // a host with the conversation in the right side
   await page.evaluate(src => HOST.load(src), readFileSync(join(root, 'main.js'), 'utf8'));
   return { page, errors };
 }
@@ -95,6 +96,20 @@ for (const dark of [true]) {
   await page.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
   await ready(page); await analysed(page); await page.waitForTimeout(1500);
   await shot(page, '07-space-dark');
+  if (errors.length) console.log('page errors:', errors);
+  await page.close();
+}
+// 2a. no audio yet, on a host with the conversation: the empty Music lane's two buttons and the AI Director's menu,
+// dark and light (the lane's buttons and the menu are drawn from tokens only: both modes are looked at)
+for (const dark of [true, false]) {
+  const { page, errors } = await open({ width: 1600, height: 960 }, { dark, chat: true, text: CAPTIONED.replace(/\n\s*"audio": \[[^\n]*\]/, '\n  "audio": []') });
+  await page.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await ready(page); await page.waitForTimeout(1500);
+  await page.waitForSelector('.host-bottom .fvs-lane-empty', { timeout: 5000 });
+  await shot(page, `14-empty-music-lane-${dark ? 'dark' : 'light'}`);
+  await page.hover('.host-bottom .fvs-lane-empty button[data-lane="score"]'); await shot(page, `14b-empty-music-lane-hover-${dark ? 'dark' : 'light'}`);
+  await page.click('.fvs-ai-action'); await page.hover('.fvs-menu [role="menuitem"]:nth-of-type(4)').catch(() => {});
+  await shot(page, `15-ai-menu-${dark ? 'dark' : 'light'}`);
   if (errors.length) console.log('page errors:', errors);
   await page.close();
 }

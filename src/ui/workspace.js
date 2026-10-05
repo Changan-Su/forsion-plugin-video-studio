@@ -325,7 +325,8 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       let switching = false;
       if (view.extendView) view.extendView.open({ id: 'fvs-projects', title: t('projects'), side: 'left',
         mount(body, handle) { return library(body, p => { switching = p !== path; handle.close(); void show(p).then(done => { if (switching && !done) disposeContent?.restoreSide?.(); }); }); },
-        onClose(reason) { if (!switching && (reason === 'close' || reason === 'dismiss')) disposeContent?.restoreSide?.(); } });
+        // ("layout": the host folded the left side or rebuilt the layout under the picker; the right side's rest is the same)
+        onClose(reason) { if (!switching && (reason === 'close' || reason === 'dismiss' || reason === 'layout')) disposeContent?.restoreSide?.(); } });
       else {
         if (await disposeContent?.flush?.() === false || disposed) return;
         disposeContent?.(); holder.replaceChildren(); path = null; disposeContent = library(holder, show);

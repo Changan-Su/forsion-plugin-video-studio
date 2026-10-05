@@ -3854,6 +3854,13 @@
       }, SIDE_SETTLES_MS);
       return false;
     }
+    function taken() {
+      sideFolded = true;
+      clearTimeout(sideSettling);
+      sideSettling = setTimeout(() => {
+        sideSettling = 0;
+      }, SIDE_SETTLES_MS);
+    }
     const sideLost = () => {
       if (!inspectorHandle?.isOpen && !askHandle?.isOpen && !exportHandle?.isOpen) sideFolded = true;
     };
@@ -3882,7 +3889,8 @@
           },
           onClose(reason) {
             inspectorHandle = null;
-            if (reason === "dismiss" && dismissed()) inspectorPref = false;
+            if (reason === "layout") taken();
+            else if (reason === "dismiss" && dismissed()) inspectorPref = false;
             if (reason === "owner") reopenOnShow = inspectorPref;
             if (!S.disposed) {
               root.querySelector(".fvs-main").append(side);
@@ -3948,6 +3956,7 @@
     };
     const sidePanelClosed = (reason) => {
       if (reason === "close") restoreInspector();
+      else if (reason === "layout") taken();
       else if (reason === "dismiss") dismissed(restoreInspector);
       else if (reason === "owner") reopenOnShow = inspectorPref;
     };
@@ -5362,8 +5371,8 @@
       const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
       for (let k = 1; k < 1e3; k++) {
         const rel = "".concat(folder, "/").concat(k === 1 ? stem : "".concat(stem, "-").concat(k)).concat(ext), vp = joinPath(dirOf2(path), rel);
-        const taken = existing ? existing.has(vp) : await app2.readBytes?.(vp).catch(() => null) != null;
-        if (!taken) return rel;
+        const taken2 = existing ? existing.has(vp) : await app2.readBytes?.(vp).catch(() => null) != null;
+        if (!taken2) return rel;
       }
       throw new Error("no free name for ".concat(name));
     }
@@ -5415,13 +5424,15 @@
     }
     async function importBatch(files, afterId, place2 = true) {
       if (!files.length || S.disposed) return;
-      let existing = null;
-      try {
-        const list2 = await app2.listFiles?.();
-        existing = list2 ? new Set(list2) : null;
-      } catch {
-        existing = null;
-      }
+      const listed = async () => {
+        try {
+          const list2 = await app2.listFiles?.();
+          return list2 ? new Set(list2) : null;
+        } catch {
+          return null;
+        }
+      };
+      let existing = await listed();
       let after = afterId !== void 0 ? afterId : insertAfter(), added = null, tracks = 0, stored = 0;
       for (const file of files) {
         const kind = KIND(file.name);
@@ -5438,8 +5449,10 @@
           continue;
         }
         try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          if (S.disposed) existing = await listed();
           const rel = await freeRel(kind === "audio" ? "audio" : "media", sanitize(file.name), existing);
-          await app2.writeBytes(joinPath(dirOf2(path), rel), new Uint8Array(await file.arrayBuffer()));
+          await app2.writeBytes(joinPath(dirOf2(path), rel), bytes);
           existing?.add(joinPath(dirOf2(path), rel));
           if (!place2 || S.disposed) {
             stored++;
@@ -5970,8 +5983,9 @@
     async function replaceMedia(s, tag, file, kind) {
       if (!file || !app2.writeBytes) return;
       try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
         const rel = await freeRel("media", sanitize(file.name), null);
-        await app2.writeBytes(joinPath(dirOf2(path), rel), new Uint8Array(await file.arrayBuffer()));
+        await app2.writeBytes(joinPath(dirOf2(path), rel), bytes);
         assets.cache.delete(joinPath(dirOf2(path), rel));
         tryCommit((src) => {
           let out = setSceneBlock(src, s.id, "html", setAttr(sceneById(parseProject(src), s.id).html, tag, "src", rel));
@@ -6959,8 +6973,9 @@
               });
             });
           },
+          // ("layout": the host folded the left side or rebuilt the layout under the picker; the right side's rest is the same)
           onClose(reason) {
-            if (!switching && (reason === "close" || reason === "dismiss")) disposeContent?.restoreSide?.();
+            if (!switching && (reason === "close" || reason === "dismiss" || reason === "layout")) disposeContent?.restoreSide?.();
           }
         });
         else {

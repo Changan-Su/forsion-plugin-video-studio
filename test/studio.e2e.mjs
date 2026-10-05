@@ -1117,6 +1117,26 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
     await sp.waitForFunction(p => HOST.files.has(p), `${DIR}/audio/late.wav`, { timeout: 5000 }).catch(() => assert.fail('the file is stored'));
     await sp.waitForTimeout(1200); // past the save debounce of an editor that should not be saving
     assert.equal(await text(), held, 'an editor that was closed does not write the project');
+    // …nor does its file land on one the new editor stored under the same name meanwhile: a file still being read
+    // when the editor was rebuilt, and the same file name imported again in its successor
+    await sp.evaluate(() => {
+      const read = File.prototype.arrayBuffer;
+      window.__slow = new Promise(go => { window.__slowGo = go; });
+      File.prototype.arrayBuffer = async function () {
+        if (this.name !== 'twice.wav' || window.__slowAt) return read.call(this);
+        window.__slowAt = true; const bytes = await read.call(this); await window.__slow; return bytes;
+      };
+    });
+    const later = Buffer.concat([WAV, Buffer.from([1, 2, 3, 4])]);
+    await sp.setInputFiles('.host-bottom .fvs-tl-body > input[type="file"]', { name: 'twice.wav', mimeType: 'audio/wav', buffer: WAV });
+    await sp.waitForFunction(() => window.__slowAt === true, null, { timeout: 5000 }).catch(() => assert.fail('the first import is reading its file'));
+    await sp.evaluate(() => HOST.spaceState.remount());
+    await sp.waitForSelector('.host-bottom .fvs-clip', { timeout: 8000 });
+    await sp.setInputFiles('.host-bottom .fvs-tl-body > input[type="file"]', { name: 'twice.wav', mimeType: 'audio/wav', buffer: later });
+    await sp.waitForFunction(p => HOST.files.has(p), `${DIR}/audio/twice.wav`, { timeout: 5000 }).catch(() => assert.fail('the new editor stored its file'));
+    await sp.evaluate(() => window.__slowGo());
+    await sp.waitForFunction(p => HOST.files.has(p), `${DIR}/audio/twice-2.wav`, { timeout: 5000 }).catch(() => assert.fail('the closed editor\'s file is stored under a name of its own'));
+    assert.deepEqual(await sp.evaluate(d => [HOST.files.get(`${d}/audio/twice.wav`).length, HOST.files.get(`${d}/audio/twice-2.wav`).length], DIR), [later.length, WAV.length], 'the file the new editor stored is not written over');
   }
   assert.deepEqual(serr, []);
   await sp.close();
@@ -1149,6 +1169,52 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(() => /笔记库还没打开/.test(document.querySelector('.fvs-launch-error:not([hidden])')?.textContent || ''), null, { timeout: 2000 })
     .catch(() => assert.fail('an older host: creating says at once that no library is open'));
   assert.ok(Date.now() - t1 < 2000);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+// 21. A host that says "layout" when it takes a panel away with its place (after 2.12.2), and keeps "dismiss" for the
+// person closing that panel. A fold is then not the person turning the properties off, with the conversation in the
+// side or without it; nothing of ours opens into a side that is folded or on its way out; when the side is back
+// (its conversation mounts again) the properties are too.
+{
+  const { sp, serr } = await spacePage({ chat: true });
+  await sp.evaluate(([p, r]) => HOST.space(p, r), [FILE, RECIPE]);
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 10000 });
+  await sp.waitForFunction(() => HOST.spaceState.rightView === 'chat', null, { timeout: 5000 });
+  const current = () => sp.evaluate(() => HOST.spaceState.current());
+  const clip = n => sp.locator('.host-bottom .fvs-dock-timeline .fvs-clip').nth(n).click({ position: { x: 30, y: 12 } });
+  const back = why => sp.waitForFunction(() => HOST.spaceState.current() === 'fvs-properties', null, { timeout: 5000 }).catch(() => assert.fail(why));
+  // with the conversation: the click lands while the conversation is still on the page
+  await sp.evaluate(() => HOST.spaceState.foldRight());
+  await clip(1);
+  await sp.waitForTimeout(600);
+  assert.equal(await current(), null, 'a click opens nothing into a side that is folding');
+  assert.equal(await sp.evaluate(() => HOST.spaceState.rightView), null);
+  await sp.evaluate(() => HOST.spaceState.unfoldRight('chat'));
+  await back('the properties come back with the side');
+  // the person closed the conversation's tab: the properties are all the side holds, and the host's word is all
+  // there is to tell a fold by
+  await sp.evaluate(() => HOST.spaceState.closeRight());
+  await sp.waitForTimeout(400);
+  assert.equal(await current(), 'fvs-properties', 'closing the conversation leaves the properties');
+  await sp.evaluate(() => HOST.spaceState.foldRight());
+  await clip(2);
+  await sp.waitForTimeout(600);
+  assert.equal(await current(), null, 'folded with nothing else in it: a click still opens nothing');
+  await sp.evaluate(() => HOST.spaceState.unfoldRight('chat')); // the host puts the side's default back
+  await back('a fold the host told us about is not the person turning the properties off');
+  // the export panel in the side when it folds: the properties do not take its place in a folded side
+  await sp.evaluate(() => HOST.spaceState.closeRight());
+  await sp.getByRole('button', { name: '导出', exact: true }).click();
+  await sp.getByRole('menuitem', { name: /导出 MP4/ }).click();
+  await sp.waitForFunction(() => HOST.spaceState.current() === 'fvs-export', null, { timeout: 5000 }).catch(() => assert.fail('the export panel opened'));
+  await sp.evaluate(() => HOST.spaceState.foldRight());
+  await sp.waitForTimeout(600);
+  assert.equal(await current(), null, 'a fold that takes the export panel does not bring the properties into the folded side');
+  // the properties button always opens them
+  await sp.getByRole('button', { name: '属性面板', exact: true }).click();
+  await back('the properties button opens a folded side');
   assert.deepEqual(serr, []);
   await sp.close();
 }

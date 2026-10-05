@@ -6,6 +6,8 @@
 //   FVS_TRACE=1      print what the plugin got back from the host (the copy under test is patched, not the repo)
 //   FVS_MAIN=<file>  run another build's main.js (a negative control: the released one must fail these checks)
 // Point FVS_DESKTOP_ROOT at a desktop/ whose host has ctx.tangu.mountChat, built with `npx electron-vite build`.
+// A host that tells a fold from the person's close (Extend View's "layout" reason, after 2.12.2) gets two more steps
+// (3c, 3d); an earlier one skips them and says so.
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,6 +20,7 @@ const desktop = resolve(process.env.FVS_DESKTOP_ROOT || join(repo, '../../Forsio
 const seam = join(desktop, 'frontend/src/amadeus/plugins/tanguSeam.ts');
 assert.ok(existsSync(seam) && readFileSync(seam, 'utf8').includes('mountChat'), `no ctx.tangu.mountChat in ${desktop}: point FVS_DESKTOP_ROOT at a host that has it`);
 assert.ok(existsSync(join(desktop, 'out/main/main.js')), `build the desktop first: npx electron-vite build in ${desktop}`);
+const saysLayout = /ExtendViewCloseReason = [^\n]*'layout'/.test(readFileSync(join(desktop, '../lcl/engine/extendView.ts'), 'utf8'));
 const req = createRequire(import.meta.url);
 const H = req(join(desktop, 'scripts/lib/uiux-electron.cjs'));
 const electron = req(join(desktop, 'scripts/lib/launch-electron.cjs'));
@@ -109,6 +112,14 @@ try {
   const gone = (sel, why, ms = 6000) => win.waitForFunction(s => !document.querySelector(s)?.getClientRects().length, sel, { timeout: ms }).catch(() => assert.fail(why));
   const both = async why => { const t = (await tabs()).sort(); assert.deepEqual(t, ['对话', '属性'].sort(), `${why}: the right side is the conversation and the properties, nothing else (${t.join(' | ') || 'nothing'})`); };
   const tab = () => win.locator(`${props} .fvs-tabs [aria-selected="true"]`).getAttribute('data-tab');
+  /** Every tab of the workbench's side groups (icon tabs carry their name as a title). */
+  const sideTabs = () => win.evaluate(() => [...document.querySelectorAll('.wb-tab--icon')].map(t => t.title));
+  /** The person closes a side tab: its context menu. */
+  const closeTab = async title => {
+    await win.locator(`.wb-tab[title="${title}"]`).click({ button: 'right' });
+    await win.locator('.ctx-menu button').filter({ hasText: /^\s*关闭\s*$/ }).click();
+    await win.waitForFunction(t => !document.querySelector(`.wb-tab[title="${t}"]`), title, { timeout: 5000 }).catch(() => assert.fail(`the ${title} tab closed`));
+  };
 
   step('a project: the conversation and the properties share the right side, the properties in front');
   await win.waitForSelector('.fvs-launch', { timeout: 15000 });
@@ -194,6 +205,37 @@ try {
   await edge('right');
   await shown(props, 'the properties come back with the side');
   await both('after a conversation-only side was folded and opened');
+
+  if (!saysLayout) step('(3c, 3d skipped: this host says "dismiss" for a fold too, and leaves its placeholder beside a view opened into an emptied side)');
+  else {
+    step('3c the conversation\'s tab closed, then the side folded: the host says it was a fold, and the properties are back with the side');
+    await closeTab('对话');
+    await win.waitForTimeout(500);
+    await shown(props, 'closing the conversation\'s tab leaves the properties');
+    await edge('right');
+    await win.waitForFunction(() => !document.querySelector('.wb-tab[title="属性"]'), null, { timeout: 5000 }).catch(() => assert.fail('the properties-only side folded'));
+    await win.waitForTimeout(500);
+    await clip(1); await win.waitForTimeout(700);
+    assert.equal(await sideOn(), false, 'a click leaves a folded properties-only side folded');
+    await edge('right'); // the host puts back what the side held when it was last folded with real views: the conversation
+    await win.waitForFunction(() => document.querySelector('.wb-tab[title="对话"]'), null, { timeout: 6000 }).catch(() => assert.fail('the side came back with the conversation'));
+    await shown(props, 'folding a side that held only the properties did not turn them off: they are back with the side', 6000);
+    await both('after a properties-only side was folded and opened');
+
+    step('3d the side emptied by hand, then the conversation asked for: the host\'s "empty side" placeholder does not stay beside it');
+    await win.locator('.wb-extend[aria-label="属性"] .wb-extend-close').click();
+    await gone(props, 'the × closes the properties');
+    await closeTab('对话');
+    await win.waitForFunction(() => [...document.querySelectorAll('.wb-tab--icon')].some(t => t.title === '空侧栏'), null, { timeout: 5000 }).catch(async () => assert.fail(`an emptied side shows the host's placeholder (${(await sideTabs()).join(' | ')})`));
+    await ask('打开对话');
+    await shown(input, 'the conversation opens in the emptied side');
+    await win.waitForTimeout(600);
+    assert.ok(!(await sideTabs()).includes('空侧栏'), `the placeholder went when a view came (${(await sideTabs()).join(' | ')})`);
+    await clip(1);
+    await shown(props, 'and a click shows the properties beside it');
+    await both('after the conversation came back to an emptied side');
+    await shot('emptied-side-refilled');
+  }
 
   step('4 folded, the AI button opens the conversation, and it stays in front');
   await edge('right');
