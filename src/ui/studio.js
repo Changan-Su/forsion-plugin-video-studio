@@ -28,8 +28,6 @@ export const KIND = name => (/\.(mp4|m4v|webm|mov)$/i.test(name) ? 'video' : /\.
 const MOD = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent || '') ? '⌘' : 'Ctrl+';
 const RULER_H = 24, CAPTION_H = 32, VIDEO_H = 64, ELEM_H = 46, AUDIO_H = 44; // track order: what sits on the picture is drawn above it
 const ELEM_ROWS = 3, ELEM_ROW_H = 14; // the elements lane: what is inside the scenes, under them
-// In a Space the properties panel opens with each project until the person closes it (for this session).
-let inspectorPref = true;
 
 /** Shared per-plugin trust list: paths whose scripts the user agreed to run. */
 export async function trustList(ctx) {
@@ -93,6 +91,16 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const app = ctx.app;
   const nativeInspector = !!opts.view?.extendView && !opts.compact;
   let inspectorHandle = null, askHandle = null, exportHandle = null;
+  // In a Space the properties open with the project until the person turns them off, for as long as this editor
+  // lives: a layout that is rebuilt (reset to the default, another Space and back) starts from the open panel again.
+  let inspectorPref = true;
+  // The host folded the right side with the conversation on it (see `dismissed`): nothing of ours opens there on its
+  // own until the side is back. The conversation on the page again means it is.
+  let sideFolded = false;
+  // …and while a dismissal beside the conversation is still being told apart (folded, or only this panel closed),
+  // nothing opens either: a click in that moment would open the panel into a side that is on its way out.
+  let sideSettling = 0;
+  const sideShown = () => !sideSettling && (!sideFolded || !!opts.chat?.shown());
   const S = {
     path, text: '', saved: '', p: P.parseProject(''), time: 0, playing: false,
     sel: null, selText: null, selHit: null, selCap: null, selEl: null, tab: 'scene', codeScope: 'scene', allTexts: false,
@@ -122,6 +130,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const undoBtn = tool('Undo2', 'undo', () => undo(), { kbd: `${MOD}Z` });
   const redoBtn = tool('Redo2', 'redo', () => redo(), { kbd: `⇧${MOD}Z` });
   const aiBtn = tool('Sparkles', 'ask-ai', () => openAsk(), { cls: 'fvs-ai-action' });
+  if (opts.chat) { aiBtn.setAttribute('aria-haspopup', 'menu'); aiBtn.append(icon('ChevronDown')); } // (there it is a menu: openAsk)
   const exportBtn = tool('Download', 'export', e => openExportMenu(e.currentTarget), { cls: 'primary fvs-export-action' });
   exportBtn.setAttribute('aria-haspopup', 'menu'); exportBtn.append(icon('ChevronDown'));
   const moreBtn = tool('MoreHorizontal', 'more', e => openMoreMenu(e.currentTarget));
@@ -144,7 +153,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   frameBack.classList.add('fvs-frame-step'); frameFwd.classList.add('fvs-frame-step');
   const muteBtn = tool('Volume2', 'mute', () => { S.muted = !S.muted; applyVolumes(); renderTransport(); });
   const focusBtn = tool('Maximize2', 'focus-preview', () => setFocus(!S.focus));
-  const inspectorToggle = tool('PanelRight', 'toggle-properties', () => toggleInspector());
+  // (in a Space the host's own right-side toggle is on screen too, with the panel glyph: ours is the properties')
+  const inspectorToggle = tool(nativeInspector ? 'SlidersHorizontal' : 'PanelRight', 'toggle-properties', () => toggleInspector());
   const preview = h('section', { class: 'fvs-preview', 'aria-label': t('preview') }, viewport,
     h('div', { class: 'fvs-transport' },
       h('div', { class: 'fvs-transport-info' }, sceneNow, timeEl),
@@ -210,10 +220,14 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   scroller.append(inner);
   const rulerLabel = h('span', { class: 'fvs-rail-ruler' });
   const audioRail = h('div', { class: 'fvs-rail-audio' });
+  // a track's name opens the tab of the properties where its things are edited
+  const railName = (cls, glyph, key, tab) => h('button', { type: 'button', class: cls, title: t('rail-hint', { tab: t(`tab-${tab}`) }), onclick: () => openTab(tab) }, icon(glyph), h('span', { text: t(key) }));
   const trackRail = h('div', { class: 'fvs-track-rail' }, rulerLabel,
-    h('div', { class: 'fvs-rail-captions' }, icon('Captions'), h('span', { text: t('captions-track') })),
-    h('div', { class: 'fvs-rail-video' }, icon('Film'), h('span', { text: t('video-track') })),
-    h('div', { class: 'fvs-rail-lane' }, icon('Layers'), h('span', { text: t('elements-track') })), audioRail);
+    railName('fvs-rail-captions', 'Captions', 'captions-track', 'captions'),
+    railName('fvs-rail-video', 'Film', 'video-track', 'scene'),
+    railName('fvs-rail-lane', 'Layers', 'elements-track', 'scene'), audioRail);
+  // (an empty audio lane offers these two itself: a file, or the Director)
+  const audioInput = h('input', { type: 'file', accept: 'audio/*', multiple: true, hidden: true, onchange: e => { const files = [...e.target.files]; e.target.value = ''; void importFiles(files); } });
   const resizeHandle = h('div', { class: 'fvs-tl-resize', role: 'separator', tabindex: '0', 'aria-orientation': 'horizontal', 'aria-label': t('resize-timeline'), 'aria-valuemin': '150' });
   resizeHandle.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -224,7 +238,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     e.preventDefault(); e.stopPropagation(); resizeTimeline(timelineHeight() + (e.key === 'ArrowUp' ? 20 : -20));
   });
-  const tlBody = h('div', { class: 'fvs-tl-body' }, trackRail, scroller);
+  const tlBody = h('div', { class: 'fvs-tl-body' }, trackRail, scroller, audioInput);
   const timeline = h('section', { class: 'fvs-tl', 'aria-label': t('timeline') }, resizeHandle, tlBar, tlBody);
   // In the Space the timeline lives in the native bottom panel (opts.dock); this strip stands in for it while that panel is closed.
   const dockStrip = h('div', { class: 'fvs-dock-strip', hidden: true }, icon('PanelBottom'), h('span', { text: t('timeline-docked') }),
@@ -273,7 +287,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     layout();
   }
   function toggleInspector(force) {
-    const open = force ?? !(nativeInspector ? inspectorHandle?.isOpen : S.inspectorOpen);
+    // (open but behind the conversation's tab is not showing: the button brings it forward, the next click turns it off)
+    const open = force ?? !(nativeInspector ? inspectorHandle?.isOpen && side.isConnected : S.inspectorOpen);
     if (nativeInspector) { inspectorPref = open; if (open) openInspector(); else inspectorHandle?.close(); return; }
     S.inspectorOpen = open; if (open) S.focus = false;
     layout();
@@ -281,13 +296,37 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /*
    * The native panel shares the right side with the Director and the export panel (the host shows one at a
    * time). It is the side's resting state: it opens with the project and comes back when they close, unless
-   * the person closed it (our toggle, the host's × or Escape). A hidden view loses it; it returns on show.
+   * the person turned it off (our toggle). A hidden view loses it; it returns on show.
+   * The host says "dismiss" for every way the panel goes: closed from its tab, but also the whole side folding
+   * and the layout being rebuilt (reset to the default, another Space). Beside the conversation that is not the
+   * person's word on the properties (2026-10-05: one reset, and no click on the timeline showed anything again):
+   * the panel comes back with the side (restoreSide) and with the next thing they select (showProperties). Where
+   * the properties are all the side holds, the host taking the panel away is the person closing it, as before.
    */
   let reopenOnShow = false;
+  let endRedirect = null; // the one redirect that is waiting for the host's focus (see openInspector)
+  const SIDE_SETTLES_MS = 300; // a folding side unmounts the conversation ~100 ms after it dismissed our panel
+  /** The host dismissed one of our panels on the side. With the conversation beside it that may be the whole side
+   *  folding: then the conversation is gone a moment later, and nothing comes back until the side does. Otherwise
+   *  `then` runs (now when there is no conversation to tell by). True: the panel was all the side held. */
+  function dismissed(then) {
+    if (!opts.chat?.shown()) { then?.(); return true; }
+    clearTimeout(sideSettling);
+    sideSettling = setTimeout(() => { sideSettling = 0; if (S.disposed) return; if (opts.chat.shown()) then?.(); else sideFolded = true; }, SIDE_SETTLES_MS);
+    return false;
+  }
+  /** The conversation left the page and the host did it (its side folded, or its tab was closed). With none of our
+   *  panels there either, the side has nothing left to show: as folded. A fold that takes no panel of ours with it
+   *  (the properties were closed before) is told here and nowhere else. */
+  const sideLost = () => { if (!inspectorHandle?.isOpen && !askHandle?.isOpen && !exportHandle?.isOpen) sideFolded = true; };
+  /** Open the panel; open already but behind another tab (the conversation), bring it forward. */
   function openInspector({ quiet = false, focusKey = null } = {}) {
     if (!nativeInspector || S.disposed) return;
-    if (inspectorHandle?.isOpen) { if (focusKey) panel.querySelector(`[data-key="${CSS.escape(focusKey)}"]`)?.focus(); return; }
-    S.focus = false;
+    const had = !!inspectorHandle?.isOpen;
+    // Open and on the page (a tab that is behind is not): there is nothing to ask the host for, and asking makes it
+    // put its focus on the panel's first control, a round trip for the keyboard on every click.
+    if (had && side.isConnected) { const x = focusKey && panel.querySelector(`[data-key="${CSS.escape(focusKey)}"]`); if (x) { x.focus(); x.select?.(); } return; }
+    if (!had) S.focus = false;
     const before = document.activeElement;
     try {
       inspectorHandle = opts.view.extendView.open({ id: 'fvs-properties', title: t('properties'), side: 'right',
@@ -297,27 +336,44 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         },
         onClose(reason) {
           inspectorHandle = null;
-          if (reason === 'dismiss') inspectorPref = false;
+          if (reason === 'dismiss' && dismissed()) inspectorPref = false;
           if (reason === 'owner') reopenOnShow = inspectorPref;
           if (!S.disposed) { root.querySelector('.fvs-main').append(side); layout(); }
         },
       });
     } catch { reopenOnShow = inspectorPref; return; } // the view is hidden right now
-    // the host focuses the first control of a panel it opens; send the keyboard where it belongs instead
+    sideFolded = false; clearTimeout(sideSettling); sideSettling = 0; // (it is showing now)
+    // The host focuses the first control of a panel it opens or brings forward, a moment later; send the keyboard
+    // where it belongs instead. One redirect at a time: a click and then a double-click must not leave the first one
+    // waiting to take the keyboard from the field the second one asked for.
     if (quiet || focusKey) {
+      endRedirect?.();
       const target = () => (focusKey ? panel.querySelector(`[data-key="${CSS.escape(focusKey)}"]`) : before && before !== document.body && before.isConnected ? before : root);
-      const off = () => { clearTimeout(timer); side.removeEventListener('focusin', back); side.removeEventListener('pointerdown', off); };
-      const back = () => { off(); const x = target(); if (x && x !== document.activeElement) { x.focus({ preventScroll: true }); if (focusKey) x.select?.(); } };
+      let mine = false; // (the focus we move ourselves is not the host's)
+      const go = () => { const x = target(); if (x && x !== document.activeElement) { mine = true; x.focus({ preventScroll: true }); mine = false; if (focusKey) x.select?.(); } };
+      const off = () => { clearTimeout(timer); side.removeEventListener('focusin', back); side.removeEventListener('pointerdown', off); if (endRedirect === off) endRedirect = null; };
+      const back = () => { if (mine) return; off(); go(); };
       const timer = setTimeout(off, 1500);
       side.addEventListener('focusin', back); side.addEventListener('pointerdown', off);
+      endRedirect = off;
+      // Brought forward from behind another tab: its field can have the keyboard as soon as the panel is on the page
+      // (the host's focus may come before that and fall on nothing). When it comes later, it is sent back here.
+      if (had && focusKey) { let n = 30; const wait = () => { if (S.disposed || endRedirect !== off) return; if (side.isConnected) go(); else if (n--) requestAnimationFrame(wait); }; wait(); }
     }
-    layout();
+    // (open already: nothing moved. layout() redraws the timeline a frame later, and between the two clicks of a
+    // double-click that takes away the element the second one was on)
+    if (!had) layout();
   }
+  /** What has to hold for the panel to come back on its own: wanted, nothing of ours in its place, the side showing. */
+  const wantsProperties = () => !S.disposed && nativeInspector && inspectorPref && !S.focus && !askHandle?.isOpen && !exportHandle?.isOpen && sideShown();
   /** Bring the panel back after another panel or focus mode had the side, if the person wants it. */
-  function restoreInspector() {
-    setTimeout(() => { if (!S.disposed && nativeInspector && inspectorPref && !S.focus && !inspectorHandle?.isOpen) openInspector({ quiet: true }); });
+  function restoreInspector(wait = 0) {
+    setTimeout(() => { if (wantsProperties() && !inspectorHandle?.isOpen) openInspector({ quiet: true }); }, wait);
   }
-  const sidePanelClosed = reason => { if (reason === 'close' || reason === 'dismiss') restoreInspector(); else if (reason === 'owner') reopenOnShow = inspectorPref; };
+  /** A click on something that has properties shows them: opens the panel the host took away, or brings its tab
+   *  forward from behind the conversation. A collapsed side stays collapsed; the keyboard stays where it is. */
+  const showProperties = () => { if (wantsProperties()) openInspector({ quiet: true }); };
+  const sidePanelClosed = reason => { if (reason === 'close') restoreInspector(); else if (reason === 'dismiss') dismissed(restoreInspector); else if (reason === 'owner') reopenOnShow = inspectorPref; };
   function layout() {
     const inspectorShown = nativeInspector ? !!inspectorHandle?.isOpen : S.inspectorOpen;
     root.classList.toggle('inspector-hidden', nativeInspector || !S.inspectorOpen || !!opts.compact);
@@ -465,7 +521,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
 
   /* ───────── edits ───────── */
   function commit(next) {
-    if (typeof next !== 'string' || next === S.text) return;
+    // A closed editor changes nothing: work that was still on its way (an import, a rewrite) would save its old
+    // text over what the editor that replaced it has written since (the layout reset, another Space and back).
+    if (S.disposed || typeof next !== 'string' || next === S.text) return;
     S.undo.push(S.text); if (S.undo.length > 200) S.undo.shift();
     S.redo = [];
     S.text = next;
@@ -560,7 +618,10 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     renderTimeline(); renderToolbar();
     if (edit) openInline(m);
     else if (!opts.compact && m.dbl && m.img != null) { S.tab = 'scene'; toggleInspector(true); renderSide(); }
-    else if (S.tab === 'text' || S.tab === 'scene') renderSide();
+    else {
+      if (S.tab === 'text' || S.tab === 'scene') renderSide();
+      if (m.text != null || m.img != null) showProperties(); // something picked in the picture, not a click on its background
+    }
   }
   function openInline(m) {
     closeInline();
@@ -889,7 +950,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   elLane.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const el = e.target.closest('.fvs-el');
-    if (el) selectElement(el.dataset.scene, +el.dataset.tag); else scrub(e);
+    if (el) { selectElement(el.dataset.scene, +el.dataset.tag); showProperties(); } else scrub(e);
   });
   elLane.addEventListener('dblclick', e => {
     const el = e.target.closest('.fvs-el'), x = el && selectElement(el.dataset.scene, +el.dataset.tag);
@@ -941,10 +1002,15 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       for (let i = 0; i < Math.max(1, tracks.length); i++) {
         const canvas = h('canvas', { class: 'fvs-lane-wave' });
         const region = h('div', { class: 'fvs-lane-region' }, canvas, h('span', { class: 'fvs-lane-name' }));
-        const lane = h('div', { class: 'fvs-lane', style: { top: `${RULER_H + CAPTION_H + VIDEO_H + ELEM_H + i * AUDIO_H}px` } }, region);
+        // an empty lane says what to do with it (the rest of it still moves the playhead)
+        const empty = h('div', { class: 'fvs-lane-empty' },
+          h('button', { type: 'button', class: 'fvs-btn ghost', 'data-lane': 'add', disabled: !app.writeBytes, onclick: () => audioInput.click() }, icon('Plus'), h('span', { text: t('audio-add') })),
+          h('button', { type: 'button', class: 'fvs-btn ghost', 'data-lane': 'score', title: t('score-hint'), onclick: () => askFor('score') }, icon('Sparkles'), h('span', { text: t('score-ask') })),
+          h('span', { class: 'fvs-lane-hint', text: t('drop-audio') }));
+        const lane = h('div', { class: 'fvs-lane', style: { top: `${RULER_H + CAPTION_H + VIDEO_H + ELEM_H + i * AUDIO_H}px` } }, region, empty);
         region.addEventListener('pointerdown', e => dragTrack(e, i));
         lane.addEventListener('pointerdown', e => { if (e.target === lane) scrub(e); });
-        const label = h('div', { class: 'fvs-rail-lane' }, icon('Music2'), h('span'));
+        const label = h('button', { type: 'button', class: 'fvs-rail-lane', onclick: () => showAudio(laneTracks()[i]?.id, true) }, icon('Music2'), h('span'));
         lanes.append(lane); audioRail.append(label);
         laneEls.push({ lane, region, canvas, label });
       }
@@ -952,10 +1018,10 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     laneEls.forEach((L, i) => {
       const tr = tracks[i];
       L.label.querySelector('span').textContent = tr && i !== score ? t('audio-track-n', { n: i + 1 }) : t('audio-track');
-      L.label.title = tr ? tr.src : t('sync-none');
+      L.label.title = `${tr ? tr.src : t('sync-none')}\n${t('rail-hint', { tab: t('tab-project') })}`;
       L.region.hidden = !tr;
       L.lane.classList.toggle('empty', !tr);
-      if (!tr) { L.lane.dataset.hint = t('drop-audio'); return; }
+      if (!tr) return;
       const d = decodedNow(joinPath(dir, tr.src));
       const len = tr.dur != null ? tr.dur : d ? Math.max(0, d.duration - (tr.in || 0)) : Math.max(1, S.p.length - (tr.at || 0));
       Object.assign(L.region.style, { left: `${(tr.at || 0) * Z}px`, width: `${Math.max(4, len * Z)}px` });
@@ -1066,7 +1132,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         S.sel = id; S.selHit = null; S.selCap = null; S.selEl = null;
         if (was === id) seek((ev.clientX - r.left) / Z);
         else if (S.time < s.t0 || S.time >= s.t1) seek(s.t0);
-        renderTimeline(); renderSide();
+        renderTimeline(); renderSide(); showProperties();
         return;
       }
       if (target !== s0.index) { if (tryCommit(src => P.moveScene(src, id, target))) { S.sel = id; renderAll(); } }
@@ -1130,7 +1196,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const move = ev => { moved = true; at = Math.max(s.t0, Math.min(s.t1, snapT((ev.clientX - r.left) / Z))); m.style.left = `${(at - s.t0) * Z}px`; };
     const up = ev => {
       if (ev.type === 'pointercancel') { renderTimeline(); return; }
-      if (!moved) { seek(s.hitTimes[i]); renderSide(); return; }
+      if (!moved) { seek(s.hitTimes[i]); renderSide(); if (e.button === 0) showProperties(); return; } // (a right-click has its menu open: the keyboard is the menu's)
       const hits = s.hits.slice(); hits[i] = Math.round((at - base) / u * 1e4) / 1e4;
       S.selHit = null;
       tryCommit(src => P.setHits(src, s.id, hits));
@@ -1146,6 +1212,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     let at = at0, moved = false;
     const move = ev => { moved = moved || Math.abs(ev.clientX - x0) > 3; if (!moved) return; at = Math.max(0, snapT(at0 + (ev.clientX - x0) / Z)); region.style.left = `${at * Z}px`; };
     const up = ev => {
+      if (ev.type !== 'pointercancel' && !moved) showAudio(tr.id); // a click: its settings
       if (ev.type === 'pointercancel' || !moved || Math.abs(at - at0) < 1e-6) { renderLanes(); return; }
       setTrack(tr.id, { at: Math.round(at * 1000) / 1000 || undefined });
     };
@@ -1230,7 +1297,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     };
     const up = ev => {
       if (ev.type === 'pointercancel') { renderCaptions(); return; }
-      if (!moved) { if (S.time < c0.start || S.time >= c0.end) seek(c0.start); return; }
+      if (!moved) { if (S.time < c0.start || S.time >= c0.end) seek(c0.start); showProperties(); return; }
       if (Math.abs(start - c0.start) < 1e-6 && Math.abs(end - c0.end) < 1e-6) return;
       const next = { ...c0, start, end };
       commitCaptions(cues().map((c, k) => (k === i ? next : c)), next);
@@ -1255,12 +1322,30 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     renderTimeline(); renderSide();
     focusField(`cap:${i}:text`);
   }
+  /** Asked for by name (a track's name on the timeline): the properties at this tab, opened if they were not. */
+  function openTab(k) {
+    S.tab = k; renderSide();
+    if (nativeInspector) { inspectorPref = true; openInspector({ quiet: true }); }
+    else if (!opts.compact && !S.inspectorOpen) { S.inspectorOpen = true; S.focus = false; layout(); }
+  }
+  /** The audio tracks in the project tab, at track `id` when there is one. `open`: asked for by name; else a
+   *  click on the track, which shows the panel the way any selection does. */
+  function showAudio(id, open = false) {
+    if (open) openTab('project'); else { S.tab = 'project'; renderSide(); showProperties(); }
+    let n = 30;
+    const mark = () => {
+      if (S.disposed || S.tab !== 'project') return;
+      if (!side.isConnected) { if (n--) requestAnimationFrame(mark); return; } // a panel that is opening is not on the page yet
+      const card = id == null ? null : panel.querySelector(`.fvs-track-card[data-track="${CSS.escape(String(id))}"]`);
+      (card || panel.querySelector('.fvs-audio-tracks'))?.scrollIntoView({ block: 'nearest' });
+      if (card) { card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash'); }
+    };
+    mark();
+  }
   /** Open the properties if they are closed and put the caret in the field with this key. */
   function focusField(key) {
-    if (nativeInspector) {
-      inspectorPref = true;
-      if (!inspectorHandle?.isOpen) { openInspector({ focusKey: key }); return; }
-    } else if (!opts.compact && !S.inspectorOpen) { S.inspectorOpen = true; S.focus = false; layout(); }
+    if (nativeInspector) { inspectorPref = true; openInspector({ focusKey: key }); return; } // (it goes to the field itself)
+    if (!opts.compact && !S.inspectorOpen) { S.inspectorOpen = true; S.focus = false; layout(); }
     const field_ = panel.querySelector(`[data-key="${CSS.escape(key)}"]`); if (field_) { field_.focus(); field_.select?.(); }
   }
   async function importCaptions(file) {
@@ -1352,11 +1437,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /** Put a file of the project (`rel`, relative to it) into the cut: a picture or clip becomes a scene after
    *  `after`, a sound an audio track starting at `at` seconds. The new scene's id, 'track', or null. */
   async function placeMedia(rel, kind, { after = insertAfter(), at = 0, title = rel.split('/').pop().replace(/\.[^.]+$/, ''), duration = () => 0 } = {}) {
+    if (S.disposed) return null;
     if (kind === 'audio') {
       const list = rawTracks(), track = { src: rel, role: list.length ? 'track' : 'score', ...(at > 0 ? { at: Math.round(at * 1000) / 1000 } : {}) };
       return tryCommit(src => P.setProjectMeta(src, { audio: [...list, track] })) ? 'track' : null;
     }
     const seconds = kind === 'video' ? await duration() : 0;
+    if (S.disposed) return null;
     const id = P.freeId(S.p, kind === 'video' ? 'clip' : 'picture');
     const scene = mediaScene({ id, title, src: rel, kind, seconds: seconds || 5, tempo: S.p.tempo });
     return tryCommit(src => P.insertScene(src, after, scene)) ? id : null;
@@ -1389,7 +1476,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         const rel = await freeRel(kind === 'audio' ? 'audio' : 'media', sanitize(file.name), existing);
         await app.writeBytes(joinPath(dirOf(path), rel), new Uint8Array(await file.arrayBuffer()));
         existing?.add(joinPath(dirOf(path), rel));
-        if (!place) { stored++; continue; }
+        if (!place || S.disposed) { stored++; continue; } // (the editor closed meanwhile: the file is in the folder, the bin lists it)
         const got = await placeMedia(rel, kind, { after, title: file.name.replace(/\.[^.]+$/, ''), duration: () => mediaDuration(file) });
         if (got === 'track') tracks++; else if (got) { after = got; added = got; }
       } catch (e) { notify(ctx, String(e && e.message || e), 'warn'); }
@@ -1474,7 +1561,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (bad.length) {
         body.append(h('div', { class: 'fvs-sync-list' }, ...bad.slice(0, 40).map(r => h('button', { type: 'button', onclick: () => { handle.close(); S.sel = r.scene; seek(r.t); renderTimeline(); } },
           h('span', { text: fmtTime(r.t) }), h('span', { text: `${P.sceneById(S.p, r.scene)?.title || r.scene} · h${r.hit}` })))));
-        body.append(h('button', { type: 'button', class: 'fvs-btn', onclick: () => { handle.close(); askFor('ai-chip-sync', TASKS.sync); } }, icon('Sparkles'), t('sync-fix')));
+        body.append(h('button', { type: 'button', class: 'fvs-btn', onclick: () => { handle.close(); askFor('sync'); } }, icon('Sparkles'), t('sync-fix')));
       }
     }
     const handle = openPopover(anchor, body, { label: t('sync') });
@@ -1501,8 +1588,6 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       !opts.view && opts.openWorkspace ? { icon: 'Clapperboard', label: t('open-workspace'), run: opts.openWorkspace } : null,
       !opts.compact && opts.openMini ? { icon: 'PictureInPicture2', label: t('mini-preview'), run: opts.openMini } : null,
       !opts.compact && opts.openFloating ? { icon: 'AppWindow', label: t('floating-workspace'), run: opts.openFloating } : null,
-      { icon: 'Music2', label: t('score'), hint: t('score-hint'), run: () => askFor('ai-chip-score', TASKS.score) },
-      { icon: 'Eye', label: t('ai-chip-review'), run: () => askFor('ai-chip-review', TASKS.review) },
       ...(opts.closeProject ? ['-', { icon: 'X', label: t('close-project'), run: () => void opts.closeProject() }] : []),
     ], { label: t('more'), align: 'end' });
   }
@@ -1545,12 +1630,28 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (opts.view?.extendView) exportHandle = opts.view.extendView.open({ id: 'fvs-export', title: t('export'), side: 'right', mount: exports.mount, onClose(reason) { exportHandle = null; sidePanelClosed(reason); } });
     else openInlinePanel('export', exports.mount, t('export'));
   }
-  // Where the Space has the conversation on its right side (opts.chat), the Director is that conversation: the button
-  // brings it forward, and a one-click task puts its request in the input for the person to send. Elsewhere (older
-  // hosts, a notes tab, a floating window) the Director panel hands the work to a new conversation as before.
-  const askFor = (key, task) => { if (opts.chat) { opts.chat.reveal(); opts.chat.prefill(t(key)); } else void handOff(ctx, S, task(), t); };
+  // Where the Space has the conversation on its right side (opts.chat), the Director is that conversation: the
+  // button lists what it can be asked, and each request is written into the conversation's input for the person to
+  // send (a plugin does not send for them), said in their words, with a notice that it is waiting there. Elsewhere
+  // (older hosts, a notes tab, a floating window) the Director panel hands the work to a new conversation as before.
+  // null: a start the person finishes ("write a new scene: …").
+  const ASKS = { scene: null, pace: null, copy: null, score: TASKS.score, sync: TASKS.sync, review: TASKS.review };
+  const ASK_ICONS = { scene: 'Film', pace: 'Scissors', copy: 'Pencil', score: 'Music2', sync: 'Check', review: 'Eye' };
+  function askFor(kind) {
+    if (!opts.chat) { void handOff(ctx, S, ASKS[kind](), t); return; } // (off the Space only the complete tasks are offered)
+    opts.chat.reveal();
+    opts.chat.prefill(ASKS[kind] ? t(`ai-ask-${kind}`) : t(`ai-chip-${kind}`) + (t.en() ? ': ' : '：'));
+    notify(ctx, t('chat-task-ready'));
+  }
   function openAsk() {
-    if (opts.chat) { opts.chat.reveal(); return; }
+    if (opts.chat) {
+      openMenu(aiBtn, [
+        { icon: 'MessageSquareQuote', label: t('chat-open'), run: () => opts.chat.reveal() },
+        '-', { heading: t('director-quick') },
+        ...Object.keys(ASKS).map(kind => ({ icon: ASK_ICONS[kind], label: t(`ai-chip-${kind}`), run: () => askFor(kind) })),
+      ], { label: t('ask-ai'), align: 'end' });
+      return;
+    }
     if (askHandle?.isOpen) { askHandle.close(); return; }
     if (opts.view?.extendView) {
       askHandle = opts.view.extendView.open({ id: 'fvs-director', title: t('ai-title'), side: 'right', mount: director.mount, onClose(reason) { askHandle = null; aiBtn.setAttribute('aria-pressed', 'false'); sidePanelClosed(reason); } });
@@ -1843,7 +1944,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       h('small', { class: 'fvs-hint', text: t('tempo-hint') })));
     // audio tracks
     const tracks = C.audioTracks(m);
-    const rows = tracks.map((a, i) => h('div', { class: 'fvs-track-card' },
+    const rows = tracks.map((a, i) => h('div', { class: 'fvs-track-card', 'data-track': String(a.id) },
       h('div', { class: 'fvs-track-head' }, icon('Music2'), h('span', { class: 'fvs-media-name', text: a.src.split('/').pop(), title: a.src }),
         h('label', { class: 'fvs-check' }, h('input', { type: 'checkbox', checked: !!a.mute, onchange: e => setTrack(a.id, { mute: e.target.checked || undefined }) }), t('clip-mute')),
         h('button', { type: 'button', class: 'fvs-btn icon', title: t('audio-remove'), 'aria-label': t('audio-remove'), onclick: () => removeTrack(a.id) }, icon('Trash2'))),
@@ -1853,9 +1954,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         'dur' in a ? field(t('audio-dur'), input(`au:${i}:dur`, a.dur ?? '', v => setTrack(a.id, { dur: +v > 0 ? +v : undefined }), { type: 'number', step: '0.01', min: '0', placeholder: t('audio-dur-full') })) : null,
         field(t('audio-gain'), input(`au:${i}:gain`, a.gain || 0, v => setTrack(a.id, { gain: +v || undefined }), { type: 'number', step: '0.5' })))));
     const file = h('input', { type: 'file', accept: 'audio/*', multiple: true, hidden: true, onchange: e => { const files = [...e.target.files]; e.target.value = ''; void importFiles(files); } });
-    out.push(section(t('project-audio'), ...(rows.length ? rows : [h('p', { class: 'fvs-hint', text: t('sync-none') })]),
+    const audio = section(t('project-audio'), ...(rows.length ? rows : [h('p', { class: 'fvs-hint', text: t('sync-none') })]),
       h('div', { class: 'fvs-row' }, file, h('button', { type: 'button', class: 'fvs-btn', disabled: !app.writeBytes, onclick: () => file.click() }, icon('Plus'), t('audio-add')),
-        tracks.length ? h('button', { type: 'button', class: 'fvs-btn ghost', onclick: e => openSync(e.currentTarget) }, t('sync')) : null)));
+        h('button', { type: 'button', class: 'fvs-btn ghost', title: t('score-hint'), onclick: () => askFor('score') }, icon('Sparkles'), t('score-ask')),
+        tracks.length ? h('button', { type: 'button', class: 'fvs-btn ghost', onclick: e => openSync(e.currentTarget) }, t('sync')) : null));
+    audio.classList.add('fvs-audio-tracks');
+    out.push(audio);
     const probs = [...S.p.errors, ...S.runtimeErrors.map(e => ({ level: 'error', ...e }))];
     out.push(section(t('problems'), probs.length ? h('div', { class: 'fvs-problems' }, ...probs.map(e => h('div', { class: e.level === 'warning' ? 'w' : 'e', text: `${e.scene ? `[${e.scene}] ` : ''}${e.line ? `line ${e.line}: ` : ''}${e.message}` }))) : h('p', { class: 'fvs-hint', text: t('no-problems') })));
     return out;
@@ -1921,6 +2025,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     text: () => S.text,
     store: files => importFiles(files, undefined, false),
     place: vp => { const s = sceneUnderPlayhead(); return placeFromBin(vp, s ? s.id : '', S.time); },
+    // the conversation's side of it: the right side is showing again, and the properties belong beside it
+    restoreSide: restoreInspector, sideLost,
     attach(shell) {
       // the panel closing takes the focused timeline with it: give the keys back to the editor, not to the page
       const a = document.activeElement, lost = !!dockShell && (!a || a === document.body || dockShell.contains(a));

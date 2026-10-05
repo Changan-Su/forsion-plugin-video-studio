@@ -60,7 +60,8 @@ button.fvs-project:hover{background:var(--fv-hover)}
 .fvs-bar-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .fvs-history{display:flex;gap:2px;margin-right:6px}
 .fvs-ai-action svg{color:var(--fv-accent)}
-.fvs-export-action svg:last-child{width:13px;height:13px;margin-left:-2px;opacity:.75}
+.fvs-export-action svg:last-child,.fvs-ai-action[aria-haspopup] svg:last-child{width:13px;height:13px;margin-left:-2px;opacity:.75}
+.fvs-ai-action[aria-haspopup] svg:last-child{color:inherit}
 
 /* stage */
 .fvs-main{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0;min-width:0}
@@ -149,6 +150,8 @@ select.fvs-input{padding:0 4px}
 .fvs-media-main .fvs-row{align-items:center}
 .fvs-media-name{font-size:var(--fv-meta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .fvs-track-card{display:grid;gap:8px;padding:10px;border-radius:var(--fv-r-md);background:var(--fv-hover)}
+@keyframes fvs-flash{from{background:var(--fv-accent-soft);box-shadow:inset 0 0 0 1px var(--fv-accent)}}
+.fvs-track-card.flash{animation:fvs-flash 1.4s ease-out}
 .fvs-track-head{display:flex;align-items:center;gap:8px;min-width:0}
 .fvs-track-head svg{width:14px;height:14px;color:var(--fv-muted)}
 .fvs-track-head .fvs-media-name{flex:1}
@@ -207,6 +210,9 @@ select.fvs-input{padding:0 4px}
 .fvs-rail-captions svg,.fvs-rail-video svg,.fvs-rail-lane svg{width:14px;height:14px}
 .fvs-rail-captions span,.fvs-rail-video span,.fvs-rail-lane span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fvs-rail-audio{display:contents}
+/* a track's name is a button: it opens the tab of the properties where its things are edited */
+button:is(.fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane){border:0;background:transparent;text-align:left;transition:color var(--fv-fast)}
+button:is(.fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane):hover{color:var(--fv-text)}
 .fvs-tl-scroll{position:relative;overflow:auto hidden;min-height:0}
 .fvs-tl-inner{position:relative}
 .fvs-tl-ruler{position:absolute;left:0;top:0;cursor:ew-resize}
@@ -267,7 +273,12 @@ select.fvs-input{padding:0 4px}
 .fvs-tl.reordering .fvs-clip{cursor:grabbing}
 .fvs-tl-empty{position:absolute;left:12px;top:22px;color:var(--fv-muted);font-size:var(--fv-meta)}
 .fvs-lane{position:absolute;left:0;right:0;height:44px}
-.fvs-lane.empty::after{content:attr(data-hint);position:absolute;left:12px;top:14px;color:var(--fv-muted);font-size:var(--fv-caption);pointer-events:none;white-space:nowrap}
+/* an empty lane says what to do with it; outside its two buttons a press still moves the playhead */
+.fvs-lane-empty{display:none;position:sticky;left:8px;width:max-content;height:100%;align-items:center;gap:2px;pointer-events:none}
+.fvs-lane.empty .fvs-lane-empty{display:flex}
+.fvs-lane-empty .fvs-btn{height:24px;padding:0 8px;font-size:var(--fv-caption);pointer-events:auto}
+.fvs-lane-empty .fvs-btn svg{width:13px;height:13px}
+.fvs-lane-hint{margin-left:6px;color:var(--fv-muted);font-size:var(--fv-caption);white-space:nowrap}
 .fvs-lane-region{position:absolute;top:5px;height:34px;overflow:hidden;border-radius:var(--fv-r-sm);background:color-mix(in srgb,var(--fv-accent) 9%,var(--fv-card));cursor:grab;touch-action:none}
 .fvs-lane-region:hover{box-shadow:inset 0 0 0 1px var(--fv-strong)}
 .fvs-lane-region.muted{opacity:.45}
@@ -292,6 +303,7 @@ select.fvs-input{padding:0 4px}
 .fvs-studio.narrow .fvs-transport{padding:0 8px 4px 12px}
 :is(.fvs-studio,.fvs-dock-timeline).narrow .fvs-tl-body{grid-template-columns:44px minmax(0,1fr)}
 :is(.fvs-studio,.fvs-dock-timeline).narrow :is(.fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane) span,:is(.fvs-studio,.fvs-dock-timeline).narrow .fvs-rail-ruler{font-size:0}
+:is(.fvs-studio,.fvs-dock-timeline).narrow .fvs-lane-hint{display:none}
 .fvs-studio.narrow .fvs-viewport{padding:6px 10px}
 .fvs-studio.compact{grid-template-rows:auto minmax(0,1fr)}
 .fvs-studio.compact :is(.fvs-tl,.fvs-side,.fvs-history,.fvs-status,.fvs-ai-action,.fvs-export-action,.fvs-time){display:none}

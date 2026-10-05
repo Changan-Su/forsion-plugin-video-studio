@@ -73,6 +73,8 @@ try {
 
   const chatBox = '[data-plugin-chat] .t2-chat-view', input = '[data-plugin-chat] textarea';
   const more = async item => { await win.locator('.fvs-bar button[aria-label="更多"]').click(); await win.getByRole('menuitem', { name: item }).click(); };
+  // the AI button lists what the Director can be asked; its first entry is the conversation itself
+  const ask = async item => { await win.locator('.fvs-bar .fvs-ai-action').click(); await win.getByRole('menuitem', { name: item }).click(); };
   const draft = () => win.locator(input).first().inputValue();
   const group = sel => win.evaluate(s => { const el = document.querySelector(s)?.closest('.dv-groupview'); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; }, sel);
 
@@ -121,13 +123,13 @@ try {
   await win.waitForSelector('.fvs-native-properties', { state: 'visible', timeout: 5000 });
   await win.waitForTimeout(300);
   await H.captureWindow(app, join(shots, '02-properties.png'));
-  await win.locator('.fvs-bar .fvs-ai-action').click();
+  await ask('打开对话');
   await win.waitForSelector(input, { state: 'visible', timeout: 5000 }).catch(() => assert.fail('the AI button reveals the conversation'));
 
   // 4. a one-click task is appended to the input; nothing is sent
-  await more(/配乐/);
-  await win.waitForFunction(s => (document.querySelector(s)?.value || '').includes('为这个视频配乐'), input, { timeout: 5000 }).catch(() => assert.fail('the task waits in the input'));
-  assert.match(await draft(), /一支 10 秒的开场[\s\S]*为这个视频配乐/, 'after the idea, which is kept');
+  await ask('为这个视频配乐');
+  await win.waitForFunction(s => (document.querySelector(s)?.value || '').includes('原创配乐'), input, { timeout: 5000 }).catch(() => assert.fail('the task waits in the input'));
+  assert.match(await draft(), /一支 10 秒的开场[\s\S]*为这个视频写一段原创配乐/, 'after the idea, which is kept');
   assert.equal(stub.seen.runs.length, 0, 'nothing is sent for the person');
   await win.waitForTimeout(300);
   await H.captureWindow(app, join(shots, '03-task.png'));
@@ -169,7 +171,7 @@ try {
     console.log('after reload:', JSON.stringify(await win.evaluate(() => ({ space: document.querySelector('[data-space-id]')?.dataset.spaceId, launch: !!document.querySelector('.fvs-launch'), studio: !!document.querySelector('.fvs-studio'), gate: !!document.querySelector('.fvs-gate'), dock: !!document.querySelector('.fvs-dock-timeline'), clips: document.querySelectorAll('.fvs-clip').length, body: document.body.innerText.slice(0, 300) }))), 'errors:', JSON.stringify(errors));
     assert.fail('the timeline is back after a reload');
   });
-  await win.locator('.fvs-bar .fvs-ai-action').click();
+  await ask('打开对话');
   await win.waitForSelector(chatBox, { timeout: 20000 }).catch(async () => {
     await H.captureWindow(app, join(shots, 'fail-reload.png'));
     console.log('after reload:', JSON.stringify(await win.evaluate(() => ({

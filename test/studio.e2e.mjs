@@ -2,7 +2,7 @@
 // edit text in the picture, drag a cut, undo, export HTML, hand off to the agent, reload an external edit.
 //   NODE_PATH=$(npm root -g) node test/studio.e2e.mjs [--shots dir]
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
@@ -11,6 +11,7 @@ import { serveVault } from './vault-route.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
+const MAIN = process.env.FVS_MAIN ? resolve(process.env.FVS_MAIN) : join(root, 'main.js'); // FVS_MAIN: another build (a negative control)
 const require = createRequire(join(process.cwd(), 'x.js'));
 const { chromium } = (() => { for (const m of ['playwright', 'playwright-core']) { try { return require(m); } catch { /* next */ } } throw new Error('needs playwright'); })();
 const shotsAt = process.argv.indexOf('--shots');
@@ -42,7 +43,7 @@ const put = async (p, bytes) => page.evaluate(([q, b]) => HOST.files.set(q, new 
 await page.evaluate(([p, t]) => HOST.files.set(p, t), [FILE, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8')]);
 for (const f of readdirSync(join(EX, 'assets'))) await put(`${DIR}/assets/${f}`, readFileSync(join(EX, 'assets', f)));
 await put(`${DIR}/audio/episode-2.12-score.mp3`, readFileSync(join(EX, 'audio/episode-2.12-score.mp3')));
-await page.evaluate(src => HOST.load(src), readFileSync(join(root, 'main.js'), 'utf8'));
+await page.evaluate(src => HOST.load(src), readFileSync(MAIN, 'utf8'));
 const reg = await page.evaluate(() => Object.fromEntries(Object.entries(HOST.reg).map(([k, v]) => [k, v.map(x => x.id)])));
 assert.deepEqual(reg.fileTypes, ['project']);
 
@@ -217,7 +218,7 @@ async function spacePage({ chat = false } = {}) {
   await sp.evaluate(([p, t]) => { HOST.files.set(p, t); HOST.ctx.saveData({ trusted: [p], last: p }); }, [FILE, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8')]);
   for (const f of readdirSync(join(EX, 'assets'))) await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/assets/${f}`, Array.from(readFileSync(join(EX, 'assets', f)))]);
   if (chat) await sp.evaluate(() => HOST.enableChat()); // a host with ctx.tangu.mountChat
-  await sp.evaluate(src => HOST.load(src), readFileSync(join(root, 'main.js'), 'utf8'));
+  await sp.evaluate(src => HOST.load(src), readFileSync(MAIN, 'utf8'));
   return { sp, serr };
 }
 
@@ -820,39 +821,49 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForTimeout(400);
   assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill), ['一支 10 秒的开场'], 'a remount does not hand the idea over again');
   assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 1, 'the conversation stays mounted through it');
-  // the AI button brings the conversation forward; the properties keep the side's Extend View
+  // the AI button lists what the Director can be asked; its first entry brings the conversation forward, and the
+  // properties keep the side's Extend View
   const reveals = () => sp.evaluate(() => HOST.spaceState.log.filter(x => x === 'right:chat:reveal').length);
+  const ask = async item => { await sp.locator('.fvs-bar .fvs-ai-action').click(); await sp.getByRole('menuitem', { name: item }).click(); };
   const before = await reveals();
   await sp.locator('.fvs-bar .fvs-ai-action').click();
+  assert.deepEqual((await sp.getByRole('menuitem').allTextContents()).map(x => x.trim()), ['打开对话', '写一个新场景', '节奏再紧一点', '润色全部文案', '为这个视频配乐', '检查并修正卡点', '看一遍成片提意见']);
+  await sp.getByRole('menuitem', { name: '打开对话' }).click();
   assert.equal(await reveals(), before + 1, 'the AI button reveals the conversation');
   assert.equal(await sp.evaluate(() => HOST.spaceState.current()), 'fvs-properties');
-  // a one-click task: its request waits in the input
+  // "more" keeps the window and the project
   await sp.locator('.fvs-bar button[aria-label="更多"]').click();
-  await sp.getByRole('menuitem', { name: /配乐/ }).click();
-  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill.slice(1)), ['为这个视频配乐']);
+  assert.ok(!(await sp.getByRole('menuitem').allTextContents()).some(x => /配乐|成片/.test(x)), 'the Director\'s tasks are not under "more"');
+  await sp.keyboard.press('Escape');
+  // a one-click task: its request waits in the input, in the person's words, and a notice says so
+  const notices = await sp.evaluate(() => HOST.calls.notify.length);
+  await ask('为这个视频配乐');
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill.slice(1)), ['为这个视频写一段原创配乐：重音落在各场景的拍点上，写完加进工程，再做一次卡点检查。']);
+  assert.match(String(await sp.evaluate(n => HOST.calls.notify.slice(n).join('\n'), notices)), /已写进右侧对话/);
+  // a start the person finishes
+  await ask('写一个新场景');
+  assert.equal(await sp.evaluate(() => HOST.calls.chatPrefill.at(-1)), '写一个新场景：');
   assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent for the person');
   // The person closed the conversation's tab, then asked for a task: the request waits for the view to come up (the
   // real host mounts it a moment after openView). If the project changes in that moment, the request was for the
   // other project: it does not land in this one's conversation.
   await sp.evaluate(() => { HOST.spaceState.closeRight(); HOST.spaceState.holdRight(); });
   assert.equal(await sp.evaluate(() => HOST.calls.chatDisposed), 1, 'closing the tab lets the conversation go');
-  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
-  await sp.getByRole('menuitem', { name: /看一遍成片/ }).click();
+  await ask('看一遍成片提意见');
   // another project, another folder: its own conversation
   await sp.evaluate(p => HOST.reg.lists.find(l => l.id === 'projects').open({ key: p }), FILE);
   await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
   await sp.evaluate(() => HOST.spaceState.releaseRight());
   await sp.waitForFunction(() => HOST.calls.mountChat.length === 2, null, { timeout: 10000 }).catch(() => assert.fail('switching the project switches the conversation'));
   assert.equal((await sp.evaluate(() => HOST.calls.mountChat[1])).folder, DIR);
-  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatInto.map(x => x[0])), ['Forsion Video Studio/对话测试', 'Forsion Video Studio/对话测试'], 'a request written for the other project is not handed to this one');
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.chatInto.map(x => x[0])), ['Forsion Video Studio/对话测试', 'Forsion Video Studio/对话测试', 'Forsion Video Studio/对话测试'], 'a request written for the other project is not handed to this one');
   assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
   // …and one made here, while the view is still coming up, does arrive
   await sp.evaluate(() => { HOST.spaceState.closeRight(); HOST.spaceState.holdRight(); });
-  await sp.locator('.fvs-bar button[aria-label="更多"]').click();
-  await sp.getByRole('menuitem', { name: /看一遍成片/ }).click();
+  await ask('看一遍成片提意见');
   await sp.evaluate(() => HOST.spaceState.releaseRight());
   await sp.waitForFunction(() => HOST.calls.mountChat.length === 3, null, { timeout: 5000 }).catch(() => assert.fail('the conversation came back'));
-  assert.deepEqual(await sp.evaluate(d => HOST.calls.chatInto.filter(x => x[0] === d).map(x => x[1]), DIR), ['看一遍成片提意见'], 'a request waits for its own conversation');
+  assert.deepEqual(await sp.evaluate(d => HOST.calls.chatInto.filter(x => x[0] === d).map(x => x[1]), DIR), ['看一遍成片（抽帧看画面），给我一份具体的修改建议；我同意之前先不要改。'], 'a request waits for its own conversation');
   // closing the project takes the conversation with it
   await sp.locator('.fvs-bar button[aria-label="更多"]').click();
   await sp.getByRole('menuitem', { name: '关闭工程' }).click();
@@ -871,7 +882,7 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   // the host rebuilding the editor either: after a moment the conversation of a project nobody has open is let go.
   await sp.evaluate(p => HOST.reg.lists.find(l => l.id === 'projects').open({ key: p }), FILE);
   await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip[data-id="cards"]', { timeout: 10000 });
-  await sp.locator('.fvs-bar .fvs-ai-action').click();
+  await ask('打开对话');
   await sp.waitForFunction(() => HOST.calls.mountChat.length === 4, null, { timeout: 10000 }).catch(() => assert.fail('the project is back with its conversation'));
   assert.equal(await sp.locator('.host-right .host-chat').count(), 1);
   const lettingGo = await sp.evaluate(() => HOST.calls.chatDisposed);
@@ -899,7 +910,7 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   const quotes = () => sp.evaluate(() => HOST.calls.chatQuote.slice());
   const el = (scene, n) => tl.locator(`.fvs-el[data-scene="${scene}"]`).nth(n);
   // the rail names the lane, between the scenes and the score
-  assert.deepEqual(await tl.locator('.fvs-track-rail > div:not(.fvs-rail-audio), .fvs-rail-audio > div').evaluateAll(xs => xs.map(x => x.textContent.trim())), ['字幕', '场景', '元素', '配乐']);
+  assert.deepEqual(await tl.locator('.fvs-track-rail > button, .fvs-rail-audio > button').evaluateAll(xs => xs.map(x => x.textContent.trim())), ['字幕', '场景', '元素', '配乐']);
   // zoom in around the scene so the blocks are wide enough to read
   await tl.locator('.fvs-clip[data-id="years"]').click({ position: { x: 6, y: 24 } });
   for (let i = 0; i < 4; i++) await sp.keyboard.press('=');
@@ -1026,6 +1037,8 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   // (held for a moment, as a hand does: the timeline takes the keyboard back right after a press, see keepKeys)
   await el('years', 2).dblclick({ position: { x: 4, y: 6 }, delay: 40 });
   await sp.waitForFunction(() => document.activeElement?.dataset.key === 'tin:years:3', null, { timeout: 3000 }).catch(() => assert.fail('a double-click puts the caret in the element\'s "in" time'));
+  await sp.waitForTimeout(200); // the host puts its own focus on the panel's first control a moment after it was asked for again
+  assert.equal(await sp.evaluate(() => document.activeElement?.dataset.key), 'tin:years:3', 'and the caret stays there');
   // its own attribute keeps it selected, and the block follows: half a beat (0.2 s at 150 bpm) later
   const x0 = (await el('years', 2).boundingBox()).x, pps = await sp.evaluate(() => document.querySelector('.host-bottom .fvs-clip[data-id="years"]').getBoundingClientRect().width / 3.2);
   await sp.keyboard.type('h2+0.5');
@@ -1085,6 +1098,26 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, original.replace(/ data-(in|seq)="/g, ' data-x-$1="')]);
   await sp.waitForFunction(() => !document.querySelector('.host-bottom .fvs-el'), null, { timeout: 5000 }).catch(() => assert.fail('no timed elements, no blocks'));
   assert.match(await tl.locator('.fvs-el-lane.empty').getAttribute('data-hint'), /data-in/);
+  // An import that is still writing when the host rebuilds the editor (a layout reset): the editor that was closed
+  // must not come back and save its text over the project. The file itself is stored.
+  {
+    const WAV = (() => { const n = 2400, b = Buffer.alloc(44 + n * 2); b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(8000, 24); b.writeUInt32LE(16000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40); return b; })();
+    await sp.waitForFunction(() => document.querySelector('.fvs-status')?.dataset.state === 'saved', null, { timeout: 5000 });
+    const held = await text();
+    await sp.evaluate(() => {
+      const app = HOST.ctx.app, write = app.writeBytes;
+      window.__late = new Promise(go => { window.__lateGo = go; });
+      app.writeBytes = async (p, b) => { if (!p.endsWith('/audio/late.wav')) return write(p, b); app.writeBytes = write; window.__lateAt = true; await window.__late; return write(p, b); };
+    });
+    await sp.setInputFiles('.host-bottom .fvs-tl-body > input[type="file"]', { name: 'late.wav', mimeType: 'audio/wav', buffer: WAV });
+    await sp.waitForFunction(() => window.__lateAt === true, null, { timeout: 5000 }).catch(() => assert.fail('the import reached its write'));
+    await sp.evaluate(() => HOST.spaceState.remount());
+    await sp.waitForSelector('.host-bottom .fvs-clip', { timeout: 8000 });
+    await sp.evaluate(() => window.__lateGo());
+    await sp.waitForFunction(p => HOST.files.has(p), `${DIR}/audio/late.wav`, { timeout: 5000 }).catch(() => assert.fail('the file is stored'));
+    await sp.waitForTimeout(1200); // past the save debounce of an editor that should not be saving
+    assert.equal(await text(), held, 'an editor that was closed does not write the project');
+  }
   assert.deepEqual(serr, []);
   await sp.close();
 }

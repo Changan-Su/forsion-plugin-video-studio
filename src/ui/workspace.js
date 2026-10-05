@@ -232,18 +232,26 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   // keeps the Director panel.
   const canChat = typeof ctx.tangu?.mountChat === 'function';
   const CHAT_LINGER_MS = 2000; // a remount around a layout jump takes a frame or two and a file read; a missed one only mounts the same conversation again
+  const SIDE_OPENS_MS = 300; // the host opens a side in 200 ms: its panels are left alone until it has
   // (no app.hostPath check here: at startup the host is not ready to answer, and it resolves the folder itself later)
   const chatFolder = path => (canChat && dirOf(path)) || null;
   const chat = (() => {
     let handle = null, bound = null, waiting = []; // what an editor sent before its conversation was up: [method, text, folder]
+    let views = 0, asked = -Infinity; // conversation views on the page; when one of our buttons last called for it
     const send = (method, text, folder) => { if (!text) return; if (handle && bound === folder) handle[method](text); else waiting.push([method, text, folder]); };
-    const reveal = () => ctx.openView?.('chat', { location: 'right' });
+    const reveal = () => { asked = performance.now(); return ctx.openView?.('chat', { location: 'right' }); };
     return {
       reveal,
-      /** What one editor gets: its words go to its own project's conversation, never to the one that follows it. */
-      of: folder => ({ reveal, quote: text => send('quote', text, folder), prefill: text => send('prefill', text, folder) }),
+      /** What one editor gets: its words go to its own project's conversation, never to the one that follows it.
+       *  `shown`: the conversation's view is mounted, so the right side is showing (collapsed, the host unmounts it). */
+      of: folder => ({ reveal, shown: () => views > 0, quote: text => send('quote', text, folder), prefill: text => send('prefill', text, folder) }),
       // text that was waiting for another project's conversation goes with the switch
       bind(next, folder = null) { handle = next; bound = next ? folder : null; if (next) for (const [method, text, to] of waiting.splice(0)) if (to === folder) next[method](text); },
+      /** A view that goes takes only its own conversation with it (two can overlap while the host rebuilds a layout). */
+      release(mine) { if (mine && handle === mine) { handle = null; bound = null; } },
+      /** A conversation view mounts. `asked()`: one of our buttons called for it a moment ago (else the host brought
+       *  the side back). `gone()`: how many are left. */
+      view() { views++; return { asked: () => performance.now() - asked < 1500, gone: () => --views }; },
     };
   })();
   function mountChat(el) {
@@ -258,12 +266,12 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       if (next === folder) return;
       // dispose() is all the cleaning there is: the host takes its own mount away. Emptying the element here took
       // the conversation's nodes from under the host while its unmount was still pending (a page error per project switch)
-      folder = next; handle?.dispose();
+      folder = next; chat.release(handle); handle?.dispose();
       handle = next ? ctx.tangu.mountChat(body, { agent: AGENT, folder: next, title: titles.get(path)?.title || stemOf(path) }) : null;
       // the Director gets no hand-off message here to tell it where the command line is: keep the copy beside
       // the projects, where its skill looks (../.fvs-tools from a project the Studio made)
       if (next) ensureTools(ctx).catch(() => {});
-      empty.hidden = !!handle; chat.bind(handle, next);
+      empty.hidden = !!handle; if (handle) chat.bind(handle, next);
     };
     const sync = () => {
       clearTimeout(gone);
@@ -275,7 +283,16 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       show(chatFolder(studio.path), studio.path);
     };
     const off = dock.watch(sync); sync();
-    return () => { clearTimeout(gone); off(); chat.bind(null); handle?.dispose(); shell.remove(); };
+    // The side came back on the host's own initiative (expanded again after a collapse): the properties belong
+    // beside the conversation, once the side has opened. Not when one of our buttons called for the conversation:
+    // then it is what the person wants in front (and a project that is opening opens its properties itself).
+    // (asked is read when the timer fires: a button pressed while the side was still opening counts too)
+    const seen = chat.view(), back = setTimeout(() => { if (!seen.asked()) dock.top()?.restoreSide?.(); }, SIDE_OPENS_MS);
+    return () => {
+      clearTimeout(back); clearTimeout(gone); off();
+      if (!seen.gone()) dock.top()?.sideLost?.(); // the host took the conversation off the page (we close it only with the project)
+      chat.release(handle); handle?.dispose(); shell.remove();
+    };
   }
 
   function mountTimeline(el) {
@@ -291,6 +308,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
 
   function mountWorkspace(el, view = {}, compact = false) {
     let disposed = false, disposeContent = null, path = null, request = 0;
+    let opening = null; // the show() that is still reading its file
     // The timeline docks in the native bottom panel wherever the host has one for this view; hosts without it (older,
     // mobile, Mini, floating) keep it inside the editor. It once also needed the recipe's `timeline: 'bottom'` main
     // param, but restored layouts lose view params (2026-10-03, a real dev: only filePath left) and the whole project
@@ -314,9 +332,13 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       }
     };
     /** Mount `next`; true when it is now the open project. */
-    async function show(next, { initial = false, idea = '' } = {}) {
-      if (!valid(next)) return false;
-      if (next === path) return true;
+    function show(next, how) {
+      if (!valid(next)) return Promise.resolve(false);
+      if (next === path) return Promise.resolve(true);
+      const mine = opening = load(next, how).finally(() => { if (opening === mine) opening = null; });
+      return mine;
+    }
+    async function load(next, { initial = false, idea = '' } = {}) {
       const gen = ++request;
       if (await app.readFile(next).catch(() => null) === null || disposed || gen !== request) return false;
       if (await disposeContent?.flush?.() === false || disposed || gen !== request) return false;
@@ -368,14 +390,22 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       disposeContent = launcher ? launchpad(holder, (p, idea) => show(p, { idea })) : library(holder, show, true);
     }
     const record = { show, compact, launcher, leave: closeProject }; mounts.add(record);
-    const unsubscribe = view.onParamsChanged?.(params => { if (valid(params.filePath)) void show(params.filePath); });
+    // (the host repeats the params it restored while the view is still starting: that is the layout coming back, not
+    // the person opening a project. Another path in that moment is theirs.)
+    let starting = true;
+    const restored = view.getParams?.().filePath;
+    const unsubscribe = view.onParamsChanged?.(params => { if (valid(params.filePath)) void show(params.filePath, { initial: starting && params.filePath === restored }); });
     (async () => {
       let last = null; try { last = (await ctx.loadData?.())?.last; } catch { /* no data */ }
       const initial = () => view.getParams?.().filePath || selected || last;
       // the project to reopen is a file in the library; with nothing to reopen the launchpad shows at once
       if (valid(initial())) await libraryReady();
-      if (disposed || path) return;
-      if (valid(initial())) await show(initial(), { initial: true });
+      if (!disposed && !path && valid(initial())) await show(initial(), { initial: true });
+      // The host repeats the params it restored while that read is on its way, and the repeat supersedes it: wait for
+      // whichever show is still reading before deciding that nothing opened (2026-10-05: back from another Space the
+      // launch layout came up for a moment: the bin, the timeline and the conversation closed, then opened again).
+      while (opening && !disposed) await opening.catch(() => {});
+      starting = false;
       if (!disposed && !path) launch();
     })();
     return () => { disposed = true; request++; mounts.delete(record); unsubscribe?.(); view.extendView?.close(); disposeContent?.(); holder.remove(); };
