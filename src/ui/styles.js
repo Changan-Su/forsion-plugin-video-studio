@@ -395,6 +395,12 @@ button:is(.fvs-rail-captions,.fvs-rail-video,.fvs-rail-lane):hover{color:var(--f
 .fvs-project-item > span{display:grid;gap:2px;min-width:0}
 .fvs-project-item strong{font-size:var(--fv-body);font-weight:500}
 .fvs-project-item small{color:var(--fv-muted);font-size:var(--fv-caption);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fvs-project-row{position:relative;display:grid}
+.fvs-project-row > .fvs-launch-more{position:absolute;right:6px;top:50%;margin-top:-14px}
+.fvs-project-row:hover > .fvs-launch-more{opacity:1}
+.fvs-project-row:hover > .fvs-project-item{background:var(--fv-hover)}
+.fvs-project-row:hover > .fvs-project-item,.fvs-project-row:focus-within > .fvs-project-item{padding-right:40px}
+@media (hover:none){.fvs-project-row > .fvs-project-item{padding-right:40px}}
 .fvs-panel-shell{display:grid;grid-template-rows:minmax(0,1fr) auto;height:100%;min-height:0}
 .fvs-panel-scroll{display:grid;gap:16px;align-content:start;min-height:0;overflow:auto;padding:12px 16px 16px}
 .fvs-form-actions{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px 14px;border-top:1px solid var(--fv-line)}

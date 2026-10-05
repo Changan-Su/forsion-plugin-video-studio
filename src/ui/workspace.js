@@ -281,9 +281,13 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const list = h('div', { class: 'fvs-project-list' });
     const render = () => {
       list.replaceChildren();
-      for (const row of rows(search.value)) list.append(h('button', { class: 'fvs-project-item', 'data-project-path': row.key, onclick: () => onOpen(row.key),
-        oncontextmenu: e => { e.preventDefault(); projectMenu(e.currentTarget, row.key, { x: e.clientX, y: e.clientY }); } },
-        icon('FileVideo'), h('span', {}, h('strong', { text: row.title }), h('small', { text: row.key }))));
+      // the row opens the project; the "⋯" beside it (the launchpad's) is the menu a right click also gives
+      for (const row of rows(search.value)) list.append(h('div', { class: 'fvs-project-row' },
+        h('button', { class: 'fvs-project-item', 'data-project-path': row.key, onclick: () => onOpen(row.key),
+          oncontextmenu: e => { e.preventDefault(); projectMenu(e.currentTarget, row.key, { x: e.clientX, y: e.clientY }); } },
+          icon('FileVideo'), h('span', {}, h('strong', { text: row.title }), h('small', { text: row.key }))),
+        projectActions(row.key).length ? h('button', { type: 'button', class: 'fvs-btn icon fvs-launch-more', title: t('more'), 'aria-label': t('more'), 'aria-haspopup': 'menu',
+          onclick: e => projectMenu(e.currentTarget, row.key) }, icon('MoreHorizontal')) : null));
       if (!list.children.length) list.append(h('p', { class: 'fvs-hint', text: t('projects-empty') }));
     };
     search.oninput = render;

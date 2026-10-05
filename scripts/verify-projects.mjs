@@ -136,7 +136,9 @@ try {
   await win.locator('.fvs-studio .fvs-project').click();
   const pick = win.locator('.fvs-library .fvs-project-item').filter({ hasText: '片头' });
   await pick.waitFor({ timeout: 8000 });
-  await pick.click({ button: 'right' });
+  // through the row's "⋯" here, through a right click in step 4: the two ways in
+  await pick.hover();
+  await win.locator('.fvs-library .fvs-project-row').filter({ hasText: '片头' }).locator('.fvs-launch-more').click();
   const actions = (await win.getByRole('menuitem').allTextContents()).map(x => x.trim());
   assert.deepEqual(actions, canTrash ? ['重命名…', '在文件夹中显示', '删除'] : ['重命名…', '在文件夹中显示'], `a project's menu (${actions.join(' | ')})`);
   await shot('picker-menu');
@@ -159,9 +161,11 @@ try {
     await win.getByRole('menuitem', { name: '删除' }).click();
     await win.waitForSelector('.fvs-launch', { timeout: 10000 }).catch(() => assert.fail('deleting the open project goes back to the launchpad'));
     await until(() => !existsSync(dirname(made)), `the project's folder left the library (${dirname(made)})`);
-    const meta = JSON.parse(text(join(vault, '.trash/.meta.json')) || '{}');
-    const binned = Object.entries(meta).find(([, v]) => v.original === '视频/2026/片头');
-    assert.ok(binned, `the recycle bin has it, with where it was: ${JSON.stringify(meta)}`);
+    // the host moves the folder first and writes the bin's index after it: wait for the entry, not for the move
+    const index = () => { try { return JSON.parse(text(join(vault, '.trash/.meta.json')) || '{}'); } catch { return {}; } };
+    const entry = () => Object.entries(index()).find(([, v]) => v.original === '视频/2026/片头');
+    await until(entry, `the recycle bin has it, with where it was: ${JSON.stringify(index())}`);
+    const binned = entry();
     assert.deepEqual(readdirSync(join(vault, '.trash', binned[0])).filter(x => !x.startsWith('.')).sort(), ['media', '片头.fvs.md'], 'the whole folder went, media and all');
     assert.match(text(join(vault, '.trash', binned[0], '片头.fvs.md')), /"title": "片头 v2"/, 'what went is the latest text');
     await win.waitForTimeout(1500);

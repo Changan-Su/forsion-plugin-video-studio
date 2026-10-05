@@ -1307,6 +1307,12 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.click(`.fvs-library .fvs-project-item[data-project-path="${FILE}"]`, { button: 'right' });
   assert.deepEqual((await sp.getByRole('menuitem').allTextContents()).map(x => x.trim()), ['重命名…', '在文件夹中显示', '删除']);
   await sp.keyboard.press('Escape');
+  // and on the row's own "⋯": a menu that is only behind a right click is not found
+  await sp.hover(`.fvs-library .fvs-project-item[data-project-path="${FILE}"]`);
+  await sp.click(`.fvs-library .fvs-project-row:has([data-project-path="${FILE}"]) .fvs-launch-more`);
+  assert.deepEqual((await sp.getByRole('menuitem').allTextContents()).map(x => x.trim()), ['重命名…', '在文件夹中显示', '删除'], 'the picker\'s "⋯" opens the same menu');
+  await sp.keyboard.press('Escape');
+  assert.equal(await sp.textContent('.fvs-studio .fvs-project-name'), '片头 v2', 'the "⋯" opened the menu, not the project its row is for');
   // delete the open project: it closes, its own folder goes (media and all), nothing writes it back
   await sp.evaluate(k => HOST.files.set(k.replace(/[^/]+$/, 'media/shot.png'), new Uint8Array([1])), made);
   await run(made, 'delete');
