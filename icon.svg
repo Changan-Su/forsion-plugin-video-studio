@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Video Studio — Slate</title>
+  <defs>
+    <linearGradient id="tile" x1="28" y1="12" x2="222" y2="252" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4a443e"/>
+      <stop offset="1" stop-color="#252322"/>
+    </linearGradient>
+    <linearGradient id="slate" x1="52" y1="114" x2="201" y2="205" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff7e8"/>
+      <stop offset="1" stop-color="#dfd3be"/>
+    </linearGradient>
+    <clipPath id="clap"><rect x="49" y="63" width="158" height="33" rx="9"/></clipPath>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="58" fill="url(#tile)"/>
+  <g transform="rotate(-11 49 96)">
+    <rect x="49" y="63" width="158" height="33" rx="9" fill="#efe4d1"/>
+    <g clip-path="url(#clap)" fill="#3c3833">
+      <path d="M88 59H105L89 100H72Z"/>
+      <path d="M136 59H153L137 100H120Z"/>
+      <path d="M184 59H201L185 100H168Z"/>
+    </g>
+  </g>
+  <path fill="url(#slate)" fill-rule="evenodd" d="M49 110H207V181Q207 205 183 205H73Q49 205 49 181ZM110 131V179Q110 184 115 181L154 158Q159 155 154 152L115 129Q110 126 110 131Z"/>
+</svg>
