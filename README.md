@@ -130,7 +130,7 @@ npm run verify:render            # 真实 Chromium + ffmpeg：配乐、取消、
 npm run verify:features          # 真缩略图、原生 Chat Box 草稿与模型选择、Extend 导出设置
 npm run verify:features -- --live # 临时工程的真模型修改、差异/恢复，以及由导演执行的 MP4 导出
 npm run verify:chat               # 隔离的真 Electron：右栏对话、会话接回、引用到对话（需要带 ctx.tangu.mountChat 的宿主）
-npm run verify:skill              # 真引擎 + 真模型：导演按引用只改一处、时间写在元素上、配图落进 generated/
+npm run verify:skill              # 真引擎 + 真模型：导演按引用只改一处、时间写在元素上、配图落进 generated/、空工程里就地写出第一批场景
 ```
 
 `install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。

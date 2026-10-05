@@ -8,6 +8,8 @@
 //             the timeline's Elements lane), it is not animated from a script
 //   picture   "make a background picture for the title cards and put it in": the image tool is used, the file is in
 //             generated/ (what the media bin lists) and the scene references it
+//   empty     a project as "New video" writes it since 0.10.0 (no scenes) and an idea: the scenes are written into
+//             that file, no second project appears beside it, and none of the starter's demo copy comes with them
 //
 // The model is the host live harness's (the Codex subscription: FVS_LIVE_MODEL, default codex/gpt-5.6-luna). The
 // credentials file is linked in for the engine to read and unlinked once it has, the way the host's own live
@@ -18,7 +20,7 @@
 // cloud credits, and what is under test is what the agent does around the picture.
 //
 //   (cd <Genesis>/tangu-agent && npm run build)
-//   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-skill-live.mjs [--only quote,element,picture]
+//   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-skill-live.mjs [--only quote,element,picture,empty]
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -26,9 +28,11 @@ import { createServer as netServer } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, appendFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
+import { parseProject } from '../src/lib/project.js';
+import { emptyTemplate } from '../src/lib/templates.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = resolve(process.env.FVS_ENGINE_ROOT || join(repo, '../../Forsion-Genesis/tangu-agent'));
@@ -38,7 +42,7 @@ const MODEL = process.env.FVS_LIVE_MODEL || 'codex/gpt-5.6-luna';
 const AUTH = resolve(process.env.FVS_LIVE_AUTH || join(homedir(), '.forsion-dev/provider-auth.json'));
 assert.ok(existsSync(AUTH), `no credentials at ${AUTH}: sign in to the Codex subscription in Forsion Desktop (dev), or set FVS_LIVE_AUTH`);
 const onlyAt = process.argv.indexOf('--only');
-const ONLY = new Set((onlyAt > 0 ? process.argv[onlyAt + 1] : 'quote,element,picture').split(','));
+const ONLY = new Set((onlyAt > 0 ? process.argv[onlyAt + 1] : 'quote,element,picture,empty').split(','));
 
 const out = mkdtempSync(join(tmpdir(), 'fvs-skill-live-'));
 const shared = join(out, 'forsion'), home = join(shared, 'tangu'), vault = join(out, 'vault');
@@ -59,6 +63,11 @@ assert.ok(existsSync(join(repo, 'node_modules/playwright-core')), 'npm install i
 symlinkSync(join(repo, 'node_modules'), join(vault, 'node_modules'));
 const fvs = (...args) => execFileSync(process.execPath, [cli, ...args], { cwd: project, encoding: 'utf8' });
 fvs('new', file, '--template', 'eva', '--title', 'Demo');
+// the project "New video" writes: the frame, the tempo and a base text style, and no scenes
+const blank = join(work, 'morning'), blankFile = join(blank, 'morning.fvs.md');
+mkdirSync(blank, { recursive: true });
+writeFileSync(blankFile, emptyTemplate({ title: '晨光', zh: true }));
+const STARTER = /fvs-eva|第一话|EPISODE ONE|SCENES \.+ OK|EDIT THE TEXT|第一句副标题/;
 
 // A PNG that looks like a picture. A flat colour does not: the Director looks at the frames it made, called it a
 // placeholder, asked again, and then drew its own SVG instead (2026-10-04, second run).
@@ -110,9 +119,9 @@ const api = async (path, init = {}) => {
 const list = (v, k) => (Array.isArray(v) ? v : v?.[k] || []);
 
 /** One message in the project's conversation; tools run without asking (the folder is disposable). */
-async function ask(sessionId, message, timeoutMs = 600_000) {
+async function ask(sessionId, message, timeoutMs = 600_000, dir = project) {
   const t0 = Date.now(), ev = { tools: [], results: [], content: '', error: null };
-  const { runId } = await api('/agent/runs', { method: 'POST', body: JSON.stringify({ session_id: sessionId, model_id: MODEL, message, agent_config: { agentSlug: 'fvs-director', execMode: 'host', cwd: project, approvalMode: 'full-auto' } }) });
+  const { runId } = await api('/agent/runs', { method: 'POST', body: JSON.stringify({ session_id: sessionId, model_id: MODEL, message, agent_config: { agentSlug: 'fvs-director', execMode: 'host', cwd: dir, approvalMode: 'full-auto' } }) });
   const ac = new AbortController(), timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
     const res = await fetch(`${base}/agent/runs/${runId}/events`, { headers: { Authorization: `Bearer ${TOKEN}` }, signal: ac.signal });
@@ -136,7 +145,7 @@ async function ask(sessionId, message, timeoutMs = 600_000) {
   } catch (e) { ev.error = ev.error || String(e?.message || e); } finally { clearTimeout(timer); ev.seconds = Math.round((Date.now() - t0) / 1000); }
   return ev;
 }
-const session = async title => (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({ title, model_id: MODEL, project_path: project, project_name: 'demo', agent_config: { agentSlug: 'fvs-director', execMode: 'host', cwd: project, approvalMode: 'full-auto' } }) })).session.id;
+const session = async (title, dir = project) => (await api('/agent/sessions', { method: 'POST', body: JSON.stringify({ title, model_id: MODEL, project_path: dir, project_name: basename(dir), agent_config: { agentSlug: 'fvs-director', execMode: 'host', cwd: dir, approvalMode: 'full-auto' } }) })).session.id;
 const used = (ev, name, re) => ev.tools.some(t => t.name === name && (!re || re.test(t.args)));
 const lines = text => text.split('\n');
 /** Lines of `after` that are not in `before`, and the other way round. */
@@ -145,12 +154,12 @@ const sceneBlock = (text, id) => { const m = text.match(new RegExp(`^## ${id}\\b
 
 const report = [`# Video Studio Director — live (${MODEL})`, ''], results = [];
 let failed = 0;
-async function scenario(key, title, fn) {
+async function scenario(key, title, fn, target = file) {
   if (!ONLY.has(key)) return;
-  const before = readFileSync(file, 'utf8');
+  const before = readFileSync(target, 'utf8');
   let ev = null, problem = null;
   try { ev = await fn(before); } catch (e) { problem = String(e?.message || e); ev = e?.ev || ev; }
-  const after = readFileSync(file, 'utf8');
+  const after = readFileSync(target, 'utf8');
   if (problem) failed += 1;
   console.log(`${problem ? 'FAIL' : 'PASS'} ${key} · ${title}${ev ? ` · ${ev.seconds}s · ${ev.tools.length} tool calls` : ''}${problem ? `\n     ${problem}` : ''}${ev?.note ? `\n     ${ev.note}` : ''}`);
   results.push({ key, pass: !problem, problem, seconds: ev?.seconds, tools: ev?.tools.map(t => t.name) });
@@ -222,6 +231,25 @@ try {
     ev.note = `Picture in the scene: generated/${ref}${ref.endsWith('.svg') ? ' — drawn by the Director, not the image tool\'s file' : ''}`;
     return ev;
   });
+
+  await scenario('empty', 'A project with no scenes yet: the first scenes are written into that file', async before => {
+    assert.equal(parseProject(before).scenes.length, 0, 'the project starts with no scenes');
+    // what a person types on the blank stage's "AI Director"; "no music yet" keeps the run to the picture
+    const ev = await ask(await session('empty', blank), '做一个 10 秒左右的开场：三个画面，标题是「晨光」，最后落在一句口号上。先不用配乐。', 900_000, blank);
+    if (ev.error) throw fail(`the run failed: ${ev.error}`, ev);
+    const projects = readdirSync(blank).filter(f => f.endsWith('.fvs.md'));
+    if (projects.length !== 1 || projects[0] !== 'morning.fvs.md') throw fail(`the folder should hold the one project it had, not ${JSON.stringify(projects)}`, ev);
+    const after = readFileSync(blankFile, 'utf8'), scenes = parseProject(after).scenes.length;
+    if (!scenes) throw fail('the project still has no scenes', ev);
+    if (!after.includes('晨光')) throw fail('the title asked for is nowhere in the project', ev);
+    // the starters' own class and copy: what "New video" stopped writing must not come back through the Director
+    // (words of the file's opening paragraph, which every project has, are not among them)
+    const demo = after.match(STARTER);
+    if (demo) throw fail(`the starter's demo scenes are in the project ("${demo[0]}")`, ev);
+    const checked = execFileSync(process.execPath, [cli, 'check', blankFile], { cwd: blank, encoding: 'utf8' }).trim().split('\n')[0];
+    ev.note = `${scenes} scenes · check: ${checked}${ev.tools.some(t => /fvs\.mjs\S*\s+new\b/.test(t.args)) ? ' · it ran `fvs new`' : ''}`;
+    return ev;
+  }, blankFile);
 } catch (e) {
   failed += 1;
   console.log(`FAIL setup\n     ${String(e?.message || e)}`);
@@ -233,7 +261,7 @@ try {
   report.push('', `Image requests to the stub: ${JSON.stringify(imageAsks.map(a => ({ size: a.size, prompt: String(a.prompt || '').slice(0, 160) })))}`);
   writeFileSync(join(artifacts, 'report.md'), report.join('\n'));
   writeFileSync(join(artifacts, 'results.json'), JSON.stringify({ model: MODEL, results }, null, 2));
-  try { cpSync(file, join(artifacts, 'demo.fvs.md')); } catch { /* no project */ }
+  try { cpSync(file, join(artifacts, 'demo.fvs.md')); cpSync(blankFile, join(artifacts, 'morning.fvs.md')); } catch { /* no project */ }
   // a failed run keeps its home for a look; a passed one leaves only the report
   if (!failed) rmSync(out, { recursive: true, force: true });
   console.log(`${failed ? 'live: FAILED' : 'live: ok'} · ${join(artifacts, 'report.md')}${failed ? ` · home ${out}` : ''}`);
