@@ -232,6 +232,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const head = h('div', { class: 'fvs-tl-head' });
   inner.append(ruler, capLane, clips, elLane, lanes, head);
   scroller.append(inner);
+  // The host can zoom the whole interface (its ⌘+ / ⌘−: a CSS zoom on the page). A pointer's place and a rectangle are
+  // then in the screen's pixels, the timeline's lefts, widths and scroll in its own: one is this many times the other.
+  // Asked when the pointer moves: an element that is not shown yet answers 1.
+  const cz = () => inner.currentCSSZoom || 1;
+  // the time under a pointer (the rectangle is read now: the timeline may have scrolled since the drag began)
+  const timeAt = e => (e.clientX - inner.getBoundingClientRect().left) / cz() / (S.zoom || 20);
   const rulerLabel = h('span', { class: 'fvs-rail-ruler' });
   const audioRail = h('div', { class: 'fvs-rail-audio' });
   // a track's name opens the tab of the properties where its things are edited
@@ -246,7 +252,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   resizeHandle.addEventListener('pointerdown', e => {
     e.preventDefault();
     const y = e.clientY, height = timelineHeight();
-    listenDrag(ev => resizeTimeline(height + y - ev.clientY), () => {});
+    listenDrag(ev => resizeTimeline(height + (y - ev.clientY) / cz()), () => {});
   });
   resizeHandle.addEventListener('keydown', e => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -263,7 +269,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
     e.preventDefault();
     const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // lines → pixels
-    const x = Math.max(0, Math.min(scroller.clientWidth, e.clientX - scroller.getBoundingClientRect().left));
+    const x = Math.max(0, Math.min(scroller.clientWidth, (e.clientX - scroller.getBoundingClientRect().left) / cz()));
     zoomBy(Math.exp(-dy * (Math.abs(dy) < 30 ? .01 : .0025)), x); // pinch sends many small deltas, a wheel notch one large one
   }, { passive: false });
   let rulerFrame = 0;
@@ -678,7 +684,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const s = P.sceneById(S.p, m.scene);
     const run = HT.scan(s.html).texts[m.text];
     if (!run) return;
-    const vr = view.getBoundingClientRect();
+    const vr = { width: view.clientWidth, height: view.clientHeight }; // (the stage's own pixels, as the lefts below are)
     const ta = h('textarea', { rows: Math.min(6, Math.max(1, Math.ceil(run.text.trim().length / 28))), 'aria-label': t('texts') });
     ta.value = run.text.trim();
     const box = h('div', { class: 'fvs-inline', style: { left: `${Math.max(4, Math.min(m.rect.x, vr.width - 260))}px`, top: `${Math.max(4, Math.min(m.rect.y + m.rect.h + 6, vr.height - 90))}px`, width: `${Math.max(220, Math.min(m.rect.w, 520))}px` } }, ta, h('small', { text: t('inline-hint') }));
@@ -756,7 +762,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       else syncAudio(false);
       renderTransport();
       const x = S.time * S.zoom;
-      if (x < scroller.scrollLeft + 40 || x > scroller.scrollLeft + scroller.clientWidth - 40) scroller.scrollLeft = x - 60;
+      // (not while a pointer holds something: the timeline would slide away under it, and the next move would land further still)
+      if (!drags.size && (x < scroller.scrollLeft + 40 || x > scroller.scrollLeft + scroller.clientWidth - 40)) scroller.scrollLeft = x - 60;
     }
     if (S.time !== lastPosted) { post({ fvs: 'seek', t: S.time }); lastPosted = S.time; head.style.left = `${S.time * S.zoom}px`; }
     raf = requestAnimationFrame(loop);
@@ -888,7 +895,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     c.lane.addEventListener('dblclick', e => {
       if (e.target !== c.lane) return;
       const s = P.sceneById(S.p, id); if (!s) return;
-      const x = (e.clientX - c.lane.getBoundingClientRect().left) / (S.zoom || 20);
+      const x = (e.clientX - c.lane.getBoundingClientRect().left) / cz() / (S.zoom || 20);
       const u = P.hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
       const beats = Math.round((snapT(s.t0 + x) - base) / u * 1e4) / 1e4;
       if (s.t0 + x <= s.t1) tryCommit(src => P.setHits(src, s.id, [...s.hits, beats]));
@@ -1149,10 +1156,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   }
   function scrub(e) {
     if (e.button !== 0) return;
-    const r = inner.getBoundingClientRect();
-    const go = ev => seek((ev.clientX - r.left) / (S.zoom || 20));
-    go(e);
-    listenDrag(ev => go(ev), () => {});
+    seek(timeAt(e));
+    listenDrag(ev => seek(timeAt(ev)), () => {});
   }
   ruler.addEventListener('pointerdown', scrub);
   clips.addEventListener('pointerdown', e => { if (e.target === clips) scrub(e); });
@@ -1160,7 +1165,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function clipPointerDown(e, id) {
     if (e.button !== 0 || e.target.closest('.fvs-hitm, .fvs-edge')) return;
     const s0 = P.sceneById(S.p, id); if (!s0) return;
-    const Z = S.zoom || 20, r = inner.getBoundingClientRect(), x0 = e.clientX;
+    const Z = S.zoom || 20, x0 = e.clientX, at0 = timeAt(e);
     let dragging = false, ghost = null, marker = null, target = s0.index;
     const move = ev => {
       if (!dragging && Math.abs(ev.clientX - x0) < 5) return;
@@ -1170,9 +1175,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         marker = h('div', { class: 'fvs-tl-insert' });
         inner.append(ghost, marker); timeline.classList.add('reordering');
       }
-      const at = (ev.clientX - r.left) / Z, others = S.p.scenes.filter(x => x.id !== id);
+      const at = timeAt(ev), others = S.p.scenes.filter(x => x.id !== id);
       target = others.filter(x => (x.t0 + x.t1) / 2 < at).length;
-      ghost.style.left = `${(at - (x0 - r.left) / Z + s0.t0) * Z}px`;
+      ghost.style.left = `${(at - at0 + s0.t0) * Z}px`;
       const bx = target < others.length ? others[target].t0 : others.length ? others.at(-1).t1 : 0;
       marker.style.left = `${bx * Z}px`;
     };
@@ -1182,7 +1187,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       if (!dragging) {
         const was = S.sel, s = P.sceneById(S.p, id); if (!s) return;
         S.sel = id; S.selHit = null; S.selCap = null; S.selEl = null;
-        if (was === id) seek((ev.clientX - r.left) / Z);
+        if (was === id) seek(timeAt(ev));
         else if (S.time < s.t0 || S.time >= s.t1) seek(s.t0);
         renderTimeline(); renderSide(); showProperties();
         return;
@@ -1195,11 +1200,11 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function dragEndEdge(e, id) {
     e.preventDefault(); e.stopPropagation();
     const s = P.sceneById(S.p, id); if (!s) return;
-    const Z = S.zoom || 20, r = inner.getBoundingClientRect(), edge = e.currentTarget;
+    const Z = S.zoom || 20, edge = e.currentTarget;
     const ghost = h('div', { class: 'fvs-tl-ghost', style: { left: `${s.t0 * Z}px`, width: `${s.dur * Z}px` } });
     inner.append(ghost); edge.classList.add('drag');
     let len = s.dur;
-    const move = ev => { len = Math.max(grid(), snapT((ev.clientX - r.left) / Z) - s.t0); ghost.style.width = `${len * Z}px`; };
+    const move = ev => { len = Math.max(grid(), snapT(timeAt(ev)) - s.t0); ghost.style.width = `${len * Z}px`; };
     const up = ev => {
       ghost.remove(); edge.classList.remove('drag');
       if (ev.type === 'pointercancel' || Math.abs(len - s.dur) < 1e-6) return;
@@ -1212,7 +1217,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     e.preventDefault(); e.stopPropagation();
     const s = P.sceneById(S.p, id); if (!s) return;
     if (typeof P.setSceneIn !== 'function') { notify(ctx, t('trim-unsupported'), 'warn'); return; }
-    const Z = S.zoom || 20, r = inner.getBoundingClientRect(), edge = e.currentTarget;
+    const Z = S.zoom || 20, edge = e.currentTarget;
     const prev = S.p.scenes[s.index - 1], content0 = s.t0 - (s.in || 0);
     const ghost = h('div', { class: 'fvs-tl-ghost', style: { left: `${s.t0 * Z}px`, width: `${s.dur * Z}px` } });
     inner.append(ghost); edge.classList.add('drag');
@@ -1220,7 +1225,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const move = ev => {
       ripple = ev.altKey || !prev;
       const lo = Math.max(content0, ripple ? -Infinity : prev.t0 + grid()), hi = s.t1 - grid();
-      const t0 = Math.max(lo, Math.min(hi, snapT((ev.clientX - r.left) / Z)));
+      const t0 = Math.max(lo, Math.min(hi, snapT(timeAt(ev))));
       delta = t0 - s.t0;
       if (ripple) Object.assign(ghost.style, { left: `${s.t0 * Z}px`, width: `${(s.dur - delta) * Z}px` });
       else Object.assign(ghost.style, { left: `${t0 * Z}px`, width: `${(s.t1 - t0) * Z}px` });
@@ -1243,9 +1248,9 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     S.sel = s.id; S.selHit = { scene: s.id, index: i }; S.selCap = null; S.selEl = null;
     timeline.querySelectorAll('.fvs-hitm.on, .fvs-el.on').forEach(x => x.classList.remove('on')); m.classList.add('on');
     renderToolbar();
-    const Z = S.zoom || 20, r = inner.getBoundingClientRect(), u = P.hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
+    const Z = S.zoom || 20, u = P.hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
     let at = s.hitTimes[i], moved = false;
-    const move = ev => { moved = true; at = Math.max(s.t0, Math.min(s.t1, snapT((ev.clientX - r.left) / Z))); m.style.left = `${(at - s.t0) * Z}px`; };
+    const move = ev => { moved = true; at = Math.max(s.t0, Math.min(s.t1, snapT(timeAt(ev)))); m.style.left = `${(at - s.t0) * Z}px`; };
     const up = ev => {
       if (ev.type === 'pointercancel') { renderTimeline(); return; }
       if (!moved) { seek(s.hitTimes[i]); renderSide(); if (e.button === 0) showProperties(); return; } // (a right-click has its menu open: the keyboard is the menu's)
@@ -1262,7 +1267,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const tracks = laneTracks(), tr = tracks[i]; if (!tr) return;
     const Z = S.zoom || 20, x0 = e.clientX, region = laneEls[i].region, at0 = tr.at || 0;
     let at = at0, moved = false;
-    const move = ev => { moved = moved || Math.abs(ev.clientX - x0) > 3; if (!moved) return; at = Math.max(0, snapT(at0 + (ev.clientX - x0) / Z)); region.style.left = `${at * Z}px`; };
+    const move = ev => { moved = moved || Math.abs(ev.clientX - x0) > 3; if (!moved) return; at = Math.max(0, snapT(at0 + (ev.clientX - x0) / cz() / Z)); region.style.left = `${at * Z}px`; };
     const up = ev => {
       if (ev.type !== 'pointercancel' && !moved) showAudio(tr.id); // a click: its settings
       if (ev.type === 'pointercancel' || !moved || Math.abs(at - at0) < 1e-6) { renderLanes(); return; }
@@ -1325,7 +1330,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     }));
   }
   capLane.addEventListener('pointerdown', e => { if (e.target === capLane) scrub(e); });
-  capLane.addEventListener('dblclick', e => { if (e.target === capLane) addCaption(snapT((e.clientX - inner.getBoundingClientRect().left) / (S.zoom || 20))); });
+  capLane.addEventListener('dblclick', e => { if (e.target === capLane) addCaption(snapT(timeAt(e))); });
   /* drag a cue to move it, its ends to trim it; a click selects it */
   function capPointerDown(e, i) {
     if (e.button !== 0) return;
@@ -1341,7 +1346,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const move = ev => {
       if (!moved && Math.abs(ev.clientX - x0) < 4) return;
       moved = true;
-      const dx = (ev.clientX - x0) / Z;
+      const dx = (ev.clientX - x0) / cz() / Z;
       if (mode === 'move') { start = Math.max(0, snapT(c0.start + dx)); end = start + (c0.end - c0.start); }
       else if (mode === 'start') start = Math.max(0, Math.min(c0.end - minDur, snapT(c0.start + dx)));
       else end = Math.max(c0.start + minDur, snapT(c0.end + dx));
@@ -1553,7 +1558,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
       box.classList.add('dropping');
       if (scroller.contains(e.target)) {
-        const Z = S.zoom || 20, x = (e.clientX - inner.getBoundingClientRect().left) / Z;
+        const Z = S.zoom || 20, x = timeAt(e);
         const k = S.p.scenes.filter(s => (s.t0 + s.t1) / 2 < x).length;
         if (!dropHint) { dropHint = h('div', { class: 'fvs-tl-insert' }); inner.append(dropHint); }
         dropHint.style.left = `${(k < S.p.scenes.length ? S.p.scenes[k].t0 : S.p.length) * Z}px`;

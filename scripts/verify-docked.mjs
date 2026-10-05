@@ -5,7 +5,8 @@
 //   launch layout (navigation, launchpad, no timeline) → a project made on the create page (its folder, its frame,
 //   the idea waiting in the Director; on a host with ctx.tangu.mountChat the conversation is a tab of the right side
 //   instead, and verify-chat.mjs checks the idea in it) → the project layout (media bin, docked timeline) → closing it → the person's
-//   ⌘J surviving a project switch → the bin (double-click, drag to a cut) → keys, zoom, ⌘J repaint → a reload.
+//   ⌘J surviving a project switch → the bin (double-click, drag to a cut) → keys, zoom, ⌘J repaint → a reload →
+//   the host's interface zoom (110%): a click on the ruler lands under the pointer.
 // Needs a host with ctx.viewLocations and ctx.replaceView: point FVS_DESKTOP_ROOT at that checkout's desktop/ and
 // run `npx electron-vite build` there first. No model calls.
 import { createRequire } from 'node:module';
@@ -301,6 +302,26 @@ try {
   await steady(); await spanned('after a reload');
   await settle(); await win.waitForTimeout(600);
   await H.captureWindow(app, join(shots, '05-reloaded.png'));
+
+  console.log('· step 8');
+  // 8. the interface zoomed by the host (⌘+: it keeps the factor and puts a CSS zoom on the page when it starts). What
+  //    lands on the timeline lands under the pointer (a real dev at 110%, 2026-10-05: everything was a tenth of its
+  //    distance from the start of the timeline away from the pointer)
+  await win.evaluate(() => localStorage.setItem('forsion_ui_zoom', '1.1'));
+  await win.reload({ waitUntil: 'domcontentloaded' });
+  await win.waitForSelector('.dv-groupview', { timeout: 30000 });
+  await win.waitForSelector(clip, { timeout: 15000 });
+  await steady(); await settle(); await win.waitForTimeout(600); // (the splash is over the window until then: a click would be its)
+  assert.equal(await win.evaluate(() => document.body.style.zoom), '1.1', 'the host zooms the page');
+  const rule = await win.locator('.fvs-dock-timeline .fvs-tl-ruler').boundingBox(), px = rule.x + rule.width * .7, py = rule.y + rule.height / 2;
+  const under = await win.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className || '', [px, py]);
+  assert.match(String(under), /fvs-tl-ruler/, 'the pointer is on the ruler');
+  await win.mouse.click(px, py);
+  await win.waitForTimeout(150);
+  const playhead = await win.locator('.fvs-dock-timeline .fvs-tl-head').boundingBox(), miss = playhead.x + playhead.width / 2 - px;
+  console.log(`at 110% the playhead lands ${miss.toFixed(1)}px from a click ${Math.round(px - rule.x)}px into the ruler`);
+  assert.ok(Math.abs(miss) <= 1.5, `at 110% a click on the ruler puts the playhead under the pointer (${miss.toFixed(1)}px off)`);
+  await H.captureWindow(app, join(shots, '06-zoomed.png'));
 
   const real = errors.filter(e => !/fonts\.|ERR_FAILED|net::/.test(e));
   assert.deepEqual(real, [], 'no page errors');

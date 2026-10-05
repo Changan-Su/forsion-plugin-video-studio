@@ -3768,6 +3768,8 @@
     const head = h("div", { class: "fvs-tl-head" });
     inner.append(ruler, capLane, clips, elLane, lanes, head);
     scroller.append(inner);
+    const cz = () => inner.currentCSSZoom || 1;
+    const timeAt = (e) => (e.clientX - inner.getBoundingClientRect().left) / cz() / (S.zoom || 20);
     const rulerLabel = h("span", { class: "fvs-rail-ruler" });
     const audioRail = h("div", { class: "fvs-rail-audio" });
     const railName = (cls, glyph, key, tab) => h("button", { type: "button", class: cls, title: t2("rail-hint", { tab: t2("tab-".concat(tab)) }), onclick: () => openTab(tab) }, icon(glyph), h("span", { text: t2(key) }));
@@ -3789,7 +3791,7 @@
     resizeHandle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       const y = e.clientY, height = timelineHeight();
-      listenDrag((ev) => resizeTimeline(height + y - ev.clientY), () => {
+      listenDrag((ev) => resizeTimeline(height + (y - ev.clientY) / cz()), () => {
       });
     });
     resizeHandle.addEventListener("keydown", (e) => {
@@ -3812,7 +3814,7 @@
       if (!(e.ctrlKey || e.metaKey || e.altKey)) return;
       e.preventDefault();
       const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      const x = Math.max(0, Math.min(scroller.clientWidth, e.clientX - scroller.getBoundingClientRect().left));
+      const x = Math.max(0, Math.min(scroller.clientWidth, (e.clientX - scroller.getBoundingClientRect().left) / cz()));
       zoomBy(Math.exp(-dy * (Math.abs(dy) < 30 ? 0.01 : 25e-4)), x);
     }, { passive: false });
     let rulerFrame = 0;
@@ -4356,7 +4358,7 @@
       const s = sceneById(S.p, m.scene);
       const run = scan(s.html).texts[m.text];
       if (!run) return;
-      const vr = view.getBoundingClientRect();
+      const vr = { width: view.clientWidth, height: view.clientHeight };
       const ta = h("textarea", { rows: Math.min(6, Math.max(1, Math.ceil(run.text.trim().length / 28))), "aria-label": t2("texts") });
       ta.value = run.text.trim();
       const box = h("div", { class: "fvs-inline", style: { left: "".concat(Math.max(4, Math.min(m.rect.x, vr.width - 260)), "px"), top: "".concat(Math.max(4, Math.min(m.rect.y + m.rect.h + 6, vr.height - 90)), "px"), width: "".concat(Math.max(220, Math.min(m.rect.w, 520)), "px") } }, ta, h("small", { text: t2("inline-hint") }));
@@ -4470,7 +4472,7 @@
         } else syncAudio(false);
         renderTransport();
         const x = S.time * S.zoom;
-        if (x < scroller.scrollLeft + 40 || x > scroller.scrollLeft + scroller.clientWidth - 40) scroller.scrollLeft = x - 60;
+        if (!drags.size && (x < scroller.scrollLeft + 40 || x > scroller.scrollLeft + scroller.clientWidth - 40)) scroller.scrollLeft = x - 60;
       }
       if (S.time !== lastPosted) {
         post({ fvs: "seek", t: S.time });
@@ -4659,7 +4661,7 @@
         if (e.target !== c.lane) return;
         const s = sceneById(S.p, id);
         if (!s) return;
-        const x = (e.clientX - c.lane.getBoundingClientRect().left) / (S.zoom || 20);
+        const x = (e.clientX - c.lane.getBoundingClientRect().left) / cz() / (S.zoom || 20);
         const u = hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
         const beats = Math.round((snapT(s.t0 + x) - base) / u * 1e4) / 1e4;
         if (s.t0 + x <= s.t1) tryCommit((src) => setHits(src, s.id, [...s.hits, beats]));
@@ -4983,10 +4985,8 @@
     }
     function scrub(e) {
       if (e.button !== 0) return;
-      const r = inner.getBoundingClientRect();
-      const go = (ev) => seek((ev.clientX - r.left) / (S.zoom || 20));
-      go(e);
-      listenDrag((ev) => go(ev), () => {
+      seek(timeAt(e));
+      listenDrag((ev) => seek(timeAt(ev)), () => {
       });
     }
     ruler.addEventListener("pointerdown", scrub);
@@ -4997,7 +4997,7 @@
       if (e.button !== 0 || e.target.closest(".fvs-hitm, .fvs-edge")) return;
       const s0 = sceneById(S.p, id);
       if (!s0) return;
-      const Z = S.zoom || 20, r = inner.getBoundingClientRect(), x0 = e.clientX;
+      const Z = S.zoom || 20, x0 = e.clientX, at0 = timeAt(e);
       let dragging = false, ghost = null, marker = null, target = s0.index;
       const move = (ev) => {
         if (!dragging && Math.abs(ev.clientX - x0) < 5) return;
@@ -5008,9 +5008,9 @@
           inner.append(ghost, marker);
           timeline.classList.add("reordering");
         }
-        const at = (ev.clientX - r.left) / Z, others = S.p.scenes.filter((x) => x.id !== id);
+        const at = timeAt(ev), others = S.p.scenes.filter((x) => x.id !== id);
         target = others.filter((x) => (x.t0 + x.t1) / 2 < at).length;
-        ghost.style.left = "".concat((at - (x0 - r.left) / Z + s0.t0) * Z, "px");
+        ghost.style.left = "".concat((at - at0 + s0.t0) * Z, "px");
         const bx = target < others.length ? others[target].t0 : others.length ? others.at(-1).t1 : 0;
         marker.style.left = "".concat(bx * Z, "px");
       };
@@ -5026,7 +5026,7 @@
           S.selHit = null;
           S.selCap = null;
           S.selEl = null;
-          if (was === id) seek((ev.clientX - r.left) / Z);
+          if (was === id) seek(timeAt(ev));
           else if (S.time < s.t0 || S.time >= s.t1) seek(s.t0);
           renderTimeline();
           renderSide();
@@ -5047,13 +5047,13 @@
       e.stopPropagation();
       const s = sceneById(S.p, id);
       if (!s) return;
-      const Z = S.zoom || 20, r = inner.getBoundingClientRect(), edge = e.currentTarget;
+      const Z = S.zoom || 20, edge = e.currentTarget;
       const ghost = h("div", { class: "fvs-tl-ghost", style: { left: "".concat(s.t0 * Z, "px"), width: "".concat(s.dur * Z, "px") } });
       inner.append(ghost);
       edge.classList.add("drag");
       let len = s.dur;
       const move = (ev) => {
-        len = Math.max(grid(), snapT((ev.clientX - r.left) / Z) - s.t0);
+        len = Math.max(grid(), snapT(timeAt(ev)) - s.t0);
         ghost.style.width = "".concat(len * Z, "px");
       };
       const up = (ev) => {
@@ -5073,7 +5073,7 @@
         notify(ctx2, t2("trim-unsupported"), "warn");
         return;
       }
-      const Z = S.zoom || 20, r = inner.getBoundingClientRect(), edge = e.currentTarget;
+      const Z = S.zoom || 20, edge = e.currentTarget;
       const prev = S.p.scenes[s.index - 1], content0 = s.t0 - (s.in || 0);
       const ghost = h("div", { class: "fvs-tl-ghost", style: { left: "".concat(s.t0 * Z, "px"), width: "".concat(s.dur * Z, "px") } });
       inner.append(ghost);
@@ -5082,7 +5082,7 @@
       const move = (ev) => {
         ripple = ev.altKey || !prev;
         const lo = Math.max(content0, ripple ? -Infinity : prev.t0 + grid()), hi = s.t1 - grid();
-        const t0 = Math.max(lo, Math.min(hi, snapT((ev.clientX - r.left) / Z)));
+        const t0 = Math.max(lo, Math.min(hi, snapT(timeAt(ev))));
         delta = t0 - s.t0;
         if (ripple) Object.assign(ghost.style, { left: "".concat(s.t0 * Z, "px"), width: "".concat((s.dur - delta) * Z, "px") });
         else Object.assign(ghost.style, { left: "".concat(t0 * Z, "px"), width: "".concat((s.t1 - t0) * Z, "px") });
@@ -5112,11 +5112,11 @@
       timeline.querySelectorAll(".fvs-hitm.on, .fvs-el.on").forEach((x) => x.classList.remove("on"));
       m.classList.add("on");
       renderToolbar();
-      const Z = S.zoom || 20, r = inner.getBoundingClientRect(), u = hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
+      const Z = S.zoom || 20, u = hitUnit(S.p.tempo), base = s.t0v ?? s.t0;
       let at = s.hitTimes[i], moved = false;
       const move = (ev) => {
         moved = true;
-        at = Math.max(s.t0, Math.min(s.t1, snapT((ev.clientX - r.left) / Z)));
+        at = Math.max(s.t0, Math.min(s.t1, snapT(timeAt(ev))));
         m.style.left = "".concat((at - s.t0) * Z, "px");
       };
       const up = (ev) => {
@@ -5148,7 +5148,7 @@
       const move = (ev) => {
         moved = moved || Math.abs(ev.clientX - x0) > 3;
         if (!moved) return;
-        at = Math.max(0, snapT(at0 + (ev.clientX - x0) / Z));
+        at = Math.max(0, snapT(at0 + (ev.clientX - x0) / cz() / Z));
         region.style.left = "".concat(at * Z, "px");
       };
       const up = (ev) => {
@@ -5226,7 +5226,7 @@
       if (e.target === capLane) scrub(e);
     });
     capLane.addEventListener("dblclick", (e) => {
-      if (e.target === capLane) addCaption(snapT((e.clientX - inner.getBoundingClientRect().left) / (S.zoom || 20)));
+      if (e.target === capLane) addCaption(snapT(timeAt(e)));
     });
     function capPointerDown(e, i) {
       if (e.button !== 0) return;
@@ -5248,7 +5248,7 @@
       const move = (ev) => {
         if (!moved && Math.abs(ev.clientX - x0) < 4) return;
         moved = true;
-        const dx = (ev.clientX - x0) / Z;
+        const dx = (ev.clientX - x0) / cz() / Z;
         if (mode === "move") {
           start = Math.max(0, snapT(c0.start + dx));
           end = start + (c0.end - c0.start);
@@ -5550,7 +5550,7 @@
         e.dataTransfer.dropEffect = "copy";
         box.classList.add("dropping");
         if (scroller.contains(e.target)) {
-          const Z = S.zoom || 20, x = (e.clientX - inner.getBoundingClientRect().left) / Z;
+          const Z = S.zoom || 20, x = timeAt(e);
           const k = S.p.scenes.filter((s) => (s.t0 + s.t1) / 2 < x).length;
           if (!dropHint) {
             dropHint = h("div", { class: "fvs-tl-insert" });

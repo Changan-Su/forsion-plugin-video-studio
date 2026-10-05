@@ -187,6 +187,47 @@ const code = page.locator('[data-tab="code"]');
 await code.click();
 await shot(page, '09-code');
 
+// 10a. The host zooms its whole interface (⌘+ / ⌘−: a CSS zoom on the page; a real dev ran at 110% on 2026-10-05 and
+// everything on the timeline landed a tenth of its distance from the start away from the pointer). A pointer is in the
+// screen's pixels, the timeline in its own: what lands, lands under the pointer.
+await page.evaluate(() => { document.body.style.zoom = '1.5'; });
+await page.waitForTimeout(150);
+{
+  const box = sel => page.locator(sel).boundingBox(), off = v => `${v.toFixed(1)}px off at 150%`;
+  await page.locator('.fvs-clip[data-id="cards"]').scrollIntoViewIfNeeded();
+  const ruler = await box('.fvs-tl-ruler'), clip = await box('.fvs-clip[data-id="cards"]');
+  const x = clip.x + clip.width / 2;
+  await page.mouse.click(x, ruler.y + ruler.height / 2);
+  await page.waitForTimeout(100);
+  const head = await box('.fvs-tl-head'), miss = head.x + head.width / 2 - x;
+  assert.ok(Math.abs(miss) <= 1.5, `a click on the ruler puts the playhead under the pointer (${off(miss)})`);
+  // a drag carries its ghost as far as the pointer went (brought back before letting go: nothing moves)
+  await page.mouse.move(clip.x + 21, clip.y + 36);
+  await page.mouse.down();
+  await page.mouse.move(clip.x + 81, clip.y + 36, { steps: 4 });
+  const drift = (await box('.fvs-tl-ghost.move')).x - clip.x - 60;
+  assert.ok(Math.abs(drift) <= 1.5, `a dragged scene follows the pointer (${off(drift)})`);
+  await page.mouse.move(clip.x + 21, clip.y + 36, { steps: 4 });
+  await page.mouse.up();
+  // While it plays the timeline follows the playhead, but not under a pointer that is holding something: the time just
+  // sought would slide away from the pointer, and the next move would seek further still (review, 10-05).
+  await page.locator('.fvs-studio').focus();
+  for (let i = 0; i < 6; i++) await page.keyboard.press('=');
+  await page.waitForTimeout(150);
+  const wide = await box('.fvs-tl-ruler'), scrolled = () => page.locator('.fvs-tl-scroll').evaluate(e => e.scrollLeft);
+  await page.keyboard.press('Space');
+  await page.mouse.move(wide.x + wide.width - 12, wide.y + wide.height / 2);
+  const held = await scrolled();
+  await page.mouse.down();
+  await page.waitForTimeout(250);
+  assert.equal(await scrolled(), held, 'the timeline stays put under a pointer that scrubs while the film plays');
+  await page.mouse.up();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Shift+Z');
+}
+await page.evaluate(() => { document.body.style.zoom = ''; });
+await page.waitForTimeout(150);
+
 // 11. a brand new project from the file creator opens trusted and previews
 await page.evaluate(() => HOST.reg.creators[0].run('Videos'));
 await ready();
