@@ -320,7 +320,7 @@ function computeTimeline(p) {
   for (const k of ['width', 'height', 'fps']) if (!(+m[k] > 0)) p.errors.push({ level: 'error', line: metaLine, message: `"${k}" must be a positive number` });
   checkAudio(p, metaLine);
   readCaptions(p, metaLine);
-  if (!p.scenes.length) p.errors.push({ level: 'warning', line: 1, message: 'the project has no scenes yet (add a "## id · Title" section)' });
+  if (!p.scenes.length) p.errors.push({ level: 'warning', line: 1, code: 'no-scenes', message: 'the project has no scenes yet (add a "## id · Title" section)' });
 }
 
 /** The audio tracks' trim settings: "in" (into the file) and "dur" take seconds or a length string. */

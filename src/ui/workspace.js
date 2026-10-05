@@ -1,9 +1,9 @@
-import { mountStudio, trust, KIND, BIN_MIME } from './studio.js';
+import { mountStudio, trust, KIND, BIN_MIME, editorsOf } from './studio.js';
 import { h, dirOf, joinPath } from './util.js';
 import { icon } from './icons.js';
 import { CSS } from './styles.js';
 import { parseProject, setProjectMeta } from '../lib/project.js';
-import { evaTemplate } from '../lib/templates.js';
+import { emptyTemplate } from '../lib/templates.js';
 import { openMenu, closeLayer } from './menu.js';
 import { AGENT, ensureTools } from './ai.js';
 
@@ -12,6 +12,15 @@ const ASPECTS = [[1920, 1080, 'frame-landscape'], [1080, 1920, 'frame-portrait']
 // folder names that break on some system: separators, reserved characters, a leading or trailing dot
 const badName = name => /[\/\\:*?"<>|\u0000-\u001f]/.test(name) || /^\.|\.$/.test(name);
 const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+/** A folder of the library as typed on the create page: '' = nothing typed, null = not one (a path on the computer,
+ *  a name some system refuses, a hidden folder). */
+const folderPath = text => {
+  const typed = text.trim().replace(/\\/g, '/');
+  if (!typed) return '';
+  if (/^(\/|~|[A-Za-z]:)/.test(typed)) return null;
+  const parts = typed.split('/').map(x => x.trim()).filter(Boolean);
+  return parts.length && !parts.some(badName) ? parts.join('/') : null;
+};
 
 // Only public plugin contracts cross the host boundary. No host stores or second React runtime.
 export function registerWorkspace(ctx, t, { createProject, exampleProject, remember }) {
@@ -71,6 +80,67 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     void refresh();
   }
   const safe = fn => async () => { try { await fn(); } catch (e) { ctx.notify?.(String(e.message || e), { level: 'warning' }); } };
+
+  /* ───────── what a project can do besides being opened ───────── */
+  const nameOf = path => titles.get(path)?.title || stemOf(path);
+  // ponytail: a rename changes the title (what every list and the editor show), not the folder: the conversation is
+  // bound to the folder's path and the host has no seam to move either. Rename the folder when it can move both.
+  const renameProject = path => safe(async () => {
+    const was = nameOf(path), title = (await app.prompt(t('project-rename-title'), was))?.trim();
+    if (!title || title === was) return;
+    // One writer: the editor that holds unsaved work, else any editor on the page, else this function. Two editors
+    // renaming at once would each save their own text, and the older text could land last (review, 2026-10-05).
+    const editor = () => { const live = editorsOf(path).filter(e => e.alive()); return live.find(e => e.dirty()) || live[0]; };
+    let one = editor();
+    if (!one) {
+      const text = await app.readFile(path);
+      if (text === null) throw new Error(t('cannot-read', { path }));
+      one = editor(); // (opened while the file was being read: its editor has the newer text)
+      if (!one) await app.writeFile(path, setProjectMeta(text, { title }));
+    }
+    if (one) await one.retitle(title);
+    titles.set(path, { ...titles.get(path), title }); emit();
+  })();
+  /** What a project writes beside itself: the web export, MP4 renders, exported captions (exporter.js,
+   *  export-panel.js, the captions export). A note or another project that merely starts with its name is not one. */
+  const outputOf = stem => new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-\\d+)?\\.(html|mp4|srt|vtt)$`, 'i');
+  /** Move a project to the recycle bin: its folder when the folder holds nothing but the project (its media, what
+   *  it generated, what it exported), else the project file alone. */
+  const deleteProject = path => safe(async () => {
+    const dir = dirOf(path), name = nameOf(path), mine = outputOf(stemOf(path));
+    // Its editors first: they save what they hold, then write nothing more (one closing later would write the
+    // file back). A delete that does not happen gives them the pen back.
+    const held = editorsOf(path);
+    await Promise.all(held.map(e => e.release()));
+    let own = false;
+    try {
+      for (const m of [...mounts]) if (m.path() === path) await m.leave();
+      if ([...mounts].some(m => m.path() === path)) throw new Error(t('project-delete-failed', { name })); // (it would not close: its last save failed)
+      // What else is in the folder, asked last, when nothing of ours is writing there any more.
+      // ponytail: the host's list is up to 1.5 s old and has no dot-folders; what it misses goes to the recycle bin
+      // with the folder and comes back with it. A listing without the project itself is no ground for taking a folder.
+      let all = null;
+      try { all = [...await app.listFiles(), ...(await app.listPages?.() || [])]; } catch { all = null; }
+      const rest = all?.includes(path) ? all.filter(q => q !== path && q.startsWith(`${dir}/`)).map(q => q.slice(dir.length + 1)) : null;
+      own = !!dir && !!rest && rest.every(rel => /^(media|audio|assets|generated)\//.test(rel) || mine.test(rel));
+      await app.trash(own ? dir : path);
+      if (await app.readFile(path).catch(() => null) !== null) throw new Error(t('project-delete-failed', { name }));
+    } catch (e) { for (const x of held) x.resume(); throw e; }
+    if (selected === path) selected = null;
+    titles.delete(path); paths = paths.filter(q => q !== path); emit();
+    try { if (((await ctx.loadData?.()) || {}).last === path) await remember(null); } catch { /* best effort */ }
+    // (the host says "moved to the recycle bin" itself; only the case it cannot know is ours to explain)
+    if (!own && dir) ctx.notify?.(t('project-deleted-file', { name }));
+    void refresh();
+  })();
+  /** One list for the host's workspace list, the launchpad's rows and the picker. An entry the host cannot do is
+   *  left out (a button that does nothing is worse than none). */
+  const projectActions = path => [
+    app.prompt ? { id: 'rename', icon: 'Pencil', label: t('project-rename'), run: () => void renameProject(path) } : null,
+    app.reveal ? { id: 'reveal', icon: 'FolderOpen', label: t('bin-reveal'), run: () => app.reveal(path) } : null,
+    app.trash ? { id: 'delete', icon: 'Trash2', label: t('project-delete'), danger: true, run: () => void deleteProject(path) } : null,
+  ].filter(Boolean);
+  const projectMenu = (anchor, path, at) => { const items = projectActions(path); if (items.length) openMenu(anchor, items.map(x => (x.id === 'delete' ? ['-', x] : [x])).flat(), { label: nameOf(path), at, align: at ? 'start' : 'end' }); };
   const newProject = () => go('create'); // as in Coding Studio: a page with a name, a frame and an idea
   const example = safe(async () => open(await exampleProject(false)));
   const nav = { page: 'projects' }; // the launchpad's page ('projects' | 'create'), picked in the left navigation
@@ -104,14 +174,19 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   function projectsPage(box, onOpen) {
     const search = h('input', { type: 'search', placeholder: t('project-search'), 'aria-label': t('project-search') });
     const count = h('span'), list = h('div', { class: 'fvs-launch-list' });
+    const head = h('div', { class: 'fvs-launch-head' }, h('span'), count, h('span', { text: t('launch-col-meta') }));
     const render = () => {
       const found = rows(search.value);
       count.textContent = t('launch-count', { n: found.length });
-      list.replaceChildren(...found.map(r => h('button', { type: 'button', class: 'fvs-launch-row', 'data-project-path': r.key, onclick: () => onOpen(r.key) },
-        h('span', { class: 'fvs-launch-icon' }, icon('FileVideo')),
-        h('span', { class: 'fvs-launch-info' }, h('strong', { text: r.title }), h('small', { text: r.key })),
-        h('span', { class: 'fvs-launch-meta' }, h('span', { text: r.frame }), h('small', { text: r.length })),
-        h('span', { class: 'fvs-launch-arrow' }, icon('ArrowRight')))));
+      head.hidden = !found.length; // no column titles over an empty list
+      list.replaceChildren(...found.map(r => h('div', { class: 'fvs-launch-row', 'data-project-path': r.key,
+        oncontextmenu: e => { e.preventDefault(); projectMenu(e.currentTarget, r.key, { x: e.clientX, y: e.clientY }); } },
+        h('button', { type: 'button', class: 'fvs-launch-open', onclick: () => onOpen(r.key) },
+          h('span', { class: 'fvs-launch-icon' }, icon('FileVideo')),
+          h('span', { class: 'fvs-launch-info' }, h('strong', { text: r.title }), h('small', { text: r.key })),
+          h('span', { class: 'fvs-launch-meta' }, h('span', { text: r.frame }), h('small', { text: r.length }))),
+        projectActions(r.key).length ? h('button', { type: 'button', class: 'fvs-btn icon fvs-launch-more', title: t('more'), 'aria-label': t('more'), 'aria-haspopup': 'menu',
+          onclick: e => projectMenu(e.currentTarget, r.key) }, icon('MoreHorizontal')) : null)));
       if (!found.length && (loaded || search.value)) list.append(h('div', { class: 'fvs-launch-empty' }, h('strong', { text: t(search.value ? 'launch-no-match' : 'launch-empty') }), search.value ? null : h('p', { text: t('launch-empty-hint') })));
     };
     search.oninput = render;
@@ -124,54 +199,72 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       h('div', { class: 'fvs-launch-toolbar' },
         h('label', { class: 'fvs-launch-search' }, icon('Search'), search),
         h('button', { type: 'button', class: 'fvs-btn icon', title: t('refresh-projects'), 'aria-label': t('refresh-projects'), onclick: () => void refresh() }, icon('RefreshCw'))),
-      h('div', { class: 'fvs-launch-head' }, h('span'), count, h('span', { text: t('launch-col-meta') })),
-      list);
+      head, list);
     listeners.add(render); render(); void refresh();
     return () => listeners.delete(render);
   }
-  /** A new project in its own folder of the work folder: <work>/<name>/<name>.fvs.md, its media beside it. */
+  /** A new project in its own folder: <folder>/<name>/<name>.fvs.md, its media beside it. <folder> is the plugin's
+   *  work folder unless another folder of the library is typed (the last one typed is offered again). */
   function createPage(box, onOpen) {
-    const folder = app.workFolder?.() || 'Forsion Video Studio';
-    const inUse = (list, name) => list.some(p => p.toLowerCase().startsWith(`${folder}/${name}/`.toLowerCase()));
-    const freeName = list => { const base = t('default-name'); let name = base; for (let k = 2; inUse(list, name); k++) name = `${base} ${k}`; return name; };
+    const fallback = app.workFolder?.() || 'Forsion Video Studio';
+    const inUse = (list, folder, name) => list.some(p => p.toLowerCase().startsWith(`${folder}/${name}/`.toLowerCase()));
+    const freeName = (list, folder) => { const base = t('default-name'); let name = base; for (let k = 2; inUse(list, folder, name); k++) name = `${base} ${k}`; return name; };
     let busy = false;
     const idea = h('textarea', { class: 'fvs-input fvs-launch-idea', rows: '4', placeholder: t('launch-idea-placeholder'), 'aria-label': t('launch-idea') });
     const aspects = ASPECTS.map(([w, hh, key], i) => h('label', { class: 'fvs-launch-aspect' },
       h('input', { type: 'radio', name: 'fvs-aspect', value: String(i), checked: i === 0 }),
       h('span', { class: 'fvs-launch-frame', style: { aspectRatio: `${w} / ${hh}` } }), h('span', { text: t(key) })));
-    const name = h('input', { class: 'fvs-input', 'aria-label': t('launch-name'), placeholder: freeName(paths), maxlength: '80', autocomplete: 'off', spellcheck: 'false' });
+    const name = h('input', { class: 'fvs-input', 'aria-label': t('launch-name'), placeholder: freeName(paths, fallback), maxlength: '80', autocomplete: 'off', spellcheck: 'false' });
+    const place = h('input', { class: 'fvs-input', 'aria-label': t('launch-folder'), placeholder: fallback, maxlength: '200', autocomplete: 'off', spellcheck: 'false' });
+    /** The folder the project's own folder goes in; null while what is typed is not a folder of the library. */
+    const folderNow = () => { const typed = folderPath(place.value); return typed === '' ? fallback : typed; };
     const error = h('p', { class: 'fvs-launch-error', role: 'alert', hidden: true });
     const where = h('p', { class: 'fvs-launch-note' });
     const submit = h('button', { type: 'submit', class: 'fvs-btn primary fvs-launch-create' }, icon('ArrowRight'), h('span', { text: t('launch-create') }));
-    const paintWhere = () => { where.textContent = t('launch-where', { path: `${folder}/${name.value.trim() || name.placeholder}` }); };
-    const fail = message => { error.textContent = message; error.hidden = false; name.setAttribute('aria-invalid', 'true'); name.focus(); };
-    name.oninput = () => { error.hidden = true; name.removeAttribute('aria-invalid'); paintWhere(); };
+    const paintWhere = () => {
+      const folder = folderNow();
+      if (folder) name.placeholder = freeName(paths, folder);
+      where.textContent = folder ? t('launch-where', { path: `${folder}/${name.value.trim() || name.placeholder}` }) : t('launch-folder-invalid');
+    };
+    const fail = (message, field = name) => { error.textContent = message; error.hidden = false; field.setAttribute('aria-invalid', 'true'); field.focus(); };
+    name.oninput = place.oninput = () => { error.hidden = true; name.removeAttribute('aria-invalid'); place.removeAttribute('aria-invalid'); paintWhere(); };
     const form = h('form', { class: 'fvs-launch-card', novalidate: true, onsubmit: e => { e.preventDefault(); void create(); } },
       h('label', { class: 'fvs-launch-label' }, h('span', {}, t('launch-idea'), h('small', { text: t('optional') })), idea),
       h('div', { class: 'fvs-launch-field' }, h('span', { text: t('launch-frame') }), h('div', { class: 'fvs-launch-aspects', role: 'radiogroup', 'aria-label': t('launch-frame') }, ...aspects)),
-      h('div', { class: 'fvs-launch-submit' }, h('label', { class: 'fvs-launch-field fvs-launch-name' }, h('span', { text: t('launch-name') }), name), submit),
+      h('div', { class: 'fvs-launch-submit' },
+        h('label', { class: 'fvs-launch-field fvs-launch-name' }, h('span', { text: t('launch-name') }), name),
+        h('label', { class: 'fvs-launch-field fvs-launch-folder' }, h('span', {}, t('launch-folder'), h('small', { text: t('launch-folder-hint') })), place),
+        submit),
       error);
     async function create() {
       if (busy) return;
-      const typed = name.value.trim();
+      const typed = name.value.trim(), folder = folderNow();
       if (typed && badName(typed)) return fail(t('launch-name-invalid'));
+      if (!folder) return fail(t('launch-folder-invalid'), place);
       busy = true; submit.disabled = true;
       try {
         if (!await libraryReady(5000)) return fail(t('launch-no-library'));
         let list = paths;
         try { list = await app.listFiles?.() || paths; } catch { /* the folder check falls back to the project list */ }
-        if (typed && inUse(list, typed)) return fail(t('launch-name-taken'));
-        const title = typed || freeName(list);
+        if (typed && inUse(list, folder, typed)) return fail(t('launch-name-taken'));
+        const title = typed || freeName(list, folder);
         const [width, height] = ASPECTS[+form.querySelector('input[name="fvs-aspect"]:checked').value];
         const path = joinPath(folder, `${title}/${title}.fvs.md`);
-        await app.writeFile(path, setProjectMeta(evaTemplate({ title, zh: !t.en() }), { width, height }));
+        await app.writeFile(path, setProjectMeta(emptyTemplate({ title, zh: !t.en() }), { width, height }));
         await trust(ctx, path);
+        // (before the project opens: opening it writes the plugin's data too, and two writers at once lose one)
+        try { await ctx.saveData?.({ ...((await ctx.loadData?.()) || {}), folder: folder === fallback ? null : folder }); } catch { /* best effort */ }
         nav.page = 'projects'; // closing this project later comes back to the list
         void refresh();
         await onOpen(path, idea.value.trim());
       } catch (e) { fail(String(e?.message || e)); }
       finally { busy = false; submit.disabled = false; }
     }
+    // the folder typed last time, unless something is typed already
+    void (async () => {
+      let last = ''; try { last = (await ctx.loadData?.())?.folder || ''; } catch { last = ''; }
+      if (last && !place.value && folderPath(last)) { place.value = last; paintWhere(); }
+    })();
     paintWhere();
     box.append(h('div', { class: 'fvs-launch-create-page' },
       h('button', { type: 'button', class: 'fvs-launch-back', onclick: () => void go('projects') }, icon('ArrowLeft'), h('span', { text: t('launch-back') })),
@@ -180,21 +273,26 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     return () => {};
   }
 
-  function library(el, onOpen, empty = false) {
-    const shell = h('div', { class: 'fvs-extension fvs-library' }, h('style', { text: CSS }));
+  /** `bare`: inside a host panel that carries the title itself (the project picker): no heading of its own, and no
+   *  second filled button next to the workbench's Export. */
+  function library(el, onOpen, empty = false, bare = false) {
+    const shell = h('div', { class: `fvs-extension fvs-library${bare ? ' bare' : ''}` }, h('style', { text: CSS }));
     const search = h('input', { class: 'fvs-input', type: 'search', placeholder: t('project-search'), 'aria-label': t('project-search') });
     const list = h('div', { class: 'fvs-project-list' });
     const render = () => {
       list.replaceChildren();
-      for (const row of rows(search.value)) list.append(h('button', { class: 'fvs-project-item', 'data-project-path': row.key, onclick: () => onOpen(row.key) },
+      for (const row of rows(search.value)) list.append(h('button', { class: 'fvs-project-item', 'data-project-path': row.key, onclick: () => onOpen(row.key),
+        oncontextmenu: e => { e.preventDefault(); projectMenu(e.currentTarget, row.key, { x: e.clientX, y: e.clientY }); } },
         icon('FileVideo'), h('span', {}, h('strong', { text: row.title }), h('small', { text: row.key }))));
       if (!list.children.length) list.append(h('p', { class: 'fvs-hint', text: t('projects-empty') }));
     };
     search.oninput = render;
-    shell.append(h('div', { class: 'fvs-library-heading' }, icon('Film'), h('h2', { text: t(empty ? 'workspace-welcome' : 'projects') })),
-      h('p', { class: 'fvs-hint', text: t('workspace-intro') }),
-      h('div', { class: 'fvs-row' }, h('button', { class: 'fvs-btn primary', onclick: newProject }, icon('Plus'), t('new-project')),
-        h('button', { class: 'fvs-btn', onclick: example }, t('open-example'))), search, list);
+    if (!bare) shell.append(h('div', { class: 'fvs-library-heading' }, icon('Film'), h('h2', { text: t(empty ? 'workspace-welcome' : 'projects') })),
+      h('p', { class: 'fvs-hint', text: t('workspace-intro') }));
+    const actions = h('div', { class: 'fvs-row' }, h('button', { class: `fvs-btn${bare ? '' : ' primary'}`, onclick: newProject }, icon('Plus'), t('new-project')),
+      h('button', { class: 'fvs-btn', onclick: example }, t('open-example')));
+    // the picker is for finding a project: the list first, making one after it
+    shell.append(...(bare ? [search, list, actions] : [actions, search, list]));
     el.append(shell); listeners.add(render); render(); void refresh();
     return () => { listeners.delete(render); shell.remove(); };
   }
@@ -241,7 +339,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const send = (method, text, folder) => { if (!text) return; if (handle && bound === folder) handle[method](text); else waiting.push([method, text, folder]); };
     const reveal = () => { asked = performance.now(); return ctx.openView?.('chat', { location: 'right' }); };
     return {
-      reveal,
+      reveal, shown: () => views > 0,
       /** What one editor gets: its words go to its own project's conversation, never to the one that follows it.
        *  `shown`: the conversation's view is mounted, so the right side is showing (collapsed, the host unmounts it). */
       of: folder => ({ reveal, shown: () => views > 0, quote: text => send('quote', text, folder), prefill: text => send('prefill', text, folder) }),
@@ -324,7 +422,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       // the host shows one panel at a time: the picker takes the properties panel's place until it closes
       let switching = false;
       if (view.extendView) view.extendView.open({ id: 'fvs-projects', title: t('projects'), side: 'left',
-        mount(body, handle) { return library(body, p => { switching = p !== path; handle.close(); void show(p).then(done => { if (switching && !done) disposeContent?.restoreSide?.(); }); }); },
+        mount(body, handle) { return library(body, p => { switching = p !== path; handle.close(); void show(p).then(done => { if (switching && !done) disposeContent?.restoreSide?.(); }); }, false, true); },
         // ("layout": the host folded the left side or rebuilt the layout under the picker; the right side's rest is the same)
         onClose(reason) { if (!switching && (reason === 'close' || reason === 'dismiss' || reason === 'layout')) disposeContent?.restoreSide?.(); } });
       else {
@@ -385,12 +483,25 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       emit();
       launch();
     }
+    /** The right side goes with the project. The host folds a side when a panel of ours (an Extend View) is the last
+     *  thing in it, and fills it with its "this side is empty" placeholder when a view is: closing the conversation
+     *  alone left the launchpad with a blank column. So an empty panel of ours stands beside the conversation for the
+     *  moment it takes, the conversation closes, and the panel takes the side with it. A side the person folded
+     *  (the conversation is not on the page) is left as it is. */
+    function leaveSide() {
+      let leave = null, done = false;
+      // (a project opened in that moment keeps its conversation; a handle that was replaced closes nothing)
+      const go = () => { if (done) return; done = true; if (!path && !dock.size()) ctx.closeView?.('chat'); leave?.close(); };
+      // (mount: the host has put the panel in the side. A host that never does still closes the conversation.)
+      try { leave = view.extendView?.open({ id: 'fvs-leave', title: t('properties'), side: 'right', mount: () => { queueMicrotask(go); } }) ?? null; } catch { leave = null; }
+      if (leave) setTimeout(go, 400); else go();
+    }
     function launch() {
       // another studio tab may still hold a project: the bin and the timeline stay with it
-      if (jump && !dock.size()) { ctx.replaceView('media', 'nav'); ctx.closeView?.('timeline'); if (canChat) ctx.closeView?.('chat'); }
+      if (jump && !dock.size()) { ctx.replaceView('media', 'nav'); ctx.closeView?.('timeline'); if (canChat) { if (chat.shown()) leaveSide(); else ctx.closeView?.('chat'); } }
       disposeContent = launcher ? launchpad(holder, (p, idea) => show(p, { idea })) : library(holder, show, true);
     }
-    const record = { show, compact, launcher, leave: closeProject }; mounts.add(record);
+    const record = { show, compact, launcher, leave: closeProject, path: () => path }; mounts.add(record);
     // (the host repeats the params it restored while the view is still starting: that is the layout coming back, not
     // the person opening a project. Another path in that moment is theirs.)
     let starting = true;
@@ -463,14 +574,15 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       const key = `${studio?.path}\n${items.map(x => x.path).join('\n')}`;
       if (key === shown) badges(); else { shown = key; paint(); }
     }
-    /** What a file can do besides being dragged. Renaming and deleting wait for the host: ctx.app has no seam for
-     *  either (2026-10-04), so they show what is missing instead of pretending. */
+    /** What a file can do besides being dragged. Deleting goes to the recycle bin, on hosts that have one for
+     *  plugins (ctx.app.trash), and only for a file no scene uses: the picture would lose it. Renaming has no seam
+     *  (2026-10-05) and is left out rather than shown dead. */
+    const inScene = x => !!(studio?.text() ?? seen)?.includes(x.rel); // (the text as it is now: the badges' copy is up to a second old)
     const menu = (anchor, x) => openMenu(anchor, [
       { label: t('bin-place'), icon: 'Plus', run: () => void studio?.place(x.path) },
       app.reveal ? { label: t('bin-reveal'), icon: 'FolderOpen', run: () => app.reveal(x.path) } : null,
-      '-', { heading: t('bin-needs-host') },
-      { label: t('bin-rename'), icon: 'Pencil', disabled: true, run() {} },
-      { label: t('bin-delete'), icon: 'Trash2', danger: true, disabled: true, run() {} },
+      ...(app.trash ? ['-', { label: t('bin-delete'), icon: 'Trash2', danger: true, disabled: inScene(x), hint: inScene(x) ? t('bin-delete-used') : '',
+        run: safe(async () => { if (inScene(x)) { ctx.notify?.(t('bin-delete-used')); return; } await app.trash(x.path); void scan(); }) }] : []),
     ], { label: x.rel });
     function tile(x) {
       const kind = KIND(x.rel), url = app.assetUrl?.(x.path), thumb = h('span', { class: 'fvs-bin-thumb' });
@@ -526,6 +638,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     id: 'projects', title: t('projects'), items: filter => rows(filter?.query), search: true, activeKey: () => selected,
     subscribe(fn) { listeners.add(fn); void refresh(); const poll = setInterval(refresh, 8000); return () => { listeners.delete(fn); clearInterval(poll); }; },
     open: row => open(row.key),
+    itemMenu: row => projectActions(row.key).map(({ id, label, danger, run }) => ({ id, label, danger, run })),
     actions: [{ id: 'new', label: t('new-project-short'), primary: true, run: newProject }, { id: 'example', label: t('open-example'), run: example }, { id: 'refresh', label: t('refresh-projects'), run: refresh }],
   });
   ctx.registerCommand({ id: 'fvs-open-studio', title: t('open-workspace'), keywords: 'video studio space 视频工作室 空间', run: () => ctx.openView?.('studio') });

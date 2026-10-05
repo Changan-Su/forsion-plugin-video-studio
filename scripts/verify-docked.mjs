@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { seedScenes } from './lib/seed.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = resolve(process.env.FVS_DESKTOP_ROOT || join(repo, '../../Forsion-Genesis/desktop'));
@@ -129,6 +130,12 @@ try {
   await win.waitForTimeout(300);
   await H.captureWindow(app, join(shots, '01-create.png'));
   await win.locator('.fvs-launch-create').click();
+  // a new project is empty: the stage says how to start (looked at in the shot), then the rig gives it scenes
+  await win.waitForSelector('.fvs-bin', { timeout: 15000 }).catch(() => assert.fail('a new project: the media bin on the left'));
+  await win.waitForSelector('.fvs-studio .fvs-blank:not([hidden])', { timeout: 30000 }).catch(() => assert.fail('a new project is empty: its stage says how to start'));
+  await settle(); await win.waitForTimeout(800); await steady();
+  await H.captureWindow(app, join(shots, '01b-empty.png'));
+  await seedScenes(win, join(home, 'vault'), '宣传片', '.fvs-dock-timeline .fvs-clip');
   await projectLayout('a new project');
   await steady(); await spanned('a new project');
   const made = find(join(home, 'vault'), '宣传片.fvs.md');

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as P from '../src/lib/project.js';
 import { compile, buildHtml, assetRefs } from '../src/lib/compile.js';
-import { evaTemplate, blankTemplate } from '../src/lib/templates.js';
+import { evaTemplate, blankTemplate, emptyTemplate, sceneTemplate } from '../src/lib/templates.js';
 
 const DOC = `# Demo
 
@@ -167,6 +167,22 @@ test('templates parse cleanly', () => {
     const p = P.parseProject(t);
     assert.deepEqual(p.errors, [], JSON.stringify(p.errors));
     assert.ok(p.scenes.length >= 1);
+  }
+});
+
+test('a new project from the interface has no scenes, says so as its only problem, and takes its first scene', () => {
+  for (const zh of [true, false]) {
+    const text = emptyTemplate({ title: '片头 "A"', zh });
+    const p = P.parseProject(text);
+    assert.equal(p.scenes.length, 0);
+    assert.equal(p.meta.title, '片头 "A"');
+    assert.deepEqual(p.errors.map(e => e.code), ['no-scenes'], JSON.stringify(p.errors));
+    assert.ok(!/^## /m.test(text), 'no scene headings, so no demo content');
+    const withScene = P.insertScene(text, null, { id: 'intro', title: zh ? '开场' : 'Intro', ...sceneTemplate(p.meta.tempo, zh) });
+    const q = P.parseProject(withScene);
+    assert.equal(q.scenes.length, 1);
+    assert.deepEqual(q.errors, [], JSON.stringify(q.errors));
+    assert.ok(withScene.startsWith(text.trimEnd()), 'the scene is appended: the head is untouched');
   }
 });
 

@@ -146,6 +146,29 @@ export function blankTemplate({ title = '新视频', zh = true } = {}) {
 `;
 }
 
+/** What the interface's "new project" entries write: the frame, the tempo and a base text style, and no scenes.
+ *  (The starters above stay for `fvs new --template`, where an agent or a person asks for one by name.) */
+export function emptyTemplate({ title = '新视频', zh = true } = {}) {
+  return `${HEAD(title, zh)}
+\`\`\`fvs
+{
+  "fvs": 1,
+  "title": ${JSON.stringify(title)},
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "tempo": { "bpm": 120, "beatsPerBar": 4 },
+  "background": "#101010",
+  "audio": []
+}
+\`\`\`
+
+\`\`\`css
+.fvs-stage { color: #f5f3ef; font-family: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif; }
+\`\`\`
+`;
+}
+
 export const TEMPLATES = { eva: evaTemplate, blank: blankTemplate };
 
 /** A new scene the Studio inserts: one card, a line of text and a hit on its downbeat. */

@@ -3,14 +3,18 @@
 window.HOST = (() => {
   const files = new Map();           // vault path → string | Uint8Array
   const watchers = new Map();
-  const calls = { notify: [], startChat: [], openFile: [], complete: [], reveal: [] };
+  const calls = { notify: [], startChat: [], openFile: [], complete: [], reveal: [], prompt: [], trash: [] };
+  const answers = [];                // what the next prompts answer (none queued: the text they were opened with)
+  const test = { holdRead: null, trashFails: false }; // switches a test sets (see readFile and trash below)
   const reg = { fileTypes: [], creators: [], commands: [], slash: [], embeds: [], views: [], lists: [] };
   const enc = new TextEncoder(), dec = new TextDecoder();
   let data = {};
   let locale = 'zh';
   let mounted = null;
   const app = {
-    readFile: async p => { const v = files.get(p); return v === undefined ? null : typeof v === 'string' ? v : dec.decode(v); },
+    // (test.holdRead: the next read of that path takes its text now and hands it over only when let go: a read that
+    //  was under way while something else wrote the file)
+    readFile: async p => { const v = files.get(p), out = v === undefined ? null : typeof v === 'string' ? v : dec.decode(v); if (test.holdRead?.path === p) { const hold = test.holdRead; test.holdRead = null; hold.taken(); await hold.until; } return out; },
     writeFile: async (p, t) => { files.set(p, String(t)); },
     readBytes: async p => { const v = files.get(p); return v === undefined ? null : typeof v === 'string' ? enc.encode(v) : v; },
     writeBytes: async (p, b) => { files.set(p, b instanceof Uint8Array ? b : new Uint8Array(b)); },
@@ -23,7 +27,9 @@ window.HOST = (() => {
     openFile: p => { calls.openFile.push(p); open(p); },
     reveal: p => { calls.reveal.push(p); },
     notify: m => calls.notify.push(m),
-    prompt: async (title, initial) => initial,
+    prompt: async (title, initial) => { calls.prompt.push({ title, initial }); return answers.length ? answers.shift() : initial; },
+    // the recycle bin (hosts after 2.12.2): a file, or a folder with everything in it
+    trash: async p => { calls.trash.push(p); if (test.trashFails) throw new Error('EPERM: operation not permitted'); if (![...files.keys()].some(k => k === p || k.startsWith(`${p}/`))) throw new Error(`nothing at ${p}`); for (const k of [...files.keys()]) if (k === p || k.startsWith(`${p}/`)) files.delete(k); },
   };
   const ctx = {
     app,
@@ -226,7 +232,7 @@ window.HOST = (() => {
     };
   }
   return {
-    files, calls, reg, ctx, open, enableChat, get data() { return data; }, space: openSpace, get spaceState() { return space; },
+    files, calls, answers, test, reg, ctx, open, enableChat, get data() { return data; }, space: openSpace, get spaceState() { return space; },
     get locale() { return locale; }, set locale(value) { locale = value; },
     load(src) { new Function('ctx', src)(ctx); },
     external(p, text) { files.set(p, text); const cb = watchers.get(p); if (cb) cb(); },

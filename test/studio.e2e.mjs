@@ -190,7 +190,9 @@ await shot(page, '09-code');
 // 11. a brand new project from the file creator opens trusted and previews
 await page.evaluate(() => HOST.reg.creators[0].run('Videos'));
 await ready();
-assert.equal(await page.locator('.fvs-clip').count(), 3);
+assert.equal(await page.locator('.fvs-clip').count(), 0, 'a new project starts without scenes');
+await page.waitForSelector('.fvs-studio .fvs-blank:not([hidden])').catch(() => assert.fail('and its stage says how to start'));
+assert.ok(!/^## /m.test(await page.evaluate(() => HOST.text(HOST.calls.openFile.at(-1)))), 'nothing ready-made in the file');
 await shot(page, '10-new');
 
 // 12. A new English workspace localizes both controls and project filename.
@@ -515,8 +517,14 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   assert.equal(await sp.evaluate(() => HOST.data.last), made);
   assert.equal(await sp.locator('.host-left .fvs-nav').count(), 0, 'the navigation gave way to the media bin');
   assert.equal(await sp.evaluate(() => HOST.spaceState.docked), 'timeline', 'the timeline came to the bottom');
-  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip');
-  await sp.waitForSelector('.host-extend .fvs-director-panel textarea', { timeout: 5000 });
+  // a new project has no scenes: the stage says how to start, the timeline says so in one line, nothing to export
+  assert.ok(!/^## /m.test(madeText), 'a new project has no scenes');
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-tl-empty');
+  await sp.waitForSelector('.fvs-studio .fvs-blank:not([hidden])').catch(() => assert.fail('an empty project shows how to start'));
+  assert.equal(await sp.locator('.host-bottom .fvs-dock-timeline .fvs-clip').count(), 0);
+  assert.ok(await sp.locator('.host-bottom .fvs-tl-empty').evaluate(e => e.getBoundingClientRect().height < 30), 'the timeline\'s hint stays on one line (its lane is 0 px wide while the project is empty)');
+  assert.equal(await sp.locator('.fvs-bar .fvs-export-action').isDisabled(), true, 'nothing to export from an empty project');
+  await sp.waitForSelector('.host-extend .fvs-director-panel textarea', { timeout: 5000 }).catch(() => assert.fail('the idea reaches the Director although the project is empty'));
   assert.equal(await sp.inputValue('.host-extend .fvs-director-panel textarea'), '一支 15 秒的竖屏新品预告', 'the Director holds the idea');
   assert.equal(await sp.evaluate(() => HOST.calls.startChat.length), 0, 'nothing is sent by itself');
   await shot(sp, '21-created');
@@ -535,9 +543,15 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(() => HOST.calls.startChat.length === 1);
   assert.match((await sp.evaluate(() => HOST.calls.startChat[0])).prompt, /最后停在 Logo/, 'the edited idea is what goes');
   await sp.evaluate(() => HOST.spaceState.remount());
-  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip');
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-tl-empty');
   await sp.waitForTimeout(400);
   assert.ok(!/新品预告/.test(await sp.locator(director).inputValue().catch(() => '')), 'a sent idea does not come back');
+  // the stage's "New scene" opens the timeline's templates; the first scene ends the start state
+  await sp.click('.fvs-studio .fvs-blank [data-blank="scene"]');
+  await sp.locator('.fvs-template').first().click();
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip').catch(() => assert.fail('the start state adds the first scene'));
+  await sp.waitForFunction(() => document.querySelector('.fvs-studio .fvs-blank').hidden);
+  assert.equal(await sp.locator('.fvs-bar .fvs-export-action').isDisabled(), false);
   // closing the project jumps back: navigation, launchpad, no timeline, nothing to reopen next time
   await sp.locator('.fvs-bar button[aria-label="更多"]').click();
   await sp.getByRole('menuitem', { name: '关闭工程' }).click();
@@ -741,10 +755,10 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForFunction(s => !document.querySelector(s).hidden, made, { timeout: 4000 }).catch(() => assert.fail('and it is back among the unused'));
   await filter('全部');
   assert.equal((await visible()).length, 4);
-  // the tile's menu: what works today, and the two that wait for the host
+  // the tile's menu: no entry that does nothing; a file no scene uses can go to the recycle bin
   await sp.click(made, { button: 'right' });
   assert.deepEqual(await sp.$$eval('.fvs-menu button', els => els.map(e => [e.textContent.trim(), e.disabled])),
-    [['放到播放头之后', false], ['在文件夹中显示', false], ['重命名…', true], ['删除', true]]);
+    [['放到播放头之后', false], ['在文件夹中显示', false], ['删除', false]]);
   await shot(sp, '24-bin-menu');
   await sp.getByRole('menuitem', { name: '在文件夹中显示' }).click();
   assert.deepEqual(await sp.evaluate(() => HOST.calls.reveal), [`${DIR}/${old}`]);
@@ -752,6 +766,16 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/generated/1700000000001.png`, Array.from(PNG)]);
   await sp.waitForFunction(() => document.querySelectorAll('.fvs-bin-item[data-ai]').length === 2, null, { timeout: 9000 }).catch(() => assert.fail('the bin lists a picture generated while it is open'));
   assert.equal(await sp.textContent('.fvs-bin-count'), '5');
+  // a file a scene uses stays: its "Delete" says why and does nothing
+  await sp.click('.fvs-bin-item[data-rel="assets/aria.jpg"]', { button: 'right' });
+  assert.deepEqual(await sp.$$eval('.fvs-menu button', els => els.filter(e => /删除/.test(e.textContent)).map(e => [e.querySelector('.fvs-menu-text span').textContent, e.querySelector('small')?.textContent, e.disabled])), [['删除', '场景里还在用', true]]);
+  await sp.keyboard.press('Escape');
+  // an unused one goes to the recycle bin and leaves the bin
+  await sp.click(made, { button: 'right' });
+  await sp.getByRole('menuitem', { name: '删除' }).click();
+  await sp.waitForSelector(made, { state: 'detached', timeout: 4000 }).catch(() => assert.fail('a deleted file leaves the bin'));
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.trash), [`${DIR}/${old}`]);
+  assert.equal(await sp.textContent('.fvs-bin-count'), '4');
   assert.deepEqual(serr, []);
   await sp.close();
 }
@@ -817,7 +841,7 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.waitForSelector('.host-extend .fvs-native-properties', { timeout: 5000 }).catch(() => assert.fail('the properties still open with the project'));
   // the host remounts the editor around layout jumps: the idea was handed over once
   await sp.evaluate(() => HOST.spaceState.remount());
-  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-clip');
+  await sp.waitForSelector('.host-bottom .fvs-dock-timeline .fvs-tl-empty');
   await sp.waitForTimeout(400);
   assert.deepEqual(await sp.evaluate(() => HOST.calls.chatPrefill), ['一支 10 秒的开场'], 'a remount does not hand the idea over again');
   assert.equal(await sp.evaluate(() => HOST.calls.mountChat.length), 1, 'the conversation stays mounted through it');
@@ -1097,7 +1121,7 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   // a project with no declarative timing: the lane says what would show up in it
   await sp.evaluate(([p, t]) => HOST.external(p, t), [FILE, original.replace(/ data-(in|seq)="/g, ' data-x-$1="')]);
   await sp.waitForFunction(() => !document.querySelector('.host-bottom .fvs-el'), null, { timeout: 5000 }).catch(() => assert.fail('no timed elements, no blocks'));
-  assert.match(await tl.locator('.fvs-el-lane.empty').getAttribute('data-hint'), /data-in/);
+  assert.match(await tl.locator('.fvs-el-lane.empty').getAttribute('data-hint'), /出现时间/);
   // An import that is still writing when the host rebuilds the editor (a layout reset): the editor that was closed
   // must not come back and save its text over the project. The file itself is stored.
   {
@@ -1216,6 +1240,203 @@ const RECIPE = JSON.parse(readFileSync(join(root, 'spaces/forsion-video-studio/s
   await sp.getByRole('button', { name: '属性面板', exact: true }).click();
   await back('the properties button opens a folded side');
   assert.deepEqual(serr, []);
+  await sp.close();
+}
+
+// 22. Managing projects (0.10.0). The create page takes another folder of the library and offers it again. The
+// launchpad's rows, the host's workspace list (itemMenu) and the in-project picker offer the same actions: a rename
+// changes the title, through the open editor when there is one (its unsaved work stays); deleting moves the
+// project's own folder to the recycle bin, or only its file when the folder holds other things; the open project
+// closes first, and an editor that is still up writes nothing back. A host without ctx.app.trash offers no delete.
+{
+  const { sp, serr } = await spacePage();
+  await sp.evaluate(() => HOST.ctx.saveData({ ...HOST.data, last: null }));
+  await sp.evaluate(r => HOST.space(null, r), RECIPE);
+  await sp.waitForSelector(`.fvs-launch-row[data-project-path="${FILE}"]`, { timeout: 10000 });
+  const source = 'HOST.reg.lists.find(l => l.id === "projects")';
+  const hostMenu = path => sp.evaluate(([src, k]) => (0, eval)(src).itemMenu({ key: k, title: '' }).map(a => [a.id, a.label, !!a.danger]), [source, path]);
+  const run = (path, id) => sp.evaluate(([src, k, i]) => { (0, eval)(src).itemMenu({ key: k, title: '' }).find(a => a.id === i).run(); }, [source, path, id]);
+  const rowMenu = async path => {
+    await sp.hover(`.fvs-launch-row[data-project-path="${path}"]`);
+    await sp.click(`.fvs-launch-row[data-project-path="${path}"] .fvs-launch-more`);
+    return (await sp.getByRole('menuitem').allTextContents()).map(x => x.trim());
+  };
+  const has = path => sp.evaluate(k => HOST.files.has(k), path);
+
+  // the create page: a path on the computer is refused before anything is written; a folder of the library is taken
+  await sp.click('.fvs-nav [data-nav="create"]');
+  await sp.waitForSelector('.fvs-launch-card');
+  assert.equal(await sp.getAttribute('.fvs-launch-folder input', 'placeholder'), 'Forsion Video Studio', 'left empty, the work folder');
+  await sp.fill('.fvs-launch-name input', '片头');
+  await sp.fill('.fvs-launch-folder input', '/Users/me/Movies');
+  assert.match(await sp.locator('.fvs-launch-note').first().innerText(), /笔记库里的文件夹/);
+  const size0 = await sp.evaluate(() => HOST.files.size);
+  await sp.click('.fvs-launch-create');
+  await sp.waitForSelector('.fvs-launch-error:not([hidden])');
+  assert.equal(await sp.getAttribute('.fvs-launch-folder input', 'aria-invalid'), 'true');
+  assert.equal(await sp.evaluate(() => HOST.files.size), size0, 'nothing written');
+  await sp.fill('.fvs-launch-folder input', '视频\\2026/');
+  assert.equal(await sp.locator('.fvs-launch-error').isVisible(), false, 'typing clears the error');
+  assert.match(await sp.locator('.fvs-launch-note').first().innerText(), /视频\/2026\/片头\//, 'the page says where it goes');
+  await shot(sp, '25-create-folder');
+  await sp.click('.fvs-launch-create');
+  const made = '视频/2026/片头/片头.fvs.md';
+  await sp.waitForSelector('.host-left .fvs-bin', { timeout: 10000 });
+  assert.ok(await has(made), 'the project is in the folder that was typed');
+  assert.equal(await sp.evaluate(() => HOST.data.folder), '视频/2026', 'and the folder is remembered');
+  assert.equal(await sp.evaluate(() => HOST.data.last), made, 'remembering the folder did not lose the project to reopen');
+
+  // the host's workspace list: a menu per row
+  assert.deepEqual(await hostMenu(made), [['rename', '重命名…', false], ['reveal', '在文件夹中显示', false], ['delete', '删除', true]]);
+  // rename the open project while it has unsaved work: the editor makes the change, and both reach the file
+  await sp.waitForSelector('.fvs-studio .fvs-blank:not([hidden])');
+  await sp.click('.fvs-studio .fvs-blank [data-blank="scene"]');
+  await sp.locator('.fvs-template').first().click();
+  await sp.evaluate(() => HOST.answers.push('  片头 v2 '));
+  await run(made, 'rename');
+  await sp.waitForFunction(k => /"title": "片头 v2"/.test(HOST.text(k)) && /^## /m.test(HOST.text(k)), made, { timeout: 4000 })
+    .catch(async () => assert.fail(`a rename and the unsaved scene both reach the file: ${(await sp.evaluate(k => HOST.text(k), made)).slice(0, 400)}`));
+  await sp.waitForTimeout(900); // (a later save of the editor must not put the old title back)
+  assert.match(await sp.evaluate(k => HOST.text(k), made), /"title": "片头 v2"/);
+  assert.equal(await sp.textContent('.fvs-studio .fvs-project-name'), '片头 v2', 'the open editor shows the new name');
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.prompt.at(-1)), { title: '工程名称', initial: '片头' });
+  assert.equal(await sp.evaluate(([src, k]) => (0, eval)(src).items({}).find(r => r.key === k).title, [source, made]), '片头 v2', 'the list has the new name at once');
+  // the picker inside a project: the same menu on a right-click
+  await sp.click('.fvs-studio .fvs-project');
+  await sp.waitForSelector(`.fvs-library .fvs-project-item[data-project-path="${FILE}"]`);
+  await sp.click(`.fvs-library .fvs-project-item[data-project-path="${FILE}"]`, { button: 'right' });
+  assert.deepEqual((await sp.getByRole('menuitem').allTextContents()).map(x => x.trim()), ['重命名…', '在文件夹中显示', '删除']);
+  await sp.keyboard.press('Escape');
+  // delete the open project: it closes, its own folder goes (media and all), nothing writes it back
+  await sp.evaluate(k => HOST.files.set(k.replace(/[^/]+$/, 'media/shot.png'), new Uint8Array([1])), made);
+  await run(made, 'delete');
+  await sp.waitForSelector('.host-left .fvs-nav', { timeout: 5000 }).catch(() => assert.fail('deleting the open project goes back to the launchpad'));
+  assert.deepEqual(await sp.evaluate(() => HOST.calls.trash), ['视频/2026/片头'], 'its own folder goes to the recycle bin');
+  await sp.waitForTimeout(900);
+  assert.deepEqual(await sp.evaluate(() => [...HOST.files.keys()].filter(k => k.startsWith('视频/'))), [], 'and nothing writes it back');
+  assert.equal(await sp.locator(`.fvs-launch-row[data-project-path="${made}"]`).count(), 0, 'the list forgets it at once');
+  assert.equal(await sp.evaluate(() => HOST.data.last), null);
+  assert.equal(await sp.evaluate(() => HOST.spaceState.docked), null, 'its timeline closed with it');
+
+  // a project that shares its folder (made from the notes tree, beside other files): only its file goes
+  await sp.evaluate(([from]) => { HOST.files.set('资料/计划.fvs.md', HOST.text(from)); HOST.files.set('资料/会议记录.md', '# notes'); }, [FILE]);
+  await sp.click('.fvs-launch-toolbar .fvs-btn');
+  await sp.waitForSelector('.fvs-launch-row[data-project-path="资料/计划.fvs.md"]', { timeout: 5000 });
+  assert.deepEqual(await rowMenu('资料/计划.fvs.md'), ['重命名…', '在文件夹中显示', '删除']);
+  await shot(sp, '26-row-menu');
+  const notices = await sp.evaluate(() => HOST.calls.notify.length);
+  await sp.getByRole('menuitem', { name: '删除' }).click();
+  await sp.waitForSelector('.fvs-launch-row[data-project-path="资料/计划.fvs.md"]', { state: 'detached', timeout: 4000 });
+  assert.equal(await sp.evaluate(() => HOST.calls.trash.at(-1)), '资料/计划.fvs.md', 'only the project file');
+  assert.ok(await has('资料/会议记录.md'), 'the other file of that folder stays');
+  assert.match(String(await sp.evaluate(n => HOST.calls.notify.slice(n).join('\n'), notices)), /只把「.*」的工程文件移到了回收站/);
+
+  // What counts as the project's own: its media folders and what it wrote beside itself (the web export, a render,
+  // exported captions). A note or a second project whose name merely starts with its name does not (review, 10-05).
+  await sp.evaluate(([from]) => {
+    const set = (k, v) => HOST.files.set(k, v);
+    set('甲/甲.fvs.md', HOST.text(from)); set('甲/甲.html', '<html>'); set('甲/甲-1696500000000.mp4', new Uint8Array([1])); set('甲/甲-2.srt', '1'); set('甲/media/a.png', new Uint8Array([1]));
+    set('乙/乙.fvs.md', HOST.text(from)); set('乙/乙2.fvs.md', HOST.text(from));
+    set('丙/丙.fvs.md', HOST.text(from)); set('丙/丙-备忘.md', '# memo');
+  }, [FILE]);
+  await sp.click('.fvs-launch-toolbar .fvs-btn');
+  const remove = async (key, went, why) => {
+    await sp.waitForSelector(`.fvs-launch-row[data-project-path="${key}"]`, { timeout: 5000 });
+    await rowMenu(key);
+    await sp.getByRole('menuitem', { name: '删除' }).click();
+    await sp.waitForSelector(`.fvs-launch-row[data-project-path="${key}"]`, { state: 'detached', timeout: 4000 });
+    assert.equal(await sp.evaluate(() => HOST.calls.trash.at(-1)), went, why);
+  };
+  await remove('甲/甲.fvs.md', '甲', 'a folder with only the project, its media and its own exports goes whole');
+  await remove('乙/乙.fvs.md', '乙/乙.fvs.md', 'another project in the folder: only this project\'s file goes');
+  assert.ok(await has('乙/乙2.fvs.md'), 'the other project stays');
+  await remove('丙/丙.fvs.md', '丙/丙.fvs.md', 'a note that starts with the project\'s name is not its export');
+  assert.ok(await has('丙/丙-备忘.md'), 'the note stays');
+  await remove('乙/乙2.fvs.md', '乙', 'alone in its folder now, the second project takes the folder');
+
+  // a closed project: the rename is written to its file; the row shows it; the file manager is asked for the file
+  await sp.evaluate(() => HOST.answers.push('第 2.12 话（改）'));
+  assert.deepEqual(await rowMenu(FILE), ['重命名…', '在文件夹中显示', '删除']);
+  await sp.getByRole('menuitem', { name: '重命名…' }).click();
+  await sp.waitForFunction(k => /"title": "第 2\.12 话（改）"/.test(HOST.text(k)), FILE, { timeout: 4000 }).catch(() => assert.fail('a closed project is renamed in its file'));
+  await sp.waitForFunction(k => document.querySelector(`.fvs-launch-row[data-project-path="${k}"] strong`)?.textContent === '第 2.12 话（改）', FILE, { timeout: 4000 });
+  await rowMenu(FILE);
+  await sp.getByRole('menuitem', { name: '在文件夹中显示' }).click();
+  assert.equal(await sp.evaluate(() => HOST.calls.reveal.at(-1)), FILE);
+  // the example's own folder (assets and audio only) goes whole
+  await rowMenu(FILE);
+  await sp.getByRole('menuitem', { name: '删除' }).click();
+  await sp.waitForSelector('.fvs-launch-empty', { timeout: 4000 }).catch(() => assert.fail('the last project gone, the list is empty'));
+  assert.equal(await sp.evaluate(() => HOST.calls.trash.at(-1)), DIR);
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+// 22b. An editor that is not the Space's (a file tab of the notes) is still up after its project went to the recycle
+// bin: it writes nothing back. And a host without ctx.app.trash (2.12.2 and before) shows no "Delete" anywhere.
+{
+  const { sp, serr } = await spacePage();
+  const source = 'HOST.reg.lists.find(l => l.id === "projects")';
+  await sp.evaluate(p => HOST.open(p), FILE);
+  await sp.waitForSelector('.fvs-studio .fvs-clip[data-id="cards"]', { timeout: 10000 });
+  const scenes = () => sp.evaluate(k => (HOST.text(k).match(/^## /gm) || []).length, FILE);
+  const addScene = async () => { await sp.click('.fvs-studio .fvs-tl-add'); await sp.locator('.fvs-template').first().click(); };
+
+  // The editor reads the disk on a timer (the host does not report outside changes of a .md file). A read that was
+  // under way while the editor itself saved is older than what the editor holds: it must not put that text back.
+  const n0 = await scenes(), clips0 = await sp.locator('.fvs-studio .fvs-clip').count();
+  await sp.evaluate(k => new Promise(taken => { HOST.test.holdRead = { path: k, taken, until: new Promise(go => { HOST.test.letGo = go; }) }; }), FILE); // (resolves when the timer's read has taken the old text)
+  await addScene();
+  await sp.waitForFunction(([k, n]) => (HOST.text(k).match(/^## /gm) || []).length === n + 1, [FILE, n0], { timeout: 5000 }).catch(() => assert.fail('the new scene is saved'));
+  await sp.evaluate(() => HOST.test.letGo());
+  await sp.waitForTimeout(500);
+  assert.equal(await sp.locator('.fvs-studio .fvs-clip').count(), clips0 + 1, 'a read older than the editor\'s own save does not take the scene back out of the editor');
+  await addScene();
+  await sp.waitForFunction(([k, n]) => (HOST.text(k).match(/^## /gm) || []).length === n + 2, [FILE, n0], { timeout: 5000 }).catch(() => assert.fail('the next save keeps both scenes: nothing older went over the file'));
+
+  // a delete that does not happen (the recycle bin refused) gives the editor its pen back
+  const del = () => sp.evaluate(([src, k]) => { (0, eval)(src).itemMenu({ key: k, title: '' }).find(a => a.id === 'delete').run(); }, [source, FILE]);
+  await sp.evaluate(() => { HOST.test.trashFails = true; });
+  const warned = await sp.evaluate(() => HOST.calls.notify.length);
+  await del();
+  await sp.waitForFunction(n => HOST.calls.notify.length > n, warned, { timeout: 4000 }).catch(() => assert.fail('a failed delete is reported'));
+  assert.ok(await sp.evaluate(k => HOST.files.has(k), FILE), 'the project is still there');
+  await sp.evaluate(() => { HOST.test.trashFails = false; });
+  await addScene();
+  await sp.waitForFunction(([k, n]) => (HOST.text(k).match(/^## /gm) || []).length === n + 3, [FILE, n0], { timeout: 5000 }).catch(() => assert.fail('after a delete that failed the editor saves again'));
+
+  await del();
+  await sp.waitForFunction(k => !HOST.files.has(k), FILE, { timeout: 4000 }).catch(() => assert.fail('the project went to the recycle bin'));
+  await sp.click('.fvs-studio .fvs-tl-add');
+  await sp.locator('.fvs-template').first().click();
+  await sp.waitForTimeout(1200);
+  assert.equal(await sp.evaluate(k => HOST.files.has(k), FILE), false, 'an editor still open on a deleted project writes nothing back');
+  assert.deepEqual(serr, []);
+  await sp.close();
+}
+{
+  const sp = await browser.newPage({ viewport: { width: 1600, height: 960 } });
+  await sp.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
+  await sp.route(`${ORIGIN}/**`, async r => {
+    const u = new URL(r.request().url());
+    if (u.pathname === '/host.html' || u.pathname === '/host.js') return r.fulfill({ path: join(here, 'host', u.pathname.slice(1)) });
+    if (u.pathname.startsWith('/vault/')) return serveVault(sp, r, decodeURIComponent(u.pathname.slice(7)));
+    return r.fulfill({ status: 404 });
+  });
+  await sp.goto(`${ORIGIN}/host.html`);
+  await sp.evaluate(([p, t]) => { HOST.files.set(p, t); HOST.ctx.saveData({ trusted: [p], last: null }); delete HOST.ctx.app.trash; }, [FILE, readFileSync(join(EX, 'episode-2.12.fvs.md'), 'utf8')]);
+  for (const f of readdirSync(join(EX, 'assets'))) await sp.evaluate(([q, b]) => HOST.files.set(q, new Uint8Array(b)), [`${DIR}/assets/${f}`, Array.from(readFileSync(join(EX, 'assets', f)))]);
+  await sp.evaluate(src => HOST.load(src), readFileSync(MAIN, 'utf8'));
+  await sp.evaluate(r => HOST.space(null, r), RECIPE);
+  await sp.waitForSelector(`.fvs-launch-row[data-project-path="${FILE}"]`, { timeout: 10000 });
+  await sp.hover(`.fvs-launch-row[data-project-path="${FILE}"]`);
+  await sp.click(`.fvs-launch-row[data-project-path="${FILE}"] .fvs-launch-more`);
+  assert.deepEqual((await sp.getByRole('menuitem').allTextContents()).map(x => x.trim()), ['重命名…', '在文件夹中显示'], 'no "Delete" on a host that cannot do it');
+  await sp.keyboard.press('Escape');
+  assert.deepEqual(await sp.evaluate(() => HOST.reg.lists.find(l => l.id === 'projects').itemMenu({ key: 'x.fvs.md', title: '' }).map(a => a.id)), ['rename', 'reveal']);
+  await sp.click(`.fvs-launch-row[data-project-path="${FILE}"]`);
+  await sp.waitForSelector('.host-left .fvs-bin .fvs-bin-item', { timeout: 10000 });
+  await sp.locator('.host-left .fvs-bin .fvs-bin-item').first().click({ button: 'right' });
+  assert.ok(!(await sp.getByRole('menuitem').allTextContents()).some(x => /删除/.test(x)), 'nor in the bin');
   await sp.close();
 }
 

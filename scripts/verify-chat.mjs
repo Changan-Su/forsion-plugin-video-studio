@@ -14,6 +14,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { seedScenes } from './lib/seed.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = resolve(process.env.FVS_DESKTOP_ROOT || join(repo, '../../Forsion-Genesis/desktop'));
@@ -89,7 +90,7 @@ try {
   await win.locator('.fvs-launch-idea').fill('一支 10 秒的开场');
   await win.locator('.fvs-launch-create').click();
   await win.waitForSelector('.fvs-bin', { timeout: 15000 });
-  await win.waitForSelector('.fvs-dock-timeline .fvs-clip', { timeout: 30000 });
+  await seedScenes(win, vault, '对话', '.fvs-dock-timeline .fvs-clip');
   await win.waitForSelector(chatBox, { timeout: 20000 }).catch(() => assert.fail('the native conversation mounts on the right'));
   assert.equal(created.length, 1, 'one conversation was created');
   const made = created[0];

@@ -4,7 +4,7 @@
 import { makeT } from './i18n.js';
 import { mountStudio, trust, trustList, previewHtml, assetLoader } from './studio.js';
 import { h, dirOf, joinPath } from './util.js';
-import { evaTemplate } from '../lib/templates.js';
+import { emptyTemplate } from '../lib/templates.js';
 import { parseProject } from '../lib/project.js';
 import { notify } from './ai.js';
 import EXAMPLE from '../generated/example-src.js';
@@ -24,13 +24,13 @@ async function remember(path) {
   try { const d = (await ctx.loadData?.()) || {}; await ctx.saveData?.({ ...d, last: path }); } catch { /* best effort */ }
 }
 
-/** Create a project from the starter template in `folder` and (by default) open it. */
+/** Create an empty project in `folder` and (by default) open it. */
 async function createProject(folder, open = true) {
   // a name written to disk follows the interface language (新视频 / New video), like the rest of Forsion
   const base = t('default-name');
   let path = joinPath(folder || '', `${base}${EXT}`);
   for (let k = 2; await exists(path); k++) path = joinPath(folder || '', `${base} ${k}${EXT}`);
-  await app.writeFile(path, evaTemplate({ title: base, zh: !t.en() }));
+  await app.writeFile(path, emptyTemplate({ title: base, zh: !t.en() }));
   await trust(ctx, path);
   if (open && app.openFile) app.openFile(path);
   return path;

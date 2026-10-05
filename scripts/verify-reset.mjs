@@ -14,6 +14,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { seedScenes } from './lib/seed.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = resolve(process.env.FVS_DESKTOP_ROOT || join(repo, '../../Forsion-Genesis/desktop'));
@@ -128,7 +129,7 @@ try {
   await win.locator('.fvs-launch-name input').fill('重置');
   await win.locator('.fvs-launch-create').click();
   await win.waitForSelector('.fvs-bin', { timeout: 15000 });
-  await win.waitForSelector(`${tl} .fvs-clip`, { timeout: 30000 });
+  await seedScenes(win, vault, '重置', `${tl} .fvs-clip`);
   await shown(props, 'the properties open with the project', 20000);
   await both('a project');
   await shot('open');

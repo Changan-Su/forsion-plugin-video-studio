@@ -87,6 +87,12 @@ function soundSegments(p) {
 const visibleHits = s => (typeof P.visibleHits === 'function' ? P.visibleHits(s) : s.hitTimes.map((t, index) => ({ index, t })));
 
 /* ───────── the editor ───────── */
+// The editors open on each path. What is done to a project from outside its editor goes through them: a title written
+// straight to the file would be undone by their next save (the host does not report the plugin's own writes to
+// watchFile), and a project moved to the recycle bin would be written back by an editor closing on unsaved edits.
+const OPEN = new Map();
+export const editorsOf = path => [...(OPEN.get(path) || [])];
+
 export function mountStudio(ctx, el, path, t, opts = {}) {
   const app = ctx.app;
   const nativeInspector = !!opts.view?.extendView && !opts.compact;
@@ -161,7 +167,15 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       h('div', { class: 'fvs-playback-actions' }, prevBtn, frameBack, playBtn, frameFwd, nextBtn),
       h('div', { class: 'fvs-preview-options' }, muteBtn, focusBtn, inspectorToggle)));
   const errBox = h('div', { class: 'fvs-errs', hidden: true, role: 'status' });
-  view.append(errBox);
+  // A project with no scenes yet (every new one): the stage says how to start. The three ways are the timeline's
+  // own buttons and the Director; none of them is the workbench's primary action.
+  const blank = h('div', { class: 'fvs-blank', hidden: true }, h('div', {},
+    icon('Clapperboard'), h('h3', { text: t('blank-title') }), h('p', { text: t('blank-body') }),
+    h('div', { class: 'fvs-blank-actions' },
+      h('button', { type: 'button', class: 'fvs-btn', 'data-blank': 'scene', 'aria-haspopup': 'dialog', onclick: e => openTemplates(e.currentTarget) }, icon('Plus'), h('span', { text: t('add-scene') })),
+      h('button', { type: 'button', class: 'fvs-btn', 'data-blank': 'import', onclick: () => fileInput.click() }, icon('Upload'), h('span', { text: t('import-media') })),
+      h('button', { type: 'button', class: 'fvs-btn', 'data-blank': 'ai', onclick: () => (opts.chat ? askFor('scene') : openAsk()) }, icon('Sparkles'), h('span', { text: t('ask-ai') })))));
+  view.append(errBox, blank);
 
   /* ───────── inspector ───────── */
   const tabs = h('div', { class: 'fvs-tabs', role: 'tablist', 'aria-label': t('properties') });
@@ -438,9 +452,12 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       return;
     }
     S.trusted = opts.trusted || (await trustList(ctx)).includes(path);
+    if (S.disposed) return; // (closed while that was read: not listed as open, and no disk timer left running)
     S.text = S.saved = text;
     setStatus('saved');
     reparse();
+    if (!OPEN.has(path)) OPEN.set(path, new Set());
+    OPEN.get(path).add(editor);
     S.time = Math.min(S.p.length, S.p.scenes[1] ? S.p.scenes[1].t0 + .5 : 0);
     S.sel = sceneUnderPlayhead()?.id || null;
     // the inline inspector starts open where there is room for it; the native one opens with the project
@@ -491,6 +508,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     return job;
   }
   async function writeNow() {
+    if (S.released) return;
     if (S.text === S.saved) { if (S.status !== 'loading' && !S.disposed) setStatus('saved'); return; }
     const text = S.text;
     setStatus('saving');
@@ -506,15 +524,35 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     if (a && a !== document.body && (root.contains(a) || side.contains(a) || timeline.contains(a)) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) a.blur();
   }
 
+  /** What the project list asks of an open editor (editorsOf). */
+  const editor = {
+    alive: () => !S.disposed,
+    dirty: () => S.text !== S.saved,
+    retitle(title) { tryCommit(src => P.setProjectMeta(src, { title })); return save(); },
+    /** The file is going to the recycle bin: after its last save, this editor writes nothing more. */
+    async release() { commitFocusedField(); await save().catch(() => {}); S.released = true; },
+    /** It did not go after all: the editor writes again, starting with what it still holds. */
+    resume() { S.released = false; if (S.text !== S.saved) void save(); },
+  };
   let unwatch = null, poll = 0, banner = null;
   function watch() {
-    if (app.watchFile) unwatch = app.watchFile(path, () => external());
-    else poll = setInterval(external, 2000);
+    // Forsion's file watcher reports a change made on disk to any `.md` file as a note change, and that never
+    // reaches watchFile (2.12.2 and the builds after it; found 2026-10-05 in real Electron: scenes written to the
+    // open project from outside did not show until it was reopened, which is how the Director's edits arrive).
+    // So the disk is also read on a timer; watchFile still brings in at once what it does hear.
+    // ponytail: a small text file read every 2 s per open editor; drop the timer when no supported host needs it
+    unwatch = app.watchFile?.(path, () => external()) || null;
+    poll = setInterval(external, 2000);
   }
   async function external() {
     if (saving) { try { await saving; } catch { /* reported by save */ } }
+    const saved = S.saved, held = S.text;
     let disk = null;
     try { disk = await app.readFile(path); } catch { disk = null; }
+    // A read that was under way while this editor saved or was typed in can be older than what the editor holds:
+    // taking it would put the previous text back, and the next save would write it over the newer file (the timer
+    // makes that a matter of time). The next tick reads again.
+    if (saving || S.saved !== saved || S.text !== held) return;
     if (S.disposed || disk === null || disk === S.saved || disk === S.text) { if (disk === S.text) S.saved = disk; return; }
     if (S.text === S.saved) {
       S.undo.push(S.text); S.redo = [];
@@ -897,6 +935,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     for (const [id, c] of clipEls) if (!seen.has(id)) { c.el.remove(); clipEls.delete(id); }
     clips.querySelector('.fvs-tl-empty')?.remove();
     if (!S.p.scenes.length) clips.append(h('div', { class: 'fvs-tl-empty', text: t('scene-none-yet') }));
+    blank.hidden = !S.text || S.p.scenes.length > 0;
+    exportBtn.disabled = !S.p.scenes.length;
     head.style.left = `${S.time * Z}px`;
     renderCaptions(); renderElements(); renderLanes(); drawRuler(); drawWaves(); renderErrors(); renderToolbar();
   }
@@ -1716,7 +1756,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   const lengthValue = (x, unit) => (unit === 'bar' ? `${x} ${x === 1 ? 'bar' : 'bars'}` : unit === 'beat' ? `${x} ${x === 1 ? 'beat' : 'beats'}` : `${x}s`);
   function sceneTab() {
     const s = selScene();
-    if (!s) return [h('div', { class: 'fvs-empty' }, icon('MousePointerClick'), h('p', { text: t('scene-none') }))];
+    if (!s) return [h('div', { class: 'fvs-empty' }, icon('MousePointerClick'), h('p', { text: t(S.p.scenes.length ? 'scene-none' : 'blank-title') }))];
     const tp = S.p.tempo, unit = tp ? (S.lengthUnit || unitOf(s.meta.length)) : 'sec';
     const units = tp ? [['bar', t('unit-bar')], ['beat', t('unit-beat')], ['sec', t('unit-sec')]] : [['sec', t('unit-sec')]];
     const unitSel = select('sunit', units, unit, v => { S.lengthUnit = v; renderSide(); }, { 'aria-label': t('unit') });
@@ -1827,7 +1867,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     const out = [h('div', { class: 'fvs-text-head' }, h('small', { class: 'fvs-hint', text: t('texts-hint') }),
       h('label', { class: 'fvs-check' }, h('input', { type: 'checkbox', checked: S.allTexts, onchange: e => { S.allTexts = e.target.checked; renderSide(); } }), t('all-scenes')))];
     const scenes = S.allTexts ? S.p.scenes : [selScene()].filter(Boolean);
-    if (!scenes.length) return [h('div', { class: 'fvs-empty' }, icon('MousePointerClick'), h('p', { text: t('scene-none') }))];
+    if (!scenes.length) return [h('div', { class: 'fvs-empty' }, icon('MousePointerClick'), h('p', { text: t(S.p.scenes.length ? 'scene-none' : 'blank-title') }))];
     for (const s of scenes) {
       const runs = HT.scan(s.html).texts;
       if (S.allTexts) out.push(h('h4', {}, h('button', { type: 'button', class: 'fvs-link', onclick: () => selectScene(s.id) }, `${String(s.index + 1).padStart(2, '0')} · ${s.title || s.id}`)));
@@ -1978,7 +2018,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
         tracks.length ? h('button', { type: 'button', class: 'fvs-btn ghost', onclick: e => openSync(e.currentTarget) }, t('sync')) : null));
     audio.classList.add('fvs-audio-tracks');
     out.push(audio);
-    const probs = [...S.p.errors, ...S.runtimeErrors.map(e => ({ level: 'error', ...e }))];
+    const probs = [...S.p.errors.filter(e => e.code !== 'no-scenes'), ...S.runtimeErrors.map(e => ({ level: 'error', ...e }))];
     out.push(section(t('problems'), probs.length ? h('div', { class: 'fvs-problems' }, ...probs.map(e => h('div', { class: e.level === 'warning' ? 'w' : 'e', text: `${e.scene ? `[${e.scene}] ` : ''}${e.line ? `line ${e.line}: ` : ''}${e.message}` }))) : h('p', { class: 'fvs-hint', text: t('no-problems') })));
     return out;
   }
@@ -2101,7 +2141,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
 
   // a project made from the launchpad with an idea: the idea waits in the Director for the person to send
   void load().then(() => {
-    if (!opts.idea || S.disposed || !S.p.scenes.length) return;
+    if (!opts.idea || S.disposed || !S.text) return;
     // handed to the conversation once: its input keeps the text across this view's remounts, so the draft is ours no more
     if (opts.chat) { opts.chat.reveal(); opts.chat.prefill(opts.idea); opts.ideaDraft?.(''); }
     else { director.seed(opts.idea, opts.ideaDraft); openAsk(); }
@@ -2114,7 +2154,8 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     inspectorHandle?.close(); askHandle?.close();
     cancelAnimationFrame(raf);
     clearTimeout(previewTimer); clearTimeout(pendingTimer);
-    if (S.text !== S.saved) save();
+    // (listed as open until its last write has landed: a project deleted in that moment waits for it)
+    Promise.resolve(S.text !== S.saved ? save() : saving).catch(() => {}).finally(() => OPEN.get(path)?.delete(editor));
     if (unwatch) unwatch();
     clearInterval(poll);
     window.removeEventListener('message', onMessage);
