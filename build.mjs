@@ -35,18 +35,7 @@ const music = {};
 for (const f of readdirSync(at('tools/music')).filter(f => /\.(py|md|txt)$/.test(f)).sort()) music[f] = readFileSync(at(`tools/music/${f}`), 'utf8');
 writeFileSync(at('src/generated/music-src.js'), `export default ${JSON.stringify(music)};\n`);
 
-// 4. the bundled example: the project text and its images (the 2 MB score is fetched on first open)
-// ponytail: fetched from this repository's main branch. Where raw.githubusercontent.com cannot be reached the example
-// stays silent and says so; the MP3 is in the plugin's folder, so a host seam that reads a plugin's own files ends this.
-const ex = at('examples/episode-2.12');
-const exAssets = {};
-for (const f of readdirSync(join(ex, 'assets')).sort()) exAssets[`assets/${f}`] = readFileSync(join(ex, 'assets', f)).toString('base64');
-writeFileSync(at('src/generated/example-src.js'), `export default ${JSON.stringify({
-  text: readFileSync(join(ex, 'episode-2.12.fvs.md'), 'utf8'), assets: exAssets, audio: 'audio/episode-2.12-score.mp3',
-  audioUrl: 'https://raw.githubusercontent.com/Changan-Su/forsion-plugin-video-studio/main/examples/episode-2.12/audio/episode-2.12-score.mp3',
-})};\n`);
-
-// 5. plugin UI: an IIFE whose free variable `ctx` is the host's setup parameter
+// 4. plugin UI: an IIFE whose free variable `ctx` is the host's setup parameter
 const ui = await build({ entryPoints: [at('src/ui/plugin.js')], bundle: true, format: 'iife', write: false, target: 'es2020', legalComments: 'none',
   supported: { 'template-literal': false }, // keep embedded sources as one-line strings: main.js stays a plain setup body
   define: { __FVS_VERSION__: JSON.stringify(manifest.version) } });

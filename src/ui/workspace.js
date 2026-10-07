@@ -23,7 +23,7 @@ const folderPath = text => {
 };
 
 // Only public plugin contracts cross the host boundary. No host stores or second React runtime.
-export function registerWorkspace(ctx, t, { createProject, exampleProject, remember }) {
+export function registerWorkspace(ctx, t, { createProject, remember }) {
   const app = ctx.app || {}, listeners = new Set(), mounts = new Set();
   let selected = null, paths = [], generation = 0, loaded = false;
   // The host restores the notes library lazily (a plugin view wakes it, but the restore is async): reading before it
@@ -142,7 +142,6 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
   ].filter(Boolean);
   const projectMenu = (anchor, path, at) => { const items = projectActions(path); if (items.length) openMenu(anchor, items.map(x => (x.id === 'delete' ? ['-', x] : [x])).flat(), { label: nameOf(path), at, align: at ? 'start' : 'end' }); };
   const newProject = () => go('create'); // as in Coding Studio: a page with a name, a frame and an idea
-  const example = safe(async () => open(await exampleProject(false)));
   const nav = { page: 'projects' }; // the launchpad's page ('projects' | 'create'), picked in the left navigation
   // the idea typed on the create page, as edited in the Director, until it is sent: the host remounts the studio
   // around layout jumps (before or after the first mount reached the Director), and each mount seeds it again
@@ -194,7 +193,6 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
       h('header', { class: 'fvs-launch-header' },
         h('div', {}, h('h1', { text: t('launch-projects') }), h('p', { text: t('launch-projects-sub') })),
         h('div', { class: 'fvs-launch-actions' },
-          h('button', { type: 'button', class: 'fvs-btn', onclick: example }, icon('Film'), h('span', { text: t('open-example') })),
           h('button', { type: 'button', class: 'fvs-btn primary', 'data-launch': 'new', onclick: () => void go('create') }, icon('Plus'), h('span', { text: t('new-video') })))),
       h('div', { class: 'fvs-launch-toolbar' },
         h('label', { class: 'fvs-launch-search' }, icon('Search'), search),
@@ -293,8 +291,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     search.oninput = render;
     if (!bare) shell.append(h('div', { class: 'fvs-library-heading' }, icon('Film'), h('h2', { text: t(empty ? 'workspace-welcome' : 'projects') })),
       h('p', { class: 'fvs-hint', text: t('workspace-intro') }));
-    const actions = h('div', { class: 'fvs-row' }, h('button', { class: `fvs-btn${bare ? '' : ' primary'}`, onclick: newProject }, icon('Plus'), t('new-project')),
-      h('button', { class: 'fvs-btn', onclick: example }, t('open-example')));
+    const actions = h('div', { class: 'fvs-row' }, h('button', { class: `fvs-btn${bare ? '' : ' primary'}`, onclick: newProject }, icon('Plus'), t('new-project')));
     // the picker is for finding a project: the list first, making one after it
     shell.append(...(bare ? [search, list, actions] : [actions, search, list]));
     el.append(shell); listeners.add(render); render(); void refresh();
@@ -533,8 +530,7 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     const pages = [item('create', 'Plus', 'new-video', () => void go('create')), item('projects', 'LayoutGrid', 'launch-projects', () => void go('projects'))];
     const shell = h('nav', { class: 'fvs-extension fvs-nav', 'aria-label': t('workspace-welcome') }, h('style', { text: CSS }),
       h('div', { class: 'fvs-nav-brand' }, h('span', { class: 'fvs-nav-mark' }, icon('Clapperboard')), h('strong', { text: t('workspace-welcome') })),
-      h('div', { class: 'fvs-nav-section' }, h('span', { class: 'fvs-nav-heading', text: t('nav-create') }), ...pages),
-      h('div', { class: 'fvs-nav-section' }, h('span', { class: 'fvs-nav-heading', text: t('nav-examples') }), item('example', 'Film', 'nav-example', example)));
+      h('div', { class: 'fvs-nav-section' }, h('span', { class: 'fvs-nav-heading', text: t('nav-create') }), ...pages));
     const paint = () => { for (const b of pages) if (!selected && b.dataset.nav === nav.page) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); };
     el.append(shell); listeners.add(paint); paint();
     return () => { listeners.delete(paint); shell.remove(); };
@@ -643,8 +639,8 @@ export function registerWorkspace(ctx, t, { createProject, exampleProject, remem
     subscribe(fn) { listeners.add(fn); void refresh(); const poll = setInterval(refresh, 8000); return () => { listeners.delete(fn); clearInterval(poll); }; },
     open: row => open(row.key),
     itemMenu: row => projectActions(row.key).map(({ id, label, danger, run }) => ({ id, label, danger, run })),
-    actions: [{ id: 'new', label: t('new-project-short'), primary: true, run: newProject }, { id: 'example', label: t('open-example'), run: example }, { id: 'refresh', label: t('refresh-projects'), run: refresh }],
+    actions: [{ id: 'new', label: t('new-project-short'), primary: true, run: newProject }, { id: 'refresh', label: t('refresh-projects'), run: refresh }],
   });
   ctx.registerCommand({ id: 'fvs-open-studio', title: t('open-workspace'), keywords: 'video studio space 视频工作室 空间', run: () => ctx.openView?.('studio') });
-  return { open, newProject, example };
+  return { open, newProject };
 }

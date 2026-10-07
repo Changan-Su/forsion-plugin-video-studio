@@ -6,8 +6,6 @@ import { mountStudio, trust, trustList, previewHtml, assetLoader } from './studi
 import { h, dirOf, joinPath } from './util.js';
 import { emptyTemplate } from '../lib/templates.js';
 import { parseProject } from '../lib/project.js';
-import { notify } from './ai.js';
-import EXAMPLE from '../generated/example-src.js';
 import { registerWorkspace } from './workspace.js';
 import { EMBED_CSS } from './styles.js';
 import { icon } from './icons.js';
@@ -17,7 +15,6 @@ const EXT = '.fvs.md';
 const ICON = 'layout';
 const app = ctx.app || {};
 let workspace = null;
-const workFolder = () => (app.workFolder ? app.workFolder() : 'Forsion Video Studio');
 const exists = async p => { try { return (await app.readFile(p)) !== null; } catch { return false; } };
 
 async function remember(path) {
@@ -36,32 +33,6 @@ async function createProject(folder, open = true) {
   return path;
 }
 
-/** The bundled example (episode 2.12): written into the work folder once, then opened. */
-async function openExample(open = true) {
-  const dir = `${workFolder()}/第 2.12 话`;
-  const file = `${dir}/episode-2.12${EXT}`;
-  try {
-    if (!(await exists(file))) {
-      for (const [rel, b64] of Object.entries(EXAMPLE.assets)) {
-        if (app.writeBytes) await app.writeBytes(`${dir}/${rel}`, Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
-      }
-      await app.writeFile(file, EXAMPLE.text);
-    }
-    await trust(ctx, file);
-    if (open && app.openFile) app.openFile(file);
-    const audio = `${dir}/${EXAMPLE.audio}`;
-    if (app.writeBytes && !(await exists(audio))) {
-      // the score is 2 MB, so it is fetched instead of shipped inside main.js
-      fetch(EXAMPLE.audioUrl).then(r => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
-        .then(buf => app.writeBytes(audio, new Uint8Array(buf)))
-        .catch(() => notify(ctx, t('example-audio-failed'), 'warn'));
-    }
-    return file;
-  } catch (e) {
-    notify(ctx, String(e && e.message || e), 'warn');
-  }
-}
-
 const registered = ctx.registerFileType({
   id: 'project',
   extensions: [EXT],
@@ -75,7 +46,7 @@ const registered = ctx.registerFileType({
 
 // a built-in owner of the suffix wins: then register nothing else (no duplicate "new" entries)
 if (registered !== false) {
-  workspace = registerWorkspace(ctx, t, { createProject, exampleProject: openExample, remember });
+  workspace = registerWorkspace(ctx, t, { createProject, remember });
   ctx.registerFileCreator({ id: 'new-project', label: t('new-project'), icon: ICON, run: parent => createProject(parent).then(() => {}) });
 
   ctx.registerCommand({
@@ -83,12 +54,6 @@ if (registered !== false) {
     title: `Video Studio：${t('new-project')}`,
     keywords: 'video studio fvs 视频 工程 新建 动画 宣传片',
     run: workspace.newProject,
-  });
-  ctx.registerCommand({
-    id: 'fvs-open-example',
-    title: `Video Studio：${t('open-example')}`,
-    keywords: 'video studio fvs example 示例 2.12 eva 补完',
-    run: workspace.example,
   });
   ctx.registerCommand({
     id: 'fvs-open-project',

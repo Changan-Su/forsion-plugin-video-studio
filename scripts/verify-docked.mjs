@@ -2,7 +2,7 @@
 // Coding Studio does), and the timeline docks in the native bottom panel.
 // Launches the desktop's built out/ through its uiux-electron harness (stub engine, throwaway home, user data and
 // vault — nothing of yours is read, touched or killed), seeds this bundle into <home>/plugins and checks:
-//   launch layout (navigation, launchpad, no timeline) → a project made on the create page (its folder, its frame,
+//   launch layout (navigation, launchpad, no timeline, nothing ready-made anywhere) → a project made on the create page (its folder, its frame,
 //   the idea waiting in the Director; on a host with ctx.tangu.mountChat the conversation is a tab of the right side
 //   instead, and verify-chat.mjs checks the idea in it) → the project layout (media bin, docked timeline) → closing it → the person's
 //   ⌘J surviving a project switch → the bin (double-click, drag to a cut) → keys, zoom, ⌘J repaint → a reload →
@@ -118,6 +118,11 @@ try {
   console.log('· step 1');
   // 1. launch layout: navigation, the project list, nothing at the bottom
   await launchLayout('first open');
+  // a fresh install is empty: nothing ready-made in the list, in the navigation, or in the library
+  await win.waitForSelector('.fvs-launch-empty', { timeout: 20000 }).catch(() => assert.fail('first open: the list of projects is empty'));
+  assert.deepEqual(await win.$$eval('.fvs-nav-item', els => els.map(e => e.dataset.nav)), ['create', 'projects'], 'first open: the navigation makes a video or lists them, and offers nothing ready-made');
+  assert.deepEqual(await win.$$eval('.fvs-launch-actions .fvs-btn', els => els.map(e => e.dataset.launch || e.textContent)), ['new'], 'first open: one button, the new video');
+  assert.deepEqual(readdirSync(join(home, 'vault'), { recursive: true }).map(String).filter(f => f.endsWith('.fvs.md')), [], 'first open: the plugin wrote no project into the library');
   await settle(); await win.waitForTimeout(500);
   await H.captureWindow(app, join(shots, '00-launch.png'));
 
@@ -167,10 +172,20 @@ try {
   await win.locator('.fvs-launch-search input').click();
   await win.keyboard.press('Meta+j');
   await win.waitForFunction(() => !!document.querySelector('.dv-edge-bottom.is-on'), null, { timeout: 5000 });
-  await win.locator('.fvs-nav [data-nav="example"]').click();
+  // the complete project the rest of this rig works on is the repository's own (the plugin ships no example since
+  // 0.10.1): put into the library the way a project somebody sent arrives, found in the list, and trusted by hand
+  const sent = join(home, 'vault/Forsion Video Studio/第 2.12 话'), from = join(repo, 'examples/episode-2.12');
+  cpSync(join(from, 'assets'), join(sent, 'assets'), { recursive: true });
+  cpSync(join(from, 'episode-2.12.fvs.md'), join(sent, 'episode-2.12.fvs.md'));
+  // (the launchpad reads the library when it opens and when asked: its refresh button)
+  const row = win.locator('.fvs-launch-row', { hasText: '第 2.12 话' }).first();
+  for (let k = 0; k < 15 && !(await row.count()); k++) { await win.locator('.fvs-launch-toolbar button[aria-label="刷新工程"]').click(); await win.waitForTimeout(2000); }
+  await row.click({ timeout: 5000 }).catch(() => assert.fail('a project put into the library from outside shows in the list after a refresh'));
+  await win.locator('.fvs-gate .fvs-btn.primary').click({ timeout: 15000 })
+    .catch(() => assert.fail('a project the Studio did not make asks before it runs its scripts'));
   const clip = '.fvs-dock-timeline .fvs-clip[data-id="cards"]';
   await win.waitForSelector(clip, { timeout: 30000 });
-  await projectLayout('the example');
+  await projectLayout('a project from outside');
   await steady();
   await editorKeys();
   await win.keyboard.press('Meta+j');

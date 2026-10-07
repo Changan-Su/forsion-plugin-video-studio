@@ -2,9 +2,10 @@
 
 ## 0.10.1 — 2026-10-07
 
-- 修复：打开示例「第 2.12 话」时配乐下载不下来，每次都提示「示例的配乐没下载下来」，示例只有画面没有声音。原因是下载地址还指着插件搬家之前的位置，那里已经没有这个文件。现在指向插件自己的仓库。已经打开过示例、缺配乐的，更新后再点一次「示例 · 第 2.12 话」就会补上（只补配乐，不动你改过的工程文件）。
+- 去掉了内置的示例工程「第 2.12 话」。装好之后是空的：左侧导航不再有「示例」一栏，启动台和工程选择器里的「打开示例」按钮、命令面板里的「打开示例 · 第 2.12 话」都拿掉了，插件不再往笔记库里写任何现成的工程。
+- 以前点过「示例」的，笔记库的 `Forsion Video Studio/第 2.12 话` 里留着那份工程。它是个普通工程，照常能开；不想要就在工程列表里点它的「⋯ → 删除」，会移到回收站。
 - 需要的 Forsion 和 0.10.0 相同。
-- **English:** Fixed: opening the 2.12 example never got its score. Every time it said "The example's score did not download" and the example played without sound. The download address still pointed at where the plugin lived before it moved to its own repository, and the file is no longer there. It now points at the plugin's own repository. If you already opened the example and it has no score, open "Episode 2.12" once more after updating: only the score is added, the project file you may have edited is left alone. Forsion versions: the same as 0.10.0.
+- **English:** The bundled example project "Episode 2.12" is gone. A fresh install is empty: the left navigation has no Examples section, the launchpad and the project picker have no "Open the 2.12 example" button, the command of that name is removed, and the plugin no longer writes a ready-made project into the notes library. If you opened the example before, your library still has it in `Forsion Video Studio/第 2.12 话`. It is an ordinary project and opens as before; to remove it, choose "⋯ → Delete" on its row in the project list, which moves it to the recycle bin. Forsion versions: the same as 0.10.0.
 
 ## 0.10.0 — 2026-10-05
 

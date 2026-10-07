@@ -17,7 +17,7 @@
     "steps": [
       {
         "title": "新建工程",
-        "description": "文件树右键「新建视频工程」，或命令面板「Video Studio：新建视频工程」。想先看看，可以运行「Video Studio：打开示例 · 第 2.12 话」。"
+        "description": "文件树右键「新建视频工程」，或命令面板「Video Studio：新建视频工程」。"
       },
       {
         "title": "搭场景、放素材",
@@ -37,7 +37,7 @@
       "steps": [
         {
           "title": "Create a project",
-          "description": "Right-click in the file tree and choose New video project, or run \"Video Studio: New video project\" from the command palette. To look around first, run \"Video Studio: Open the 2.12 example\"."
+          "description": "Right-click in the file tree and choose New video project, or run \"Video Studio: New video project\" from the command palette."
         },
         {
           "title": "Build scenes and add media",
