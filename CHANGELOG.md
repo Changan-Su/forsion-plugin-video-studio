@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1 — 2026-10-07
+
+- 修复：打开示例「第 2.12 话」时配乐下载不下来，每次都提示「示例的配乐没下载下来」，示例只有画面没有声音。原因是下载地址还指着插件搬家之前的位置，那里已经没有这个文件。现在指向插件自己的仓库。已经打开过示例、缺配乐的，更新后再点一次「示例 · 第 2.12 话」就会补上（只补配乐，不动你改过的工程文件）。
+- 需要的 Forsion 和 0.10.0 相同。
+- **English:** Fixed: opening the 2.12 example never got its score. Every time it said "The example's score did not download" and the example played without sound. The download address still pointed at where the plugin lived before it moved to its own repository, and the file is no longer there. It now points at the plugin's own repository. If you already opened the example and it has no score, open "Episode 2.12" once more after updating: only the score is added, the project file you may have edited is left alone. Forsion versions: the same as 0.10.0.
+
 ## 0.10.0 — 2026-10-05
 
 - 新建视频可以选保存位置：新建页的名称旁边多了一栏「保存位置」，填笔记库里的文件夹（比如 `视频/2026`），留空就是默认的工作文件夹；工程建在 `<位置>/<名字>/` 里，页面下方会写出完整的去处。上次填的位置会记住，下次打开新建页已经填好，清空就回到默认位置。只能选笔记库里的文件夹：插件读写文件走的是笔记库，库外的路径（`/Users/…`、`~/…`、`C:\…`）会被当场拒绝并说明原因。
