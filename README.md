@@ -22,7 +22,7 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 插件自带 `spaces/forsion-video-studio/space.json`，在 Forsion 的「更多」里打开「视频工作室」。主区编辑器和左栏导航是固定 View（配方里的 `"pinned": true`）：打开工程后素材区作为左栏的第二个标签出现，导航的标签一直在。
 
-- **启动布局**：左栏是导航（新建视频、我的工程），主区是启动台，底部收起。「我的工程」列出全部工程（片名、路径、画幅、时长），可搜索；每一行的「⋯」和右键可以重命名（只改工程名称，不动文件夹：对话按工程文件夹记）、在文件夹中显示、删除（移到 Forsion 的回收站；文件夹里只有这个工程和它的素材时整个移走，否则只移工程文件并告诉你；需要宿主的 `ctx.app.trash`，没有时菜单里没有这一项）。编辑器里的工程选择器每一行也有同样的「⋯」和右键菜单。「新建视频」一页写想法（可选）、选画幅、起名字、选保存位置（笔记库里的文件夹，留空用默认的工作文件夹，上次填的会记住），工程建在 `<保存位置>/<名字>/` 里。新工程是空的：舞台上给出「新场景」「导入素材」「AI 导演」三个起步入口，完整示例在「打开示例」。写了想法的，创建后想法填进 AI 导演等你发送。
+- **启动布局**：左栏是导航（新建视频、我的工程），主区是启动台，底部收起。「我的工程」列出全部工程（片名、路径、画幅、时长），可搜索；每一行的「⋯」和右键可以重命名（只改工程名称，不动文件夹：对话按工程文件夹记）、在文件夹中显示、删除（移到 Forsion 的回收站；文件夹里只有这个工程和它的素材时整个移走，否则只移工程文件并告诉你；需要宿主的 `ctx.app.trash`，没有时菜单里没有这一项）。编辑器里的工程选择器每一行也有同样的「⋯」和右键菜单。「新建视频」一页写想法（可选）、选画幅、起名字、选保存位置（笔记库里的文件夹，留空用默认的工作文件夹，上次填的会记住），工程建在 `<保存位置>/<名字>/` 里。新工程是空的：舞台上给出「新场景」「导入素材」「AI 导演」三个起步入口。写了想法的，创建后想法填进 AI 导演等你发送。
 - **项目布局**：打开工程后左栏原地换成素材区（工程文件夹里 `media/`、`audio/`、`assets/`、`generated/` 的缩略图，用到的标「已用」，AI 生成的带标记，可筛选；导入只复制不放进时间线，拖到时间线落在切点，双击加到播放头所在场景之后），底部开出时间线。「更多 → 关闭工程」回到启动布局，右栏跟着收起。工程之间切换不动底部面板。
 
 主区域是 Video Studio；片名可以打开 Extend View 工程选择器，原生 Extend View 属性面板随工程默认打开（不抢键盘焦点；导出或工程选择器临时占用右侧，关掉后它自动回来）。它跟着你选中的东西走：在时间线上点场景、元素、拍点、字幕，或在画面里点文字、图片，它就翻到前面；时间线左边的轨道名也是入口（字幕 → 字幕页，场景 / 元素 → 场景页，配乐 → 工程页里那条音轨的设置）。只有走带右侧的属性按钮能把它关住（关掉后点什么都不再弹出，再点一次打开；属性被对话挡在后面时，这个按钮先把它翻到前面；右栏里没有对话时（还没有右栏对话的 Forsion，或对话标签被你关了），面板的 × 和 Esc 也算关住；这时收起右栏，2.12.2 及更早的 Forsion 上同样会被记成关住，之后带 Extend View `layout` 关闭原因的 Forsion 上只算收起，对话随右栏回来时属性也回来）；恢复默认布局、右栏收起再展开、去别的 Space 再回来，它都会自己回来，右栏被你收起、或里面的标签都被你关掉时则不会被点开。支持 `ctx.tangu.mountChat` 的 Forsion 上，右栏另有一个「对话」标签：宿主自己的对话挂在插件的视图里，跟着最新停靠的工程走，换工程就换到那个工程文件夹的会话。更早的 Forsion 上，「AI 导演」在 Extend View 中挂载原生 Chat Box，复用模型和思考档位选择；导演接收实际选择的参数、场景与播放位置，每次任务记录修改前快照，面板显示场景变化，任务结束后可恢复；恢复前会检查工程是否又有新改动。关闭、切换 Space 或工程时，这些面板随主视图清理。
@@ -108,7 +108,7 @@ forsion-video-studio/
 ├── tools/music/                            配乐工具包（Python）
 ├── skills/forsion-video-studio/SKILL.md    全局技能：格式、场景 API、工作流程
 ├── agents/fvs-director/                    Video Studio 导演 Agent
-├── examples/episode-2.12/                  示例：第 2.12 话
+├── examples/episode-2.12/                  一份完整的工程：测试的夹具、导演技能的范例（不会进你的库）
 ├── src/                                    源码（main.js、runtime、tools/fvs.mjs 由它构建）
 └── test/ · check.mjs
 ```
@@ -132,13 +132,13 @@ npm run verify:chat               # 隔离的真 Electron：右栏对话、会�
 npm run verify:skill              # 真引擎 + 真模型：导演按引用只改一处、时间写在元素上、配图落进 generated/、空工程里就地写出第一批场景
 ```
 
-`install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。示例工程和已有智库内容不被覆盖。
+`install:dev` 只安装到开发版，并将已有插件原样备份至 `~/.forsion-dev/plugin-backups/`。安装回执位于 `artifacts/install-dev.json`；备份目录与正在扫描的插件目录分离。运行中的 dev 可以重载插件；已打开的工程标签需关闭重开，或重载 dev 窗口。已有智库内容不被覆盖。
 
 `npm run verify:docked` 用 Genesis 自带的隔离台架（`desktop/scripts/lib/uiux-electron.cjs`：桩引擎、临时 home 和笔记库，不碰你的 dev，也不杀进程）启动构建好的 `out/`，把本插件装进临时目录，验证启动布局与项目布局来回跳转（新建页、关闭工程、切换工程后 ⌘J 仍作数）、素材区的双击与拖放、Space 里的时间线停在原生底部面板、快捷键和缩放、⌘J 收起与展开后画面照常显示、重载后布局还在；截图写入 `artifacts/docked/`。需要支持 `ctx.viewLocations` 和 `ctx.replaceView` 的宿主：先在该检出的 `desktop/` 跑 `npx electron-vite build`，再用 `FVS_DESKTOP_ROOT` 指过去。
 
 `npm run verify:projects` 用同一套隔离台架验证工程管理：新建页的保存位置与空工程、起步入口加第一个场景、开着的工程从选择器重命名（没保存的场景一起留下）和删除（工程文件夹进回收站、不被写回）、文件夹里有别的文件时只删工程文件、回到启动台后右栏与时间线都收起；截图写入 `artifacts/projects/`。宿主没有 `ctx.app.trash`（2.12.2 及更早）时跳过删除的几步并打印说明。
 
-真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在示例目录中创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
+真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在工作文件夹里创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
 
 提交改动时同时保留 `npm run build` 生成的 `main.js`、`runtime/fvs-runtime.js`、`tools/fvs.mjs`。安装版只需要现成构建产物，不需要 `node_modules`。MP4 渲染和 AI 配乐由导演 Agent 使用本机工具执行。`verify:features -- --live` 会调用模型并产生两条可见导演会话，只操作临时工程；原始示例保持不变。它验证工程修改与 MP4 导出，不代表新曲创作已验收。
 
