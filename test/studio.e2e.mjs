@@ -19,6 +19,17 @@ const shots = shotsAt > 0 ? process.argv[shotsAt + 1] : null;
 if (shots) mkdirSync(shots, { recursive: true });
 const shot = async (page, name) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`) }); };
 
+// counts, in a page, every time a sound that is running is moved, and how far the sounds told to play have got
+// since (steps 7 and 7a)
+const countMoves = () => {
+  const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime'), play = HTMLMediaElement.prototype.play;
+  const told = new Map();
+  window.__moved = 0;
+  window.__heard = () => Math.max(0, ...[...told].map(([el, from]) => el.currentTime - from));
+  Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', { ...d, set(v) { if (!this.paused) window.__moved++; d.set.call(this, v); } });
+  HTMLMediaElement.prototype.play = function () { if (!told.has(this)) told.set(this, this.currentTime); return play.call(this); };
+};
+
 const ORIGIN = 'http://fvs.test';
 const EX = join(root, 'examples/episode-2.12');
 const DIR = 'Videos/第 2.12 话';
@@ -142,12 +153,26 @@ player.on('pageerror', e => perr.push(String(e)));
 await player.route(/fonts\.(googleapis|gstatic)\.com/, r => r.abort());
 await player.setContent(html, { waitUntil: 'load' });
 await player.waitForSelector('.fvs-chapters button');
+await player.evaluate(countMoves);
 await player.click('.fvs-chapters button:has-text("MAGI")');
-await player.waitForTimeout(1500);
+await player.waitForTimeout(2500);
+assert.equal(await player.evaluate(() => window.__moved), 0, 'the player page does not move a sound that is playing');
+assert.ok(await player.evaluate(() => window.__heard()) > 1.5, 'and the sound did play');
 await player.click('.fvs-play');
 assert.equal(perr.length, 0, perr.join('\n'));
 if (shots) await player.screenshot({ path: join(shots, '06-export-player.png') });
 await player.close();
+
+// 7a. A sound that is playing is not moved: the clock goes by the sound. (Up to 0.10.1 the score was moved about ten
+// times a second, a gap each time: an element starts some 90 ms after play(), and whatever was 80 ms behind the clock
+// was moved to it. scripts/verify-playback.mjs measures the same in the real application.)
+await page.evaluate(countMoves);
+await page.locator('.fvs-studio').focus();
+await page.keyboard.press('Space');
+await page.waitForTimeout(2500);
+assert.equal(await page.evaluate(() => window.__moved), 0, 'the editor does not move a sound that is playing');
+assert.ok(await page.evaluate(() => window.__heard()) > 1.5, 'and the sound did play');
+await page.keyboard.press('Space');
 
 // 8. hand-offs start a visible conversation with the bundled agent
 await page.click('.fvs-ai-action');

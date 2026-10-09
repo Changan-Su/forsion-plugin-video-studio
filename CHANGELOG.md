@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.2 — 2026-10-09
+
+- 修复：预览播放时声音断断续续。编辑器原来每一帧都拿声音的播放位置和自己的时钟比，差 80 毫秒以上就把声音重新定位；而声音从「开始播放」到真正出声本来就要 0.1 秒以上，于是每次定位完又落后、又被定位，一秒大约九次，每次都是一个听得见的缺口（实测播放 12 秒只放出 2.5 秒的声音）。现在正在播放的声音不再被挪动：按下播放后画面先等声音真正出声（约 0.2 秒，最多等 1 秒），再和它一起走；只有在时间线上跳转时才重新定位。
+- 导出的网页视频（`.html`）用的是同一套播放逻辑，一并修复。以前导出的网页文件要重新导出一次才生效。
+- 播放途中才开始的第二条声音（另一条音轨、视频片段自带的声音）会比画面晚 0.1 秒左右，播放途中不再纠正，暂停或跳转后重新对齐。导出的 MP4 不受影响，那里的声音按时间混合。
+- 需要的 Forsion 和 0.10.1 相同。
+- **English:** Fixed: the sound broke up while the preview played. On every frame the editor compared the sound's position with its own clock and moved the sound whenever it was more than 80 ms off; a sound takes more than 0.1 s from "play" to being heard, so it was behind again after every move and was moved again, about nine times a second, each move an audible gap (measured: 2.5 s of sound in 12 s of playback). A sound that is playing is no longer moved: after you press play the picture waits until the sound is really running (about 0.2 s, one second at most) and then goes with it; the sound is repositioned only when you jump on the timeline. The exported web video (`.html`) uses the same playback code and is fixed too; export again to update a file exported earlier. A second sound that starts while the film is playing (another audio track, the sound of a video clip) runs about 0.1 s behind the picture and is not corrected until you pause or jump. The exported MP4 is not affected: its sound is mixed by time. Forsion versions: the same as 0.10.1.
+
 ## 0.10.1 — 2026-10-07
 
 - 去掉了内置的示例工程「第 2.12 话」。装好之后是空的：左侧导航不再有「示例」一栏，启动台和工程选择器里的「打开示例」按钮、命令面板里的「打开示例 · 第 2.12 话」都拿掉了，插件不再往笔记库里写任何现成的工程。

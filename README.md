@@ -2,7 +2,7 @@
 
 AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这套工具做的，现在它是一个插件。
 
-当前版本 **0.10.1**（更新记录见 [CHANGELOG.md](./CHANGELOG.md)），需要 Forsion 2.12.2 或更新的版本。最初从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
+当前版本 **0.10.2**（更新记录见 [CHANGELOG.md](./CHANGELOG.md)），需要 Forsion 2.12.2 或更新的版本。最初从 [Forsion 的功能分支](https://github.com/Changan-Su/Forsion/tree/claude/sweet-babbage-k6qe0z/plugins/forsion-video-studio) 完整导入，源提交 `7d8573ed31783ec886f3e81604721ae8ca619a89`；初始导入提交为 `149f547`，后续在此仓库单独维护。源码、构建产物、Agent、技能、命令行、配乐工具，以及示例的图片与 MP3 均随仓库保存。
 
 工作台按 Genesis 设计语言排布（规范见仓根 `DESIGN.md`「媒体创作工作台」一节）：顶部一条工具栏（片名、保存状态、撤销重做、AI 导演、导出），中间是按工程比例居中的舞台和走带，时间线在下方。场景只在时间线上出现一次，片段直接显示缩略图。在视频工作室 Space 里，界面全部用原生面板：没打开工程时左栏是导航、主区是启动台（照 Coding Studio），打开工程后左栏换成素材区，时间线在底部面板（只横跨素材区和编辑器），右栏从上到下是属性和「对话」两个标签，导出用右侧的 Extend View（没有 `ctx.tangu.mountChat` 的 Forsion 上，AI 导演也是 Extend View）；在文件标签页、浮窗和不支持底部面板的旧版 Forsion 里，时间线画在编辑器下方，属性等是盖在右侧的面板。窄窗口时属性栏变成浮层、按钮收成图标。
 
@@ -137,6 +137,8 @@ npm run verify:skill              # 真引擎 + 真模型：导演按引用只�
 `npm run verify:docked` 用 Genesis 自带的隔离台架（`desktop/scripts/lib/uiux-electron.cjs`：桩引擎、临时 home 和笔记库，不碰你的 dev，也不杀进程）启动构建好的 `out/`，把本插件装进临时目录，验证启动布局与项目布局来回跳转（新建页、关闭工程、切换工程后 ⌘J 仍作数）、素材区的双击与拖放、Space 里的时间线停在原生底部面板、快捷键和缩放、⌘J 收起与展开后画面照常显示、重载后布局还在；截图写入 `artifacts/docked/`。需要支持 `ctx.viewLocations` 和 `ctx.replaceView` 的宿主：先在该检出的 `desktop/` 跑 `npx electron-vite build`，再用 `FVS_DESKTOP_ROOT` 指过去。
 
 `npm run verify:projects` 用同一套隔离台架验证工程管理：新建页的保存位置与空工程、起步入口加第一个场景、开着的工程从选择器重命名（没保存的场景一起留下）和删除（工程文件夹进回收站、不被写回）、文件夹里有别的文件时只删工程文件、回到启动台后右栏与时间线都收起；截图写入 `artifacts/projects/`。宿主没有 `ctx.app.trash`（2.12.2 及更早）时跳过删除的几步并打印说明。
+
+`npm run verify:playback` 用同一套隔离台架量预览的播放：从一次性的笔记库打开仓库里的 `examples/episode-2.12`，播放 12 秒，数「正在播放的声音被重新定位了几次」（每一次都是一个听得见的缺口，通过的数字是 0）、声音实际放出了多少、画面时间有没有往回跳，并打印窗口和舞台的帧间隔；然后对一个只有两行字加同一条配乐的工程再量一遍。`FVS_MAIN=<另一份 main.js>` 作负对照（0.10.1 在这里是 12 秒里重新定位一百多次），`FVS_CPU=4` 把页面降速四倍，`FVS_BIG=1` 让窗口铺满屏幕。模拟宿主的 `npm run test:ui` 第 7、7a 步对编辑器和导出的网页各查一次同一件事。
 
 真 Electron 验证前按 Forsion 根目录 GUI 指引持有 devlock，再启动桌面 dev：`npm run dev -- -- --remote-debugging-port=9333`。验证脚本只连接 `localhost:5273` 的 dev 渲染页，执行播放、导航与面板操作，暂时切换原生主题并恢复，检查工程字节没有变化；不会调用真实模型。主题与布局证据写入 `artifacts/native/`，Space / Extend / Mini / Floating 证据写入 `artifacts/space/`。`verify:space` 会在工作文件夹里创建一份临时工程来检查立即切换前的保存，结束后清理；原工程保持不变。其他桌面 checkout 可通过 `FVS_DESKTOP_ROOT` 指定其 `desktop/` 路径。
 

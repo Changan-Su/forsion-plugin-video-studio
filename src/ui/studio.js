@@ -710,7 +710,47 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   /* ───────── transport ───────── */
   let audios = [];
   let clockBase = 0, clockStart = 0;
-  const now = () => (S.playing ? Math.min(S.p.length, clockBase + (performance.now() - clockStart) / 1000) : S.time);
+  const now = () => (S.playing && !starting ? Math.min(S.p.length, clockBase + (performance.now() - clockStart) / 1000) : S.time);
+  // The clock goes by the sound, never the sound by the clock. An element starts late after it is told to play (some
+  // 150 ms here, more on a wireless output): moved to the clock whenever it was 80 ms behind, it was moved again and
+  // again, nine gaps a second. So a sound is put in its place when the film jumps and when its turn comes, and left
+  // alone while it runs. (runtime/index.js makeClock: the same.)
+  //   starting  The clock stands still until the first sound told to play is really running (a second at most), and
+  //             goes on from where that sound is. Really running = its time has gone on for RUN without standing:
+  //             after a seek it first plays what it had ready (20 ms or so, measured), stands some 90 ms until the
+  //             output takes it, and only then runs.
+  //   lead      From there the clock runs on its own (film time read off the element every frame steps unevenly) and
+  //             is only checked against one sound: the one it started with, then, when that one is over, the next one
+  //             running, taken as late as it is found (a sound that came in while the film played started behind, and
+  //             the film does not go back for it), unless it is LATE (it took long to load): then the film goes to it.
+  //             The clock takes the sound's time again when the two have come APART, and never from a sound that
+  //             stands: the film would stand with it.
+  // ponytail: a sound that comes in while the film plays stays as late as it started; closing that takes a learned lead or playbackRate, add it when the preview has to be lip-tight
+  const RUN = .05, APART = .1, LATE = .5;
+  let starting = 0, seen = null, from = null, lead = null; // lead: { a, at: its time a frame ago, off: how far ahead of the clock it belongs }
+  const running = a => !a.el.paused && !a.el.seeking && !a.el.ended && a.el.readyState > 2;
+  const heard = a => a.at + a.el.currentTime - a.in; // the film's time by this sound
+  function followSound() {
+    const t = performance.now();
+    if (starting) {
+      const a = audios.find(a => !a.el.paused && !a.el.error), at = a && running(a) ? a.el.currentTime : null;
+      if (at === null || seen === null || at <= seen) from = at; // standing: its run begins where it next moves
+      seen = at;
+      const moving = at !== null && from !== null && at - from > RUN;
+      if (a && !moving && t < starting) return;
+      starting = 0;
+      clockBase = moving ? heard(a) : S.time; clockStart = t;
+      lead = moving ? { a, at, off: 0 } : null;
+      return;
+    }
+    if (!lead || !running(lead.a)) { const a = audios.find(running); lead = a ? { a, at: a.el.currentTime, off: null } : null; return; }
+    const at = lead.a.el.currentTime, went = at > lead.at;
+    lead.at = at;
+    if (!went) return;
+    const ahead = heard(lead.a) - now();
+    if (lead.off === null) lead.off = Math.abs(ahead) < LATE ? ahead : 0;
+    if (Math.abs(ahead - lead.off) > APART) { clockBase = heard(lead.a) - lead.off; clockStart = t; }
+  }
   function applyVolumes() { for (const a of audios) a.el.muted = S.muted || a.mute; }
   function syncAudio(force) {
     for (const a of audios) {
@@ -718,19 +758,19 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       const end = a.dur != null ? a.dur : (a.el.duration ? a.el.duration - a.in : Infinity);
       if (!S.playing || local < 0 || local >= end) { if (!a.el.paused) a.el.pause(); continue; }
       const want = a.in + local;
-      if (force || Math.abs(a.el.currentTime - want) > .08) a.el.currentTime = want;
+      if (force || (a.el.paused && Math.abs(a.el.currentTime - want) > .08)) a.el.currentTime = want; // never one that is running: see followSound
       if (a.el.paused) a.el.play().catch(() => {});
     }
   }
   function toggle() {
     if (S.playing) { S.time = now(); S.playing = false; syncAudio(); }
-    else { if (S.time >= S.p.length - .01) S.time = 0; S.playing = true; clockBase = S.time; clockStart = performance.now(); syncAudio(true); }
+    else { if (S.time >= S.p.length - .01) S.time = 0; S.playing = true; clockBase = S.time; clockStart = performance.now(); starting = clockStart + 1000; seen = null; syncAudio(true); }
     post({ fvs: 'transport', playing: S.playing });
     renderTransport();
   }
   function seek(x) {
     S.time = Math.max(0, Math.min(S.p.length, x));
-    clockBase = S.time; clockStart = performance.now();
+    clockBase = S.time; clockStart = performance.now(); starting = S.playing ? clockStart + 1000 : 0; seen = null;
     syncAudio(true);
     renderTransport();
   }
@@ -757,6 +797,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   function loop() {
     if (S.disposed) return;
     if (S.playing) {
+      followSound();
       S.time = now();
       if (S.time >= S.p.length) { S.playing = false; syncAudio(); post({ fvs: 'transport', playing: false }); }
       else syncAudio(false);

@@ -34,27 +34,59 @@ function payloadFromPage() {
  * a segment plays file time in + (t - at) while at ≤ t < at + dur.
  */
 function makeClock(P, audios, length, onEnd) {
-  let playing = false, base = 0, startedAt = 0;
-  const now = () => (playing ? Math.min(length, base + (performance.now() - startedAt) / 1000) : base);
+  let playing = false, base = 0, startedAt = 0, starting = 0, seen = null, from = null, lead = null;
+  const now = () => (playing && !starting ? Math.min(length, base + (performance.now() - startedAt) / 1000) : base);
   const sync = force => {
     const t = now();
     for (const a of audios) {
       const { el } = a, D = el.duration, looping = a.loop && D > 0 && Number.isFinite(D);
+      if (a.loop && !looping) continue; // where it is in its loop is not known before its length is: it starts on a later tick
       let want = t - a.at + a.in;
       if (looping) want = ((want % D) + D) % D;
       const off = a.dur != null && t >= a.at + a.dur;
       if (!playing || t < a.at || off || want > (D || Infinity)) { if (!el.paused) el.pause(); if (t < a.at && el.currentTime !== a.in) el.currentTime = a.in; continue; }
       const d = Math.abs(el.currentTime - want);
-      if (force || (looping ? Math.min(d, D - d) : d) > .08) el.currentTime = want;
+      if (force || (el.paused && (looping ? Math.min(d, D - d) : d) > .08)) el.currentTime = want; // never one that is running: see follow
       if (el.paused) el.play().catch(() => {});
     }
   };
+  // The clock goes by the sound, never the sound by the clock. An element starts late after it is told to play: moved
+  // to the clock whenever it was 80 ms behind, it was moved for ever, a gap each time. So a sound is put in its place
+  // when the film jumps and when its turn comes, and left alone while it runs. The clock stands still until the first
+  // sound told to play is really running, goes on from where that sound is, runs on its own from there and is only
+  // checked against one sound at a time. A looping sound's time says nothing about the film's, so it is not asked.
+  // (ui/studio.js followSound: the same, with the reasons and the measurements.)
+  const RUN = .05, APART = .1, LATE = .5;
+  const running = a => !a.loop && !a.el.paused && !a.el.seeking && !a.el.ended && a.el.readyState > 2;
+  const heard = a => a.at + a.el.currentTime - a.in;
+  const follow = () => {
+    const t = performance.now();
+    if (starting) {
+      const a = audios.find(a => !a.loop && !a.el.paused && !a.el.error), at = a && running(a) ? a.el.currentTime : null;
+      if (at === null || seen === null || at <= seen) from = at;
+      seen = at;
+      const moving = at !== null && from !== null && at - from > RUN;
+      if (a && !moving && t < starting) return;
+      starting = 0;
+      if (moving) base = heard(a);
+      startedAt = t;
+      lead = moving ? { a, at, off: 0 } : null;
+      return;
+    }
+    if (!lead || !running(lead.a)) { const a = audios.find(running); lead = a ? { a, at: a.el.currentTime, off: null } : null; return; }
+    const at = lead.a.el.currentTime, went = at > lead.at;
+    lead.at = at;
+    if (!went) return;
+    const ahead = heard(lead.a) - now();
+    if (lead.off === null) lead.off = Math.abs(ahead) < LATE ? ahead : 0;
+    if (Math.abs(ahead - lead.off) > APART) { base = heard(lead.a) - lead.off; startedAt = t; }
+  };
   return {
     now, sync, get playing() { return playing; },
-    play() { if (base >= length) base = 0; playing = true; startedAt = performance.now(); sync(true); },
+    play() { if (base >= length) base = 0; playing = true; startedAt = performance.now(); starting = startedAt + 1000; seen = null; sync(true); },
     pause() { base = now(); playing = false; sync(); },
-    seek(t) { base = Math.max(0, Math.min(length, t)); startedAt = performance.now(); sync(true); },
-    tick() { if (playing && now() >= length) { base = length; playing = false; sync(); onEnd && onEnd(); } else if (playing) sync(); },
+    seek(t) { base = Math.max(0, Math.min(length, t)); startedAt = performance.now(); starting = playing ? startedAt + 1000 : 0; seen = null; sync(true); },
+    tick() { if (playing) follow(); if (playing && now() >= length) { base = length; playing = false; sync(); onEnd && onEnd(); } else if (playing) sync(); },
   };
 }
 
