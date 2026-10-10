@@ -16,7 +16,7 @@
 // inherits a media-src policy without data: (the Studio's sandboxed preview) can still play them.
 
 const SETTLE_MS = 2000, LOAD_MS = 10000, STALL_MS = 8000, IDLE_MS = 150;
-const ROLL_MAX = .3, DRIFT = .15, PREROLL = 1, EPS = 1e-3, END = 1e-3, TRIP_MAX = 2, NEAR = .02, NUDGE = .1;
+const ROLL_MAX = .3, DRIFT = .15, PREROLL = 1, EPS = 1e-3, END = 1e-3, NEAR = .02, NUDGE = .1;
 const REASON = ['', 'aborted', 'network error', 'decode error', 'format not supported or file missing'];
 
 /**
@@ -58,7 +58,7 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
     el.addEventListener('seeked', () => {
       const w = c.want; c.want = null;
       if (w === null) return;
-      c.trip = Math.min(TRIP_MAX, (performance.now() - c.left) / 1000);
+      c.trip = (performance.now() - c.left) / 1000;
       if (Math.abs(el.currentTime - w) > .05) report(c, stuck(c));
     });
     try { el.pause(); el.load(); } catch { /* reported by the error event */ }
@@ -177,8 +177,8 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
         // ponytail: the film does not wait for the picture. A clip starts up to DRIFT off its sound and closes that in
         // at most 1.5 s; one that is slow to seek stands for that long first. If that shows, the clock waits for a
         // "clips ready" message from here the way it waits for the first sound.
-        if (v.paused) { if (off > DRIFT) place(c, m); play(c); }
-        else if (v.seeking) { /* on its way */ }
+        if (v.paused) { if (off > DRIFT || v.ended) place(c, m); play(c); } // (ended a moment early: play() alone starts it from its beginning)
+        else if (v.seeking) { if (c.want !== null && now - c.left > STALL_MS) place(c, target(c, t + c.trip)); } // on its way; given up on after 8 s
         else if (off > DRIFT) place(c, target(c, t + c.trip));
         else { const r = off > (v.playbackRate === 1 ? NEAR : NEAR / 2) ? 1 + Math.sign(d) * NUDGE : 1; if (v.playbackRate !== r) v.playbackRate = r; }
       } else park(c, m);

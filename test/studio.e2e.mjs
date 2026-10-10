@@ -29,6 +29,7 @@ const countMoves = () => {
   Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', { ...d, set(v) { if (!this.paused) window.__moved++; d.set.call(this, v); } });
   HTMLMediaElement.prototype.play = function () { if (!told.has(this)) told.set(this, this.currentTime); return play.call(this); };
 };
+const didPlay = async p => { const s = await p.evaluate(() => window.__heard()); assert.ok(s > 1.5, `and the sound did play (${s.toFixed(2)} s of it in 2.5)`); };
 
 const ORIGIN = 'http://fvs.test';
 const EX = join(root, 'examples/episode-2.12');
@@ -157,7 +158,7 @@ await player.evaluate(countMoves);
 await player.click('.fvs-chapters button:has-text("MAGI")');
 await player.waitForTimeout(2500);
 assert.equal(await player.evaluate(() => window.__moved), 0, 'the player page does not move a sound that is playing');
-assert.ok(await player.evaluate(() => window.__heard()) > 1.5, 'and the sound did play');
+await didPlay(player);
 await player.click('.fvs-play');
 assert.equal(perr.length, 0, perr.join('\n'));
 if (shots) await player.screenshot({ path: join(shots, '06-export-player.png') });
@@ -171,7 +172,7 @@ await page.locator('.fvs-studio').focus();
 await page.keyboard.press('Space');
 await page.waitForTimeout(2500);
 assert.equal(await page.evaluate(() => window.__moved), 0, 'the editor does not move a sound that is playing');
-assert.ok(await page.evaluate(() => window.__heard()) > 1.5, 'and the sound did play');
+await didPlay(page);
 await page.keyboard.press('Space');
 
 // 8. hand-offs start a visible conversation with the bundled agent

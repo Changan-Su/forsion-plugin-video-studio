@@ -14,8 +14,9 @@
 //     (1.5 s into it, then three seconds of play):
 //     the number that passes is 0 (a clip may be sent ahead once when it arrives late; these arrive in time)
 //   · how far behind the film each clip's picture runs (it starts a frame or four behind and closes that by
-//     running a tenth faster: within 40 ms at the end of its scene), the frames it showed and the frames it
-//     dropped; and how long after its turn came each clip's sound was really running
+//     running a tenth faster: within 40 ms at the end of its scene), in how many of the frames drawn of its scene
+//     it stood (paused, or on its way somewhere: no more than one in ten), the frames it decoded and the frames it
+//     dropped; and how long after its turn came each clip's sound was really running (both must come)
 // Same harness as verify-docked.mjs (stub engine, throwaway home and library; nothing of yours is touched).
 //   FVS_MAIN=<file>  run another build's main.js (the negative control)
 //   FVS_CPU=<n>      slow the page n times (a machine under load); the released 0.10.1 fails from about 4
@@ -102,7 +103,7 @@ const clipProbe = () => {
   const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
   Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', { ...d, set(v) { if (this.tagName === 'VIDEO') V.moves.push({ at: performance.now(), to: v, from: d.get.call(this), paused: this.paused }); d.set.call(this, v); } });
   for (const c of clips) for (const n of ['seeking', 'waiting', 'stalled', 'pause']) c.el.addEventListener(n, () => V.events.push([n, c.scene, performance.now()]));
-  V.sample = t => { for (const c of clips) if (t >= c.from && t < c.to) V.skew.push([c.scene, c.el.currentTime - (c.clipIn + t - c.base), c.el.paused]); };
+  V.sample = t => { for (const c of clips) if (t >= c.from && t < c.to) V.skew.push([c.scene, c.el.currentTime - (c.clipIn + t - c.base), c.el.paused || c.el.seeking]); }; // (while it seeks, its time is where it is going)
   V.shown = () => clips.map(c => { const q = c.el.getVideoPlaybackQuality(); return { scene: c.scene, shown: q.totalVideoFrames, dropped: q.droppedVideoFrames }; });
 };
 const clipStats = (c, before) => {
@@ -242,8 +243,12 @@ try {
     for (const [how, c] of [['played through', clips.clips], ['jumped into', clips.jumped]]) {
       assert.ok(c.clipMoved <= (HARD ? 2 : 0), `带视频, ${how}: a clip that is playing is not chased (clips were moved ${c.clipMoved} times)`);
       for (const f of c.frames) assert.ok(f.shown > 30, `带视频, ${how}: the ${f.scene} clip shows its picture (${f.shown} frames)`);
-      if (!HARD) for (const [id, sc] of Object.entries(c.scenes)) assert.ok(Math.abs(sc.atLast) < 40, `带视频, ${how}: the ${id} clip's picture is with the film (${sc.atLast} ms behind at the end of its scene)`);
+      if (!HARD) for (const [id, sc] of Object.entries(c.scenes)) {
+        assert.ok(sc.standing <= sc.drawn / 10, `带视频, ${how}: the ${id} clip's picture is moving (it stood, paused or on its way somewhere, in ${sc.standing} of the ${sc.drawn} frames drawn of its scene)`);
+        assert.ok(Math.abs(sc.atLast) < 40, `带视频, ${how}: the ${id} clip's picture is with the film (${sc.atLast} ms behind at the end of its scene)`);
+      }
     }
+    assert.ok(clips.soundsStartMs.length >= 2, `带视频: the sound of both clips came (${clips.soundsStartMs.length} sounds started)`);
     if (!HARD) for (const ms of clips.soundsStartMs) assert.ok(ms < 300, `带视频: a clip's sound is running soon after its turn comes (${ms} ms)`);
     assert.equal(clips.moved, 0, `带视频: a sound that is playing is never moved (it was, ${clips.moved} times)`);
     assert.equal(clips.back, 0, "带视频: the picture's time never steps back while it plays");

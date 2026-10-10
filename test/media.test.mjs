@@ -324,23 +324,24 @@ test('the bundled example is untouched by all of this', () => {
 /* ───────── live clips: a clip that is rolling is not chased ───────── */
 // A <video> as runtime/media.js drives it, without a browser: every write to its time is a seek that takes `trip` ms,
 // during which its time reads where it is going; it runs at 1× when it is neither paused nor seeking.
-function fakeClip(trip) {
+function fakeClip(trip, duration = 60) {
   const on = {}, attrs = { src: 'media/a.mp4', 'data-clip-in': '4.5' };
-  let at = 0, paused = true, arrive = 0, ran = 0; // ran: when its time last stood at `at`
+  let at = 0, paused = true, ended = false, arrive = 0, ran = 0; // ran: when its time last stood at `at`
   const settle = () => {
     const now = performance.now();
     if (arrive && now >= arrive) { ran = arrive; arrive = 0; for (const f of on.seeked || []) f(); }
-    if (!arrive && !paused) at += (now - ran) / 1000 * el.playbackRate;
+    if (!arrive && !paused) { at += (now - ran) / 1000 * el.playbackRate; if (at >= duration) { at = duration; paused = ended = true; } }
     ran = now;
   };
   const el = {
-    moved: 0, playbackRate: 1, duration: 60, readyState: 4, error: null, seekable: { length: 1, end: () => 60 },
+    moved: 0, restarted: 0, playbackRate: 1, duration, readyState: 4, error: null, seekable: { length: 1, end: () => duration },
     getAttribute: k => attrs[k] ?? null, hasAttribute: k => k in attrs, setAttribute() {}, removeAttribute() {}, querySelector: () => null, querySelectorAll: () => [],
     addEventListener(n, f) { (on[n] ||= []).push(f); }, load() {},
-    pause() { settle(); paused = true; }, play() { settle(); paused = false; return Promise.resolve(); },
+    pause() { settle(); paused = true; }, play() { settle(); if (ended) { ended = false; at = 0; el.restarted++; } paused = false; return Promise.resolve(); },
+    get ended() { settle(); return ended; },
     get paused() { return paused; }, get seeking() { settle(); return !!arrive; },
     get currentTime() { settle(); return at; },
-    set currentTime(v) { settle(); if (!paused) el.moved++; at = v; arrive = performance.now() + trip; },
+    set currentTime(v) { settle(); if (!paused) el.moved++; at = v; ended = false; arrive = performance.now() + trip; },
   };
   return el;
 }
@@ -371,4 +372,15 @@ test('a rolling clip is left to arrive, and sent ahead once when it arrives late
   assert.ok(Math.abs(ready.currentTime - (4.5 + 2.1 + 1.8)) < .03, `and is with the film to the frame (${(ready.currentTime - 8.4).toFixed(3)} s off)`);
   assert.equal(ready.playbackRate, 1, 'at its own speed again');
   w.destroy();
+
+  // One that gets to its end a moment before the film does (the film here runs at half speed): told to play again
+  // as it stands, an element that has ended starts over from its first frame.
+  const short = fakeClip(5, 7);
+  const e = ownVideos([{ id: 'a', el: { querySelectorAll: () => [short] }, from: 0, to: 60, base: 0 }]);
+  e.seek(2.42);
+  await new Promise(r => setTimeout(r, 30));
+  e.transport(true);
+  await frames(140, t => e.seek(2.42 + t / 2));
+  assert.equal(short.restarted, 0, 'a clip that has ended is not started over');
+  e.destroy();
 });
