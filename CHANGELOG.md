@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.3 — 2026-10-10
+
+- 修复：预览里播放视频片段时画面一停一跳。播放中的片段落后 0.15 秒就会被重新定位；可片段在定位途中报的是「要去的位置」，不是画面真正所在的位置，所以定位只要花得比 0.15 秒久（进入点离关键帧远、4K 素材），途中就会再被定位一次，永远到不了。实测一段 1080p 接一段 4K（都从关键帧之后 135 帧处进入）播放 10 秒，片段被重新定位四十多次，每次解码器都从关键帧重新解一遍。现在正在定位的片段不再被打断；到了之后还差得远的，按它上一次定位花的时间往前多送一段，一次到位。同样的素材现在是 0 次。
+- 片段离该在的位置只差一点（0.15 秒以内）时，不重新定位，而是短暂地快放或慢放一成把差距收掉。片段本身是静音的（它的声音由编辑器单独播放，速度不变），所以听不出来，画面也不会为此停顿。
+- 视频片段自带的声音原来轮到它时才去找位置，要 0.3–0.7 秒才出声；现在提前一秒就位，轮到时只需要起播（实测约 0.14 秒）。
+- 修复 0.10.2 带进来的一处：片段的声音出得晚时，画面时间会在切到这段片段的那一刻往回跳半秒。
+- 导出的网页视频（`.html`）用的是同一套播放逻辑，一并改了，但这次只在编辑器的预览里量过；以前导出的网页文件要重新导出一次才生效。导出的 MP4 不受影响，那里是逐帧截取，不走这条路。
+- 已知的限制：在片段中间按下播放、或者播放途中跳进片段，画面起步时最多比声音晚 0.15 秒，大约 1.5 秒内收齐；定位特别慢的素材（4K 60 帧、关键帧隔十秒）画面会先停住一到两次定位的时间再跟上。
+- 需要的 Forsion 和 0.10.2 相同。
+- **English:** Fixed: the picture of a video clip stood and jumped while the preview played. A clip that was playing was repositioned whenever it was 0.15 s behind; but while a clip seeks it reports where it is going, not where its picture is, so any seek that took longer than 0.15 s (an entry point far from a key frame, 4K footage) was interrupted by the next one and never arrived. Measured on a 1080p clip followed by a 4K clip, both entered 135 frames after a key frame, over 10 s of playback: more than forty repositions, each one making the decoder start again from the key frame. A clip that is seeking is now left to arrive; one that arrives too far off is sent ahead once, by as long as its last seek took. The same footage now gets none. A clip that is only a little off (within 0.15 s) is not repositioned: it runs a tenth faster or slower for a moment. The clip itself is muted (its sound is played separately by the editor, at normal speed), so this is not audible and the picture does not stand for it. The sound of a video clip used to find its place only when its turn came and took 0.3–0.7 s to be heard; it is now in place a second early and only has to start (about 0.14 s measured). Fixed, from 0.10.2: when a clip's sound was late, the film's time stepped back half a second at the cut into that clip. The exported web video (`.html`) uses the same playback code and is changed too, but this was measured in the editor's preview only; export again to update a file exported earlier. The exported MP4 is not affected: it is captured frame by frame. Known limits: after you press play in the middle of a clip, or jump into one while the film plays, the picture starts up to 0.15 s behind its sound and closes that within about 1.5 s; footage that is very slow to seek (4K at 60 frames a second with key frames ten seconds apart) stands for one or two seek times before it catches up. Forsion versions: the same as 0.10.2.
+
 ## 0.10.2 — 2026-10-09
 
 - 修复：预览播放时声音断断续续。编辑器原来每一帧都拿声音的播放位置和自己的时钟比，差 80 毫秒以上就把声音重新定位；而声音从「开始播放」到真正出声本来就要 0.1 秒以上，于是每次定位完又落后、又被定位，一秒大约九次，每次都是一个听得见的缺口（实测播放 12 秒只放出 2.5 秒的声音）。现在正在播放的声音不再被挪动：按下播放后画面先等声音真正出声（约 0.2 秒，最多等 1 秒），再和它一起走；只有在时间线上跳转时才重新定位。

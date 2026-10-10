@@ -722,12 +722,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
   //   lead      From there the clock runs on its own (film time read off the element every frame steps unevenly) and
   //             is only checked against one sound: the one it started with, then, when that one is over, the next one
   //             running, taken as late as it is found (a sound that came in while the film played started behind, and
-  //             the film does not go back for it), unless it is LATE (it took long to load): then the film goes to it.
+  //             the film does not go back for it). Only the sound the start gave up waiting for (`awaited`: it took
+  //             more than a second to load) is gone back to when it comes.
   //             The clock takes the sound's time again when the two have come APART, and never from a sound that
   //             stands: the film would stand with it.
   // ponytail: a sound that comes in while the film plays stays as late as it started; closing that takes a learned lead or playbackRate, add it when the preview has to be lip-tight
-  const RUN = .05, APART = .1, LATE = .5;
-  let starting = 0, seen = null, from = null, lead = null; // lead: { a, at: its time a frame ago, off: how far ahead of the clock it belongs }
+  const RUN = .05, APART = .1, PREROLL = 1;
+  let starting = 0, seen = null, from = null, lead = null, awaited = null; // lead: { a, at: its time a frame ago, off: how far ahead of the clock it belongs }
   const running = a => !a.el.paused && !a.el.seeking && !a.el.ended && a.el.readyState > 2;
   const heard = a => a.at + a.el.currentTime - a.in; // the film's time by this sound
   function followSound() {
@@ -741,6 +742,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       starting = 0;
       clockBase = moving ? heard(a) : S.time; clockStart = t;
       lead = moving ? { a, at, off: 0 } : null;
+      awaited = moving ? null : a || null;
       return;
     }
     if (!lead || !running(lead.a)) { const a = audios.find(running); lead = a ? { a, at: a.el.currentTime, off: null } : null; return; }
@@ -748,7 +750,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     lead.at = at;
     if (!went) return;
     const ahead = heard(lead.a) - now();
-    if (lead.off === null) lead.off = Math.abs(ahead) < LATE ? ahead : 0;
+    if (lead.off === null) { lead.off = lead.a === awaited ? 0 : ahead; awaited = null; }
     if (Math.abs(ahead - lead.off) > APART) { clockBase = heard(lead.a) - lead.off; clockStart = t; }
   }
   function applyVolumes() { for (const a of audios) a.el.muted = S.muted || a.mute; }
@@ -756,7 +758,13 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     for (const a of audios) {
       const local = S.time - a.at;
       const end = a.dur != null ? a.dur : (a.el.duration ? a.el.duration - a.in : Infinity);
-      if (!S.playing || local < 0 || local >= end) { if (!a.el.paused) a.el.pause(); continue; }
+      if (!S.playing || local < 0 || local >= end) {
+        if (!a.el.paused) a.el.pause();
+        // its turn is coming: it waits at its first sound and only has to start (found from cold, the sound of a clip took
+        // 0.3–0.7 s). The same reach as below: a seek lands a little off the place asked for, and is not sent again for that.
+        if (S.playing && local < 0 && local > -PREROLL && !a.el.seeking && Math.abs(a.el.currentTime - a.in) > .08) a.el.currentTime = a.in;
+        continue;
+      }
       const want = a.in + local;
       if (force || (a.el.paused && Math.abs(a.el.currentTime - want) > .08)) a.el.currentTime = want; // never one that is running: see followSound
       if (a.el.paused) a.el.play().catch(() => {});

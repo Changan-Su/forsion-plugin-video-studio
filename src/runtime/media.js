@@ -2,7 +2,13 @@
 // pure function of t. The element itself is always muted; its sound is mixed outside the page (payload.media).
 //   capture  seek(t) resolves once every on-screen clip shows its exact frame (the renderer awaits it)
 //   live     (preview, player page) small forward steps play natively and only drift is corrected; any other
-//            seek, a paused transport or 150 ms without a seek holds the exact frame
+//            seek, a paused transport or 150 ms without a seek holds the exact frame. A clip that is rolling is not
+//            chased: while it seeks, its time reads where it is going, not where its picture is. Judged then, it was
+//            sent again every 150 ms, and a clip that takes longer than that to get somewhere (far from a key
+//            frame, 4K) never got there: a picture that stands and jumps. So a clip waiting within reach of its
+//            place just plays, one that is seeking is left to arrive, and one that has arrived too far off is sent
+//            ahead by as long as its last trip took. Within reach, a clip closes what is left by running a tenth
+//            faster or slower for a moment: it is muted, so nobody hears that, and its picture never stands for it.
 // A clip that fails never throws or stalls a seek: it is recorded in `errors` (and reported through
 // `onError(scene, src)` once) and skipped from then on. A source that cannot seek (an HTTP stream without
 // range requests: `seekable` is [0, 0]) is reported the same way, so the host can hand over another URL.
@@ -10,7 +16,7 @@
 // inherits a media-src policy without data: (the Studio's sandboxed preview) can still play them.
 
 const SETTLE_MS = 2000, LOAD_MS = 10000, STALL_MS = 8000, IDLE_MS = 150;
-const ROLL_MAX = .3, DRIFT = .15, PREROLL = 1, EPS = 1e-3, END = 1e-3;
+const ROLL_MAX = .3, DRIFT = .15, PREROLL = 1, EPS = 1e-3, END = 1e-3, TRIP_MAX = 2, NEAR = .02, NUDGE = .1;
 const REASON = ['', 'aborted', 'network error', 'decode error', 'format not supported or file missing'];
 
 /**
@@ -41,6 +47,7 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
       el, scene: sc.id, src: reverse[attr] || attr, from: sc.from, to: sc.to, base: sc.base,
       clipIn: Math.max(0, parseFloat(el.getAttribute('data-clip-in')) || 0), loop: el.hasAttribute('loop'),
       at: null, want: null, chain: Promise.resolve(), failed: false, reported: false, misses: 0, stall: 0,
+      left: 0, trip: 0, // when its last seek set out, and how long (s) the last one that arrived had taken
     };
     el.muted = true; el.playsInline = true; el.setAttribute('playsinline', ''); el.preload = 'auto';
     el.autoplay = false; el.removeAttribute('autoplay'); el.controls = false; el.removeAttribute('controls');
@@ -48,7 +55,12 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
     el.addEventListener('error', () => { c.failed = true; report(c, describe(c)); }, true); // capture: <source> errors too
     el.addEventListener('loadedmetadata', () => { if (!canSeek(c)) report(c, stuck(c)); });
     // one of our seeks that lands elsewhere (a native loop wrap is not ours: `want` is cleared on arrival)
-    el.addEventListener('seeked', () => { const w = c.want; c.want = null; if (w !== null && Math.abs(el.currentTime - w) > .05) report(c, stuck(c)); });
+    el.addEventListener('seeked', () => {
+      const w = c.want; c.want = null;
+      if (w === null) return;
+      c.trip = Math.min(TRIP_MAX, (performance.now() - c.left) / 1000);
+      if (Math.abs(el.currentTime - w) > .05) report(c, stuck(c));
+    });
     try { el.pause(); el.load(); } catch { /* reported by the error event */ }
     clips.push(c);
   }
@@ -67,7 +79,7 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
   }
   const stuck = c => `video "${c.src}" cannot seek: its source does not allow it (an HTTP stream without range requests); load it as a file or a data URL`;
   /** Every time the runtime moves a clip goes through here, so 'seeked' can check where it landed. */
-  function place(c, m) { c.want = m; c.el.currentTime = m; }
+  function place(c, m) { c.want = m; c.left = performance.now(); c.el.currentTime = m; }
   function report(c, message) {
     if (c.reported) return;
     c.reported = true;
@@ -128,7 +140,9 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
 
   /* ───────── live ───────── */
   let last = null, lastWall = 0, transport = null, idle = 0;
-  const drift = (c, a, b) => { const d = Math.abs(a - b), D = c.el.duration; return c.loop && D > 0 && Number.isFinite(D) ? Math.min(d, D - d) : d; };
+  /** How far (s) the clip at file time `at` is behind the place `m` it belongs at; a looping one by the short way round. */
+  const behind = (c, at, m) => { let d = m - at; const D = c.el.duration; if (c.loop && D > 0 && Number.isFinite(D)) d -= D * Math.round(d / D); return d; };
+  const drift = (c, a, b) => Math.abs(behind(c, a, b));
   const play = c => { try { const r = c.el.play(); if (r && r.catch) r.catch(() => {}); } catch { /* not playable yet */ } };
   // before metadata, currentTime becomes the start position the element seeks to once it can
   const park = (c, m) => { const v = c.el; if (!v.paused) v.pause(); if (Math.abs(v.currentTime - m) > EPS) place(c, m); };
@@ -159,8 +173,14 @@ export function ownVideos(scenes, { mode = 'live', assets = {}, errors = [], onE
       const m = target(c, t), D = v.duration;
       const atEnd = !c.loop && D > 0 && Number.isFinite(D) && m >= D - END - EPS;
       if (rolling && !atEnd) {
-        if (v.paused) { if (drift(c, v.currentTime, m) > EPS) place(c, m); play(c); }
-        else if (drift(c, v.currentTime, m) > DRIFT) place(c, m);
+        const d = behind(c, v.currentTime, m), off = Math.abs(d);
+        // ponytail: the film does not wait for the picture. A clip starts up to DRIFT off its sound and closes that in
+        // at most 1.5 s; one that is slow to seek stands for that long first. If that shows, the clock waits for a
+        // "clips ready" message from here the way it waits for the first sound.
+        if (v.paused) { if (off > DRIFT) place(c, m); play(c); }
+        else if (v.seeking) { /* on its way */ }
+        else if (off > DRIFT) place(c, target(c, t + c.trip));
+        else { const r = off > (v.playbackRate === 1 ? NEAR : NEAR / 2) ? 1 + Math.sign(d) * NUDGE : 1; if (v.playbackRate !== r) v.playbackRate = r; }
       } else park(c, m);
     }
     clearTimeout(idle);

@@ -10,6 +10,7 @@ import { videos, images, setAttr } from '../src/lib/html.js';
 import { syncReport } from '../src/lib/onsets.js';
 import { audioGraph } from '../src/cli/render.js';
 import { TRANSITION_TYPES } from '../src/runtime/player.js';
+import { ownVideos } from '../src/runtime/media.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg || ''} ${a} ≠ ${b}`);
@@ -318,4 +319,56 @@ test('the bundled example is untouched by all of this', () => {
   const payload = compile(p);
   assert.deepEqual(payload.media, []);
   assert.deepEqual(audioSegments(payload).map(a => [a.kind, a.in, a.dur, a.mute]), [['track', 0, null, false]]);
+});
+
+/* ───────── live clips: a clip that is rolling is not chased ───────── */
+// A <video> as runtime/media.js drives it, without a browser: every write to its time is a seek that takes `trip` ms,
+// during which its time reads where it is going; it runs at 1× when it is neither paused nor seeking.
+function fakeClip(trip) {
+  const on = {}, attrs = { src: 'media/a.mp4', 'data-clip-in': '4.5' };
+  let at = 0, paused = true, arrive = 0, ran = 0; // ran: when its time last stood at `at`
+  const settle = () => {
+    const now = performance.now();
+    if (arrive && now >= arrive) { ran = arrive; arrive = 0; for (const f of on.seeked || []) f(); }
+    if (!arrive && !paused) at += (now - ran) / 1000 * el.playbackRate;
+    ran = now;
+  };
+  const el = {
+    moved: 0, playbackRate: 1, duration: 60, readyState: 4, error: null, seekable: { length: 1, end: () => 60 },
+    getAttribute: k => attrs[k] ?? null, hasAttribute: k => k in attrs, setAttribute() {}, removeAttribute() {}, querySelector: () => null, querySelectorAll: () => [],
+    addEventListener(n, f) { (on[n] ||= []).push(f); }, load() {},
+    pause() { settle(); paused = true; }, play() { settle(); paused = false; return Promise.resolve(); },
+    get paused() { return paused; }, get seeking() { settle(); return !!arrive; },
+    get currentTime() { settle(); return at; },
+    set currentTime(v) { settle(); if (!paused) el.moved++; at = v; arrive = performance.now() + trip; },
+  };
+  return el;
+}
+const frames = async (ms, each) => { const t0 = performance.now(); for (let t; (t = performance.now() - t0) < ms;) { each(t / 1000); await new Promise(r => setTimeout(r, 8)); } };
+
+test('a rolling clip is left to arrive, and sent ahead once when it arrives late', async () => {
+  // 400 ms to get anywhere (a 4K clip far from a key frame). Up to 0.10.2 a rolling clip more than 150 ms from its
+  // place was sent again, also while it was still on its way: it never arrived, and its picture stood.
+  const el = fakeClip(400);
+  const v = ownVideos([{ id: 'a', el: { querySelectorAll: () => [el] }, from: 0, to: 60, base: 0 }]);
+  v.seek(2);            // the playhead put into the clip…
+  v.transport(true);    // …and played before the clip has got there
+  await frames(1600, t => v.seek(2 + t));
+  assert.equal(el.moved, 1, 'moved once: sent ahead, when it had arrived 0.4 s behind');
+  assert.ok(!el.paused && !el.seeking, 'and it is rolling');
+  assert.ok(Math.abs(el.currentTime - (4.5 + 2 + 1.6)) < .15, `with the film (${(el.currentTime - 8.1).toFixed(3)} s off)`);
+  v.destroy();
+
+  // One that had the time to get there before the film played is not sent anywhere. The film starts 0.1 s further on
+  // than where it waits (the editor's clock goes on from where the sound is): it closes that by running a little faster.
+  const ready = fakeClip(400);
+  const w = ownVideos([{ id: 'a', el: { querySelectorAll: () => [ready] }, from: 0, to: 60, base: 0 }]);
+  w.seek(2);
+  await new Promise(r => setTimeout(r, 450));
+  w.transport(true);
+  await frames(1800, t => w.seek(2.1 + t));
+  assert.equal(ready.moved, 0, 'a clip that waited at its place just plays');
+  assert.ok(Math.abs(ready.currentTime - (4.5 + 2.1 + 1.8)) < .03, `and is with the film to the frame (${(ready.currentTime - 8.4).toFixed(3)} s off)`);
+  assert.equal(ready.playbackRate, 1, 'at its own speed again');
+  w.destroy();
 });

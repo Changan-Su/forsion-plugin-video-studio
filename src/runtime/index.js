@@ -34,7 +34,7 @@ function payloadFromPage() {
  * a segment plays file time in + (t - at) while at ≤ t < at + dur.
  */
 function makeClock(P, audios, length, onEnd) {
-  let playing = false, base = 0, startedAt = 0, starting = 0, seen = null, from = null, lead = null;
+  let playing = false, base = 0, startedAt = 0, starting = 0, seen = null, from = null, lead = null, awaited = null;
   const now = () => (playing && !starting ? Math.min(length, base + (performance.now() - startedAt) / 1000) : base);
   const sync = force => {
     const t = now();
@@ -44,7 +44,7 @@ function makeClock(P, audios, length, onEnd) {
       let want = t - a.at + a.in;
       if (looping) want = ((want % D) + D) % D;
       const off = a.dur != null && t >= a.at + a.dur;
-      if (!playing || t < a.at || off || want > (D || Infinity)) { if (!el.paused) el.pause(); if (t < a.at && el.currentTime !== a.in) el.currentTime = a.in; continue; }
+      if (!playing || t < a.at || off || want > (D || Infinity)) { if (!el.paused) el.pause(); if (t < a.at && !el.seeking && Math.abs(el.currentTime - a.in) > .08) el.currentTime = a.in; continue; }
       const d = Math.abs(el.currentTime - want);
       if (force || (el.paused && (looping ? Math.min(d, D - d) : d) > .08)) el.currentTime = want; // never one that is running: see follow
       if (el.paused) el.play().catch(() => {});
@@ -56,7 +56,7 @@ function makeClock(P, audios, length, onEnd) {
   // sound told to play is really running, goes on from where that sound is, runs on its own from there and is only
   // checked against one sound at a time. A looping sound's time says nothing about the film's, so it is not asked.
   // (ui/studio.js followSound: the same, with the reasons and the measurements.)
-  const RUN = .05, APART = .1, LATE = .5;
+  const RUN = .05, APART = .1;
   const running = a => !a.loop && !a.el.paused && !a.el.seeking && !a.el.ended && a.el.readyState > 2;
   const heard = a => a.at + a.el.currentTime - a.in;
   const follow = () => {
@@ -71,6 +71,7 @@ function makeClock(P, audios, length, onEnd) {
       if (moving) base = heard(a);
       startedAt = t;
       lead = moving ? { a, at, off: 0 } : null;
+      awaited = moving ? null : a || null;
       return;
     }
     if (!lead || !running(lead.a)) { const a = audios.find(running); lead = a ? { a, at: a.el.currentTime, off: null } : null; return; }
@@ -78,7 +79,7 @@ function makeClock(P, audios, length, onEnd) {
     lead.at = at;
     if (!went) return;
     const ahead = heard(lead.a) - now();
-    if (lead.off === null) lead.off = Math.abs(ahead) < LATE ? ahead : 0;
+    if (lead.off === null) { lead.off = lead.a === awaited ? 0 : ahead; awaited = null; }
     if (Math.abs(ahead - lead.off) > APART) { base = heard(lead.a) - lead.off; startedAt = t; }
   };
   return {
