@@ -12,6 +12,7 @@
     "verify:space": "node scripts/verify-space.mjs",
     "verify:docked": "node scripts/verify-docked.mjs",
     "verify:render": "node scripts/verify-render.mjs",
+    "verify:review": "node scripts/verify-review.mjs",
     "verify:features": "node scripts/verify-features.mjs",
     "verify:chat": "node scripts/verify-chat.mjs",
     "verify:reset": "node scripts/verify-reset.mjs",
@@ -24,5 +25,5 @@
     "lucide": "^1.49.0",
     "playwright-core": "1.61.1"
   },
-  "version": "0.10.3"
+  "version": "0.11.0"
 }

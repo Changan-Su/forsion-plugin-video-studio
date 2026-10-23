@@ -67,6 +67,7 @@ go. The music toolkit sits beside it in `music/` (read its README.md before scor
 node fvs.mjs new <file.fvs.md> [--template eva|blank] [--title T]
 node fvs.mjs info <project>                 # scenes, start/end, hits → READ THIS FIRST
 node fvs.mjs check <project> --runtime      # parse errors + runs every scene script in a browser
+node fvs.mjs review <project> [--at cards,cards:3,12.5]   # what the frames look like (below) → read it, fix, mark
 node fvs.mjs sheet <project> [--every 2]    # contact sheet PNG (one frame per scene, or every N s) → look at it
 node fvs.mjs still <project> --at cards:3   # one frame: seconds, a scene id, or scene:hit
 node fvs.mjs cues <project>                 # the cue sheet JSON a score is written against
@@ -81,6 +82,19 @@ install) plus Google Chrome or Microsoft Edge; the CLI also accepts `FVS_CHROMIU
 `npx playwright install chromium`. `render` and `sync` need ffmpeg (`brew install ffmpeg`,
 `winget install ffmpeg`, `apt install ffmpeg`, or `FFMPEG=/path`). Install what is missing yourself and say so.
 After rendering, look at a few frames (`view_video` if you have it, or `still`) before reporting.
+
+`review` hands the frames to HyperFrames' checks (`npx hyperframes@<pinned>`; the first run downloads about
+330 MB, a package and a Chrome, and needs the network; it still needs Node with npx). It looks at each scene's
+middle and just after each hit and reports, by scene: text hidden under something opaque (`text_occluded`), two
+text blocks overlapping (`content_overlap`), text clipped or out of its box or off the frame (`clipped_text`,
+`text_box_overflow`, `canvas_overflow`), contrast under WCAG AA against what is really behind the text, footage
+included (`contrast_aa_failure`), text on screen too briefly to read (`line_unread`), type too small for a phone
+(`text_below_floor`), long stretches where nothing moves (`dead_stretch`). It is advice, never a gate: it exits 0
+whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
+the edge, a word flashed in a montage), keep it and put the marker HyperFrames reads on that element:
+`data-layout-allow-overflow`, `data-layout-allow-occlusion`, `data-layout-allow-overlap`, `data-hold` (stillness
+on purpose) or `data-layout-ignore`; say which ones you kept and why. If `review` cannot run (no network, no npx),
+say so and fall back to `check --runtime` and stills.
 
 ## The file format
 
@@ -256,7 +270,8 @@ renderer waits for it):
 5. Scope global CSS under the project class; absolute-position layers inside a 1920×1080 (or project)
    frame in px. Fonts: add Google Fonts URLs to `fonts`; CJK needs a CJK family (Noto Sans/Serif SC).
 6. Flashes and rapid cuts: if the video strobes, open with a photosensitivity warning scene.
-7. After every edit: `check --runtime`, then look at `sheet`/`still` frames of what you changed.
+7. After every edit: `check --runtime`, then `review` (or `review --at <scene>` for one scene), then look at
+   `sheet`/`still` frames of what you changed.
    To show the user a project, call the UI command `fvs-open-project` with its vault path (if you have
    `run_ui_command`), or tell them the path.
 
@@ -265,7 +280,7 @@ renderer waits for it):
 **New video.** Ask for (or infer) the message, audience, length and look. `fvs new` from the `eva`
 template (EVA-style intertitles, HUD panels) or `blank`, then write scenes: 1–4 bars each, a hit on every
 change, text in HTML. Pick a tempo that suits the music you will write (120–160 BPM for cut-heavy promos).
-Check, look at the contact sheet, iterate. Then score it.
+Check, review, look at the contact sheet, iterate. Then score it.
 
 **A change to what the user pointed at.** Find the quoted heading and tag in the file and make the change on
 that element: its timing attributes, its text, its style. Nothing around it moves. Then `check`, and look at
@@ -291,6 +306,11 @@ it to `audio`. Run `fvs sync` and fix misses. Melodies must be original — a re
 the on-screen story: time each to its line (scene starts and hit times from `fvs info` / `fvs cues` are good
 anchors), keep them off on-screen text where you can, then `check` (bad times and cues after the end are
 reported) and look at a `still` inside a cue.
+
+**Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings
+that matter in plain words, scene by scene, with what you would change (pacing, legibility, text over footage,
+order); fix them if the person asked you to. Text over footage is where contrast fails most: give captions a
+scrim, a shadow or a darker band of the clip rather than a lighter colour.
 
 **Sync check.** `fvs sync` lists hits without an accent. A hit on a drop to silence counts. For each miss,
 move the picture-only hit onto the accent (nearest eighth) or change the score.
