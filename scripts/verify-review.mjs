@@ -58,6 +58,26 @@ assert.ok(ex.times.length >= 20, `sampled every scene (${ex.times.length} moment
 assert.deepEqual(readdirSync(assets).sort(), before, 'the example\'s assets are untouched');
 ok(`example: ${ex.times.length} moments, browser pass ran, scripts clean, assets untouched (${ex.counts.error} errors, ${ex.counts.warning} warnings are advice)`);
 
+// the project's own files are never written: a top-level file named like the page, referenced as a folder
+const odd = mkdtempSync(join(tmpdir(), 'fvs-verify-review-'));
+try {
+  cpSync(fixtures, odd, { recursive: true });
+  writeFileSync(join(odd, 'index.html'), 'the project\'s own page\n');
+  writeFileSync(join(odd, 'fvs-runtime.js'), '// the project\'s own script\n');
+  const f = join(odd, 'defects.fvs.md');
+  writeFileSync(f, readFileSync(f, 'utf8').replace('<div class="panel" data-in="h1"></div>', '<div class="panel" data-in="h1"></div><img src="index.html/cover.png" alt=""><img src="fvs-runtime.js" alt="">'));
+  review(f);
+  assert.equal(readFileSync(join(odd, 'index.html'), 'utf8'), 'the project\'s own page\n');
+  assert.equal(readFileSync(join(odd, 'fvs-runtime.js'), 'utf8'), '// the project\'s own script\n');
+  // HyperFrames failing to look is an error, not a clean film
+  const boom = join(odd, 'boom.mjs');
+  writeFileSync(boom, 'console.log(JSON.stringify({ ok: false, error: "Chrome did not start" })); process.exit(1);\n');
+  const r = spawnSync(process.execPath, [cli, 'review', f], { encoding: 'utf8', env: { ...process.env, FVS_HYPERFRAMES: boom } });
+  assert.notEqual(r.status, 0, 'a failed HyperFrames run fails the command');
+  assert.match(r.stderr, /HyperFrames did not run \(Chrome did not start\)/);
+  ok('the project\'s files are never written; a failed HyperFrames run is reported as one');
+} finally { rmSync(odd, { recursive: true, force: true }); }
+
 // the text report is what the Director reads
 const text = execFileSync(process.execPath, [cli, 'review', join(fixtures, 'defects.fvs.md')], { encoding: 'utf8' });
 assert.match(text, /^intro · 开场 · 0\.00–4\.00 s$/m);

@@ -34,6 +34,10 @@ const DOC = `# R
 test('review looks at each scene\'s middle and just after its hits, 0.2 s apart at least', () => {
   const p = parseProject(DOC); // a: 0–4 s, hits 0, 1, 1.1 · b: 4–6 s, hit 4.5
   assert.deepEqual(reviewTimes(p), [0.3, 1.3, 2, 4.8, 5]);
+  // four 0.1 s scenes: each middle is looked at, none is merged away by a neighbour or a hit
+  const flash = parseProject(DOC.replace('"2 bars", "hits": [0, 2, 2.2]', '"0.1s", "hits": [0]').replace('"1 bar", "hits": [1]', '"0.1s", "hits": [0]')
+    + ['c', 'd'].map(id => `\n## ${id}\n\n\`\`\`fvs\n{ "length": "0.1s", "hits": [0] }\n\`\`\`\n\n\`\`\`html\n<p>${id}</p>\n\`\`\`\n`).join(''));
+  assert.deepEqual(reviewTimes(flash), [0.05, 0.15, 0.25, 0.35]);
 });
 
 test('findings land in the scene on screen at their time; lint goes to the film; film_silent and info are left out', () => {

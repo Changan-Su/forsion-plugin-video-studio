@@ -11,16 +11,18 @@ const MAX_TIMES = 60;
 
 /**
  * Where to look: each scene's middle, and a moment after each hit on screen (what a cut or an entrance just put
- * there). Times closer than 0.2 s are one. Past MAX_TIMES the hits are thinned evenly; the middles all stay.
+ * there). A hit moment within 0.2 s of another moment is dropped; past MAX_TIMES the hits are thinned evenly. The
+ * middles all stay.
  */
 export function reviewTimes(p) {
   const mids = p.scenes.map(s => (s.t0 + s.t1) / 2);
   const hits = p.scenes.flatMap(s => visibleHits(s).map(h => Math.min(h.t + 0.3, s.t1 - 0.05)).filter(t => t > s.t0));
   const keep = Math.max(0, MAX_TIMES - mids.length);
   const picked = hits.length <= keep ? hits : Array.from({ length: keep }, (_, i) => hits[Math.floor(i * hits.length / keep)]);
-  const out = [];
-  for (const t of [...mids, ...picked].sort((a, b) => a - b)) if (t >= 0 && t < p.length && !(out.length && t - out[out.length - 1] < 0.2)) out.push(+t.toFixed(3));
-  return out;
+  // every scene's middle is looked at, however short the scene; a hit moment only where nothing else is looked at nearby
+  const out = mids.filter(t => t >= 0 && t < p.length);
+  for (const t of picked) if (t >= 0 && t < p.length && out.every(u => Math.abs(t - u) >= 0.2)) out.push(t);
+  return [...new Set(out.map(t => +t.toFixed(3)))].sort((a, b) => a - b);
 }
 
 /** Every finding of a `hyperframes check --json` report, flattened, with the section it came from. */

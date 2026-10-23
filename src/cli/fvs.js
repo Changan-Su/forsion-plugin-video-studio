@@ -228,27 +228,33 @@ const commands = {
     const tmp = mkdtempSync(join(tmpdir(), 'fvs-review-'));
     try {
       // HyperFrames serves the folder over http (file:// is refused), so the project's assets go next to the page:
-      // folders linked (a junction on Windows needs no rights), loose files copied. Paths outside the project are left out.
+      // top-level folders linked (a junction on Windows needs no rights), loose top-level files copied. Paths outside
+      // the project, and the names the page itself uses, are left out. Nothing is ever written through a link.
       const payload = compile(p);
-      const outside = [], linked = new Set();
-      for (const rel of Object.keys(payload.assets)) {
-        if (rel.split('/').includes('..')) { outside.push(rel); continue; }
-        const top = rel.split('/')[0], from = join(dir, top), to = join(tmp, top);
-        if (linked.has(top) || !existsSync(from) || existsSync(to)) continue;
+      const outside = [], linked = new Set(), OWN = new Set(['index.html', 'fvs-runtime.js', '.hyperframes']);
+      for (const ref of Object.keys(payload.assets)) {
+        const rel = ref.replace(/\\/g, '/'), parts = rel.split('/'), top = parts[0];
+        if (parts.includes('..') || /^[a-z]:$/i.test(top) || !top || OWN.has(top)) { outside.push(ref); continue; }
+        const from = join(dir, top), to = join(tmp, top);
+        if (linked.has(top) || !existsSync(from)) continue;
         linked.add(top);
-        if (rel.includes('/')) symlinkSync(from, to, 'junction'); else copyFileSync(from, to);
+        const folder = statSync(from).isDirectory();
+        if (folder && parts.length > 1) symlinkSync(from, to, 'junction');
+        else if (!folder && parts.length === 1) copyFileSync(from, to);
       }
-      writeFileSync(join(tmp, 'fvs-runtime.js'), RUNTIME);
-      writeFileSync(join(tmp, 'index.html'), buildHtml(payload, RUNTIME, { mode: 'hf', runtimeUrl: 'fvs-runtime.js' }));
-      const own = process.env.FVS_HYPERFRAMES; // a hyperframes command already on this machine, instead of npx
-      const win = platform() === 'win32';
-      const args = [...(own ? [] : ['--yes', `hyperframes@${HYPERFRAMES_VERSION}`]), 'check', tmp, '--json', '--at', times.join(',')];
-      const r = spawnSync(own || (win ? 'npx.cmd' : 'npx'), win ? args.map(a => `"${a}"`) : args, {
-        encoding: 'utf8', maxBuffer: 256 << 20, shell: win, env: { ...process.env, DO_NOT_TRACK: '1', HYPERFRAMES_NO_TELEMETRY: '1' },
-      });
+      writeFileSync(join(tmp, 'fvs-runtime.js'), RUNTIME, { flag: 'wx' });
+      writeFileSync(join(tmp, 'index.html'), buildHtml(payload, RUNTIME, { mode: 'hf', runtimeUrl: 'fvs-runtime.js' }), { flag: 'wx' });
+      // npx's own script run by this node, no shell (no quoting to get wrong on Windows); FVS_HYPERFRAMES = the path of
+      // a hyperframes CLI script already on this machine, run the same way, instead of npx
+      const own = process.env.FVS_HYPERFRAMES;
+      const npxCli = [join(dirname(process.execPath), 'node_modules/npm/bin/npx-cli.js'), join(dirname(process.execPath), '../lib/node_modules/npm/bin/npx-cli.js')].find(f => existsSync(f));
+      const args = [...(own ? [own] : npxCli ? [npxCli, '--yes', `hyperframes@${HYPERFRAMES_VERSION}`] : ['--yes', `hyperframes@${HYPERFRAMES_VERSION}`]), 'check', tmp, '--json', '--at', times.join(',')];
+      if (!own && !npxCli && platform() === 'win32') die('npx was not found next to this Node; set FVS_HYPERFRAMES to the hyperframes CLI script');
+      const r = spawnSync(own || npxCli ? process.execPath : 'npx', args, { encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, DO_NOT_TRACK: '1', HYPERFRAMES_NO_TELEMETRY: '1' } });
       let hf = null;
       try { hf = JSON.parse(r.stdout); } catch { /* below */ }
-      if (!hf) die(`HyperFrames did not run (${r.error ? r.error.message : `exit ${r.status}`}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).\n${String(r.stderr || '').trim().split('\n').slice(-6).join('\n')}`);
+      // a report has its sections; {ok:false, error} is HyperFrames failing to look (no Chrome, a crash), not a clean film
+      if (!hf || hf.error || !['lint', 'layout'].every(k => hf[k])) die(`HyperFrames did not run (${hf?.error || (r.error ? r.error.message : `exit ${r.status}`)}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).\n${String(r.stderr || '').trim().split('\n').slice(-6).join('\n')}`);
       if (hf.browserSkipped) console.error('warn  HyperFrames looked at the page source only (its lint stopped the browser pass); the findings below are not about frames');
       const grouped = groupFindings(p, hf, { all: !!flags.all });
       if (outside.length) console.error(`warn  not reviewed with their assets (outside the project folder): ${outside.join(', ')}`);

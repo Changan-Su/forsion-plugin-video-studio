@@ -1084,9 +1084,9 @@ function reviewTimes(p) {
   const hits = p.scenes.flatMap((s) => visibleHits(s).map((h) => Math.min(h.t + 0.3, s.t1 - 0.05)).filter((t) => t > s.t0));
   const keep = Math.max(0, MAX_TIMES - mids.length);
   const picked = hits.length <= keep ? hits : Array.from({ length: keep }, (_, i) => hits[Math.floor(i * hits.length / keep)]);
-  const out = [];
-  for (const t of [...mids, ...picked].sort((a, b) => a - b)) if (t >= 0 && t < p.length && !(out.length && t - out[out.length - 1] < 0.2)) out.push(+t.toFixed(3));
-  return out;
+  const out = mids.filter((t) => t >= 0 && t < p.length);
+  for (const t of picked) if (t >= 0 && t < p.length && out.every((u) => Math.abs(t - u) >= 0.2)) out.push(t);
+  return [...new Set(out.map((t) => +t.toFixed(3)))].sort((a, b) => a - b);
 }
 function flatten(report2) {
   const out = [];
@@ -1347,35 +1347,33 @@ captions: ${p.captions.length} cues, ${Math.min(...p.captions.map((c) => c.start
     const tmp = mkdtempSync2(join2(tmpdir2(), "fvs-review-"));
     try {
       const payload = compile(p);
-      const outside = [], linked = /* @__PURE__ */ new Set();
-      for (const rel of Object.keys(payload.assets)) {
-        if (rel.split("/").includes("..")) {
-          outside.push(rel);
+      const outside = [], linked = /* @__PURE__ */ new Set(), OWN = /* @__PURE__ */ new Set(["index.html", "fvs-runtime.js", ".hyperframes"]);
+      for (const ref of Object.keys(payload.assets)) {
+        const rel = ref.replace(/\\/g, "/"), parts = rel.split("/"), top = parts[0];
+        if (parts.includes("..") || /^[a-z]:$/i.test(top) || !top || OWN.has(top)) {
+          outside.push(ref);
           continue;
         }
-        const top = rel.split("/")[0], from = join2(dir, top), to = join2(tmp, top);
-        if (linked.has(top) || !existsSync2(from) || existsSync2(to)) continue;
+        const from = join2(dir, top), to = join2(tmp, top);
+        if (linked.has(top) || !existsSync2(from)) continue;
         linked.add(top);
-        if (rel.includes("/")) symlinkSync(from, to, "junction");
-        else copyFileSync(from, to);
+        const folder = statSync2(from).isDirectory();
+        if (folder && parts.length > 1) symlinkSync(from, to, "junction");
+        else if (!folder && parts.length === 1) copyFileSync(from, to);
       }
-      writeFileSync2(join2(tmp, "fvs-runtime.js"), runtime_src_default);
-      writeFileSync2(join2(tmp, "index.html"), buildHtml(payload, runtime_src_default, { mode: "hf", runtimeUrl: "fvs-runtime.js" }));
+      writeFileSync2(join2(tmp, "fvs-runtime.js"), runtime_src_default, { flag: "wx" });
+      writeFileSync2(join2(tmp, "index.html"), buildHtml(payload, runtime_src_default, { mode: "hf", runtimeUrl: "fvs-runtime.js" }), { flag: "wx" });
       const own = process.env.FVS_HYPERFRAMES;
-      const win = platform() === "win32";
-      const args = [...own ? [] : ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`], "check", tmp, "--json", "--at", times.join(",")];
-      const r = spawnSync2(own || (win ? "npx.cmd" : "npx"), win ? args.map((a) => `"${a}"`) : args, {
-        encoding: "utf8",
-        maxBuffer: 256 << 20,
-        shell: win,
-        env: { ...process.env, DO_NOT_TRACK: "1", HYPERFRAMES_NO_TELEMETRY: "1" }
-      });
+      const npxCli = [join2(dirname2(process.execPath), "node_modules/npm/bin/npx-cli.js"), join2(dirname2(process.execPath), "../lib/node_modules/npm/bin/npx-cli.js")].find((f) => existsSync2(f));
+      const args = [...own ? [own] : npxCli ? [npxCli, "--yes", `hyperframes@${HYPERFRAMES_VERSION}`] : ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`], "check", tmp, "--json", "--at", times.join(",")];
+      if (!own && !npxCli && platform() === "win32") die("npx was not found next to this Node; set FVS_HYPERFRAMES to the hyperframes CLI script");
+      const r = spawnSync2(own || npxCli ? process.execPath : "npx", args, { encoding: "utf8", maxBuffer: 256 << 20, env: { ...process.env, DO_NOT_TRACK: "1", HYPERFRAMES_NO_TELEMETRY: "1" } });
       let hf = null;
       try {
         hf = JSON.parse(r.stdout);
       } catch {
       }
-      if (!hf) die(`HyperFrames did not run (${r.error ? r.error.message : `exit ${r.status}`}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).
+      if (!hf || hf.error || !["lint", "layout"].every((k) => hf[k])) die(`HyperFrames did not run (${hf?.error || (r.error ? r.error.message : `exit ${r.status}`)}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).
 ${String(r.stderr || "").trim().split("\n").slice(-6).join("\n")}`);
       if (hf.browserSkipped) console.error("warn  HyperFrames looked at the page source only (its lint stopped the browser pass); the findings below are not about frames");
       const grouped = groupFindings(p, hf, { all: !!flags.all });
