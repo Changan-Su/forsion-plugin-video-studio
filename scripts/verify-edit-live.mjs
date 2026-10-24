@@ -5,7 +5,8 @@
 //
 //   montage   seven real clips (Wikimedia Commons, see scripts/lib/fetch-footage.mjs) into a ~20 s city film: most
 //             clips used, each picked from inside its file, cuts on the 120 BPM grid, title and closing line, the
-//             clips' own sound kept but lower; renders with sound
+//             clips' own sound kept but lower; the clips looked at in several frames (`fvs frames`, or ffmpeg at a
+//             rate) or at least not every shot from one offset; renders with sound
 //   recap     Forsion 2.13.5's feature recordings (FVS_DEMOS, default <Forsion>/outputs/release-demos-2.13.5) into a
 //             ~40 s update recap: every recording used, cut down, one caption each; renders
 //   recut     an existing four-shot cut, four edits in one message: move shot 3 first, halve the last shot, a cross-fade
@@ -134,6 +135,9 @@ async function ask(sessionId, message, dir, timeoutMs = 1_500_000) {
 
 const CJK = /[㐀-鿿]/;
 const ranReview = ev => ev.tools.some(t => /fvs\.mjs\S*"?\s+review\b/.test(t.args));
+// footage looked at in several frames: `fvs frames`, or ffmpeg sampling at a rate or into a grid
+const frameLooks = ev => (ev?.tools || []).filter(t => /fvs\.mjs\S*"?\s+frames\b|ffmpeg[^\n]*(fps=|tile=|select=)/.test(t.args));
+const views = ev => (ev?.tools || []).filter(t => t.name === 'view_image').length;
 const near = (a, b, eps = 0.02) => Math.abs(a - b) <= eps;
 const shots = p => p.scenes.filter(s => videos(s.html).some(v => v.src));
 const reviewOf = file => JSON.parse(execFileSync(process.execPath, [cli, 'review', file, '--json'], { cwd: dirname(file), encoding: 'utf8', maxBuffer: 64 << 20 }));
@@ -158,7 +162,7 @@ function evidence(key, { file, dir }, ev, { render = false } = {}) {
   }
   const p = parseProject(readFileSync(file, 'utf8'));
   writeFileSync(join(at, '过程.md'), [
-    `# ${key}`, '', `- 模型:${MODEL}`, `- 用时:${Math.round((ev?.ms || 0) / 1000)} s,工具调用 ${ev?.tools.length ?? 0} 次;自己跑了 review:${ev && ranReview(ev) ? '是' : '否'}`,
+    `# ${key}`, '', `- 模型:${MODEL}`, `- 用时:${Math.round((ev?.ms || 0) / 1000)} s,工具调用 ${ev?.tools.length ?? 0} 次;自己跑了 review:${ev && ranReview(ev) ? '是' : '否'};按间隔抽帧看素材 ${frameLooks(ev).length} 次,view_image ${views(ev)} 次`,
     `- 成片:${p.scenes.length} 个场景,${p.length.toFixed(2)} s;check:${facts.check.split('\n')[0]}`, `- review:${facts.review}`,
     ...(facts.render ? [`- 半尺寸渲染:${JSON.stringify(facts.render)}`] : []), '',
     '## 场景', '', ...p.scenes.map(s => `- ${s.id}${s.title ? ` · ${s.title}` : ''} ${s.t0.toFixed(2)}–${s.t1.toFixed(2)} s${s.transition ? ` · 转场 ${s.transition.type} ${s.transition.dur}s` : ''}${videos(s.html).map(v => ` · ${v.src} 从 ${v.clipIn}s${v.gain ? ` ${v.gain} dB` : ''}${v.muted ? ' 静音' : ''}`).join('')}`),
@@ -210,6 +214,13 @@ try {
     if (long.length) throw fail(`shots longer than "two or three seconds": ${long.map(s => `${s.id} ${s.dur.toFixed(2)} s`).join(', ')}`, ev);
     const clips = shots(p).flatMap(s => videos(s.html));
     if (clips.filter(v => v.clipIn > 0 || p.scenes.find(s => s.html.includes(v.src))?.in > 0).length < 3) throw fail('fewer than three shots are taken from inside their clip', ev);
+    // picking: each clip looked at in several frames (a glob or a loop counts for every clip), or in-points that differ
+    const looks = frameLooks(ev), looked = [...used].filter(src => looks.some(t => t.args.includes(basename(src)) || t.args.includes('*')));
+    const ins = shots(p).flatMap(s => videos(s.html).map(v => +((v.clipIn || 0) + (s.in || 0)).toFixed(2)));
+    legs.push(`挑镜头:多帧看过 ${looked.length}/${used.size} 段(按间隔抽帧 ${looks.length} 次、view_image ${views(ev)} 次);入点 ${new Set(ins).size} 种(${ins.join(' / ')} s)`);
+    if (new Set(ins).size <= 1 && !looked.length) throw fail(`every shot starts ${ins[0]} s into its clip and no clip was looked at in several frames`, ev);
+    const onShot = line => shots(p).some(s => s.html.includes(line)) || p.captions.some(c => c.text.includes(line) && shots(p).some(s => c.start < s.t1 && c.end > s.t0));
+    legs.push(`片名压在镜头上:${onShot('城市速写') ? '是' : '否'};结尾字幕压在镜头上:${onShot('每座城市都在呼吸') ? '是' : '否'};转场:${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type} ${s.transition.dur}s`).join('、') || '全部硬切'}`);
     if (!text.includes('城市速写') || !text.includes('每座城市都在呼吸')) throw fail('the title or the closing line is missing', ev);
     const loud = clips.filter(v => !v.muted && !(v.gain < 0));
     if (loud.length) throw fail(`clips with their sound at full level: ${loud.map(v => v.src).join(', ')}`, ev);

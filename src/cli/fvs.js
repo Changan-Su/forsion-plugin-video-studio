@@ -28,6 +28,8 @@ const HELP = `fvs ${VERSION} — Forsion Video Studio
   fvs html <file> [--out f.html] [--inline]   standalone web video (player page)
   fvs still <file> --at <t|scene[:hit]> [--out f.png] [--scale 0.5]   one frame as PNG
   fvs sheet <file> [--scenes | --every <sec>] [--out sheet.png]       contact sheet of frames
+  fvs frames <media…> [--every 2] [--from s] [--to s] [--out dir]    a contact sheet per footage file, each
+                                       frame labelled with its time in the file (pick in-points from it)
   fvs render <file> [--out f.mp4] [--from s] [--to s] [--scale 0.5] [--workers 3] [--crf 18]
                     [--keep-frames dir] [--no-audio] [--no-captions] MP4 with the project's audio and captions
   fvs render-job <job.json>            export with real progress and a .cancel marker
@@ -124,6 +126,15 @@ function ffmpegBin() {
     if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
   }
   die('ffmpeg not found. Install it (macOS: brew install ffmpeg · Windows: winget install ffmpeg · Linux: apt install ffmpeg) or set FFMPEG=/path/to/ffmpeg');
+}
+
+/** Frames (base64 JPEG, 320 px wide) laid out with their labels as one PNG. */
+async function contactSheet(browser, shots, labels, out) {
+  const cols = Math.min(6, Math.ceil(Math.sqrt(shots.length * 1.4)));
+  const sheet = await browser.newPage({ viewport: { width: cols * 332 + 12, height: 400 } });
+  await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},320px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><img style="display:block;width:320px" src="data:image/jpeg;base64,${b}"><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join('')}</div></body>`);
+  await sheet.screenshot({ path: out, fullPage: true });
+  await sheet.close();
 }
 
 /** Open the project's capture page: the stage at 1:1, window.__stage.seek(t). */
@@ -327,13 +338,36 @@ const commands = {
     runtimeErrors(st, logs);
     const shots = [];
     for (const t of times) { await pg.evaluate(x => __stage.seek(x), t); shots.push((await pg.screenshot({ type: 'jpeg', quality: 80 })).toString('base64')); }
-    const cols = Math.min(6, Math.ceil(Math.sqrt(shots.length * 1.4)));
-    const sheet = await browser.newPage({ viewport: { width: cols * 332 + 12, height: 400 } });
-    await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},320px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><img style="display:block;width:320px" src="data:image/jpeg;base64,${b}"><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join('')}</div></body>`);
     const out = resolve(flags.out || `${ctx.path.replace(/\.fvs\.md$/i, '')}-sheet.png`);
-    await sheet.screenshot({ path: out, fullPage: true });
+    await contactSheet(browser, shots, labels, out);
     await browser.close();
     log(out);
+  },
+
+  async frames() {
+    if (!pos.length) die('which footage? (fvs frames <media…> [--every 2])');
+    const ff = ffmpegBin(), every = +flags.every || 2, dir = resolve(flags.out || join(tmpdir(), 'fvs-frames'));
+    mkdirSync(dir, { recursive: true });
+    const browser = await chromium();
+    for (const file of pos) {
+      const src = resolve(file);
+      if (!existsSync(src)) die(`no such file: ${src}`);
+      const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(spawnSync(ff, ['-hide_banner', '-i', src], { encoding: 'utf8' }).stderr || '');
+      if (!m) die(`ffmpeg reads no duration from ${src}`);
+      const length = +m[1] * 3600 + +m[2] * 60 + +m[3], from = Math.max(0, +flags.from || 0), to = Math.min(length, flags.to ? +flags.to : length);
+      const step = (to - from) / every > 24 ? Math.ceil((to - from) / 12) / 2 : every; // ponytail: at most ~24 frames a sheet, on half seconds; look closer with --from/--to
+      const times = [];
+      for (let t = from; t < to - 0.04; t += step) times.push(+t.toFixed(2));
+      const shots = times.map(t => {
+        const r = spawnSync(ff, ['-v', 'error', '-ss', String(t), '-i', src, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 });
+        if (r.status !== 0 || !r.stdout.length) die(`ffmpeg could not read a frame at ${t} s of ${src}`);
+        return r.stdout.toString('base64');
+      });
+      const out = join(dir, `${basename(src, extname(src))}-frames.png`);
+      await contactSheet(browser, shots, times.map(t => `${basename(src)} · ${t} s`), out);
+      log(`${out}\n  ${basename(src)} · ${length.toFixed(1)} s · a frame every ${+step.toFixed(2)} s at: ${times.join(' ')}`);
+    }
+    await browser.close();
   },
 
   async render() {

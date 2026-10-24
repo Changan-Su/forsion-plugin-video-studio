@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 — 2026-10-24
+
+- 新命令 `fvs frames <素材…>`：给每段素材出一张抽帧图，每帧标着它在文件里的时间（缺省每 2 秒一帧，长素材自动放宽到一张最多约 24 帧；`--from` / `--to` / `--every 0.5` 可以凑近看一段），同时把每张图的路径和时间列出来。图写在临时目录，不进工程文件夹、不出现在素材栏。需要 ffmpeg 和一个 Chromium（和 `sheet` 相同）。
+- 导演 Agent 剪实拍素材时先用它把每段素材看一遍，再定每个镜头从哪一秒起，并说出选哪一段、为什么；不再只看一帧、或者每段按固定偏移取。技能里新加「Cut footage」一节，也写了实拍混剪的缺省做法：片名压在第一个镜头上、底下垫一条暗色渐变保证对比度（`fvs review` 会查），片尾那句压在最后一个镜头上，不用黑底卡片；镜头之间按节奏硬切，能量往下走的地方用不超过一拍的短交叉淡化。
+- 编辑器界面和工程文件格式没有变化，需要的 Forsion 和 0.11.0 相同。导演 Agent 的说明只在第一次装插件时写入，已经装过的不会自动更新；技能随插件更新。
+- **English:** New command `fvs frames <media…>`: one contact sheet per footage file, every frame labelled with its time in the file (a frame every 2 s by default; long files get a wider step, at most about 24 frames a sheet; `--from` / `--to` / `--every 0.5` look closer at a stretch), and the path and times of each sheet printed. The sheets go to a temporary folder, not into the project or its media bin. It needs ffmpeg and a Chromium, like `sheet`. When the Director cuts footage it now looks at every clip this way before it decides where each shot starts, and says which stretch it took and why, instead of looking at one frame or taking every clip from the same offset. The skill's new "Cut footage" section also gives the default for a montage of real footage: the title over the first shot on a dark gradient scrim so it keeps its contrast (`fvs review` checks it), the closing line over the last shot, no black title cards; cuts on the beat, and a short cross-fade of a beat at most where the energy drops. The editor and the project format are unchanged; Forsion versions: the same as 0.11.0. The Director's instructions are written only when the plugin is first installed and are not updated on an existing install; the skill updates with the plugin.
+
 ## 0.11.0 — 2026-10-24
 
 - 新命令 `fvs review`：用 HyperFrames（HeyGen 开源的网页视频工具，Apache-2.0）的检查看一遍画面，报出文字被挡、两段文字压在一起、文字出画或被裁、文字在背后画面上（包括视频素材）对比度不够、文字停留太短来不及读、字太小、长时间画面不动。采样点是每个场景的中点和每个拍点之后 0.3 秒，结果按场景列出。它只提建议、不拦人：查出什么都正常退出。故意的设计（描边空心字、出血到画外、蒙太奇里一闪的词）在那个元素上加 HyperFrames 认的标记即可，例如 `data-layout-allow-occlusion`。
