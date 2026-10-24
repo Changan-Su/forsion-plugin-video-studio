@@ -1,18 +1,25 @@
 // What moves in a cut, read from the page the renderer captures (the runtime's own geometry and styles at each time),
 // not from the project's text: a K() on a wrapper, a CSS-variable scale, a clip reveal and a data-fx entrance all show
 // up the same way, and a title that sits outside the frame does not count as on screen (10-24's false green).
-// Sampled a little before and after every eighth note (beat / 2) of the project's tempo.
+// Sampled a little before and after every eighth note (beat / 2) of the project's tempo. Only what is visible counts:
+// an element is on screen when its opacity (with its parents') is over .5 and some of its box is left after the clips
+// of it and its parents and the frame's edge.
 //
-//   camera   a shot (a scene with a <video>) whose picture moves: the video's box scales (> 1.5 %) or travels (> 8 px),
-//            or its clip changes, between the end of its transition and its last frame
-//   accents  eighth-note times inside a shot (not its first frame) where something changes at once: an element (not the
-//            captions track) appears or leaves, jumps (> 30 px) or resizes (> 8 %), the picture jumps (> 3 % or 40 px) or
-//            changes its clip or filter, or the flash layer fires; and was not already changing just before
+//   camera   a shot (a scene with a <video>) whose picture moves while it is on screen: the video's box scales
+//            (> 1.5 %) or travels (> 8 px), or its visible part changes, between the end of its transition and its end
+//   accents  eighth-note times inside a shot (not its first frame) where something visible changes at once: an element
+//            (not the captions track) appears or leaves, jumps (> 30 px) or resizes (> 8 %), the picture jumps (> 3 %
+//            or 40 px) or changes its filter, or the flash layer fires; and was not already changing just before
 //   graphic  a shot with an element that has no text and no video, is not a full-width band (a scrim), and changes
-//   multi    a shot with two pictures on screen at once (split screen, picture in picture)
-//   opener   time before the first shot, and whether its words arrive in steps or move
-//   kinetic  a line (the title, the closing line) that arrives in steps (word by word, typed) or travels, resizes or is
-//            revealed by a clip, rather than only fading or cutting in; and whether it was ever on screen at all
+//            while on screen
+//   multi    a shot with two pictures on screen at once (split screen, picture in picture): two <video>s each with 5 %
+//            of the frame not covered by a later one
+//   opener   time before the first shot, and whether its words arrive in steps (new words on screen more than once)
+//            or move
+//   kinetic  a line (the title, the closing line) that arrives in steps (word by word) or travels, resizes, is
+//            revealed by a clip or typed, rather than only fading or cutting in; and whether it was ever on screen
+// ponytail: z-index, transforms of the clip box and non-inset clip shapes are ignored; measure pixels if a layered
+// composite is ever misread.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,18 +31,36 @@ import { chromium } from 'playwright-core';
 function snapshot() {
   const stage = document.querySelector('.fvs-stage'), S = stage.getBoundingClientRect(), k = __stage.w / S.width;
   const opacity = el => { let o = 1; for (let a = el; a && a !== stage; a = a.parentElement) { const cs = getComputedStyle(a); if (cs.display === 'none' || cs.visibility === 'hidden') return 0; o *= +cs.opacity; } return o; };
+  const edges = r => ({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+  // the box left by an inset() clip (other shapes: the whole box); percentages of the box, px in the element's own units
+  const clipped = (el, r) => {
+    const m = /^inset\(([^)]*)\)/.exec(getComputedStyle(el).clipPath);
+    if (!m) return edges(r);
+    const v = m[1].split(' round ')[0].trim().split(/\s+/), [T, R, B, L] = [v[0], v[1] ?? v[0], v[2] ?? v[0], v[3] ?? v[1] ?? v[0]];
+    const len = (x, size, own) => (x.endsWith('%') ? parseFloat(x) / 100 * size : parseFloat(x) * (own ? size / own : 1)) || 0;
+    return { l: r.left + len(L, r.width, el.offsetWidth), r: r.right - len(R, r.width, el.offsetWidth), t: r.top + len(T, r.height, el.offsetHeight), b: r.bottom - len(B, r.height, el.offsetHeight) };
+  };
+  const cut = (a, c) => ({ l: Math.max(a.l, c.l), t: Math.max(a.t, c.t), r: Math.min(a.r, c.r), b: Math.min(a.b, c.b) });
   const els = [];
   for (const sc of stage.querySelectorAll('.fvs-scene')) {
     if (!opacity(sc)) continue;
     const all = [...sc.querySelectorAll('*')], index = new Map(all.map((el, i) => [el, i]));
     all.forEach((el, i) => {
       const r = el.getBoundingClientRect(), o = opacity(el), cs = getComputedStyle(el);
-      const on = o > .5 && r.width > 0 && r.height > 0 && r.right > S.left && r.left < S.right && r.bottom > S.top && r.top < S.bottom;
+      let box = clipped(el, r);
+      for (let a = el.parentElement; a && a !== stage; a = a.parentElement) {
+        const ac = getComputedStyle(a);
+        if (ac.clipPath !== 'none') box = cut(box, clipped(a, a.getBoundingClientRect()));
+        else if (ac.overflow !== 'visible') box = cut(box, edges(a.getBoundingClientRect()));
+      }
+      box = cut(box, edges(S));
+      const vw = Math.max(0, box.r - box.l), vh = Math.max(0, box.b - box.t);
       els.push({
         scene: sc.dataset.scene, i, parent: index.get(el.parentElement) ?? -1, video: el.tagName === 'VIDEO', src: el.getAttribute('src') || '', withVideo: !!el.querySelector('video'),
         own: [...el.childNodes].some(n => n.nodeType === 3 && /\S/.test(n.data)), text: el.textContent.replace(/\s+/g, ''),
-        on, x: Math.round((r.left - S.left) * k), y: Math.round((r.top - S.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k),
-        clip: cs.clipPath, filter: cs.filter, dash: cs.strokeDashoffset,
+        on: o > .5 && vw > 0 && vh > 0, x: Math.round((r.left - S.left) * k), y: Math.round((r.top - S.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k),
+        v: { x: Math.round((box.l - S.left) * k), y: Math.round((box.t - S.top) * k), w: Math.round(vw * k), h: Math.round(vh * k) },
+        filter: cs.filter, dash: cs.strokeDashoffset,
       });
     });
   }
@@ -44,6 +69,10 @@ function snapshot() {
 }
 
 const moved = (a, b, px, share) => Math.abs(a.x + a.w / 2 - b.x - b.w / 2) > px || Math.abs(a.y + a.h / 2 - b.y - b.h / 2) > px || Math.abs(a.w - b.w) > share * Math.max(a.w, 1) || Math.abs(a.h - b.h) > share * Math.max(a.h, 1);
+/** Its box or its visible part moved, while on screen in both. */
+const shifted = (a, b, px, share) => a.on && b.on && (moved(a, b, px, share) || moved(a.v, b.v, px, share));
+const area = r => r.w * r.h;
+const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
 /**
  * Motion in the project `file` (parsed as `p`), run through the CLI `cli`. `lines`: { title: '…', closing: '…' }, the
@@ -51,6 +80,8 @@ const moved = (a, b, px, share) => Math.abs(a.x + a.w / 2 - b.x - b.w / 2) > px 
  */
 export async function motionOf({ cli, file, dir, p, lines = {} }) {
   const W = p.meta.width, H = p.meta.height, beat = p.meta.tempo?.bpm ? 60 / p.meta.tempo.bpm : .5, step = beat / 2, d = .06;
+  // sample times, one way everywhere so they find each other in the map: just before / after the k-th eighth note
+  const T = (k, side) => +(k * step + side * d).toFixed(4);
   const tmp = mkdtempSync(join(tmpdir(), 'fvs-motion-'));
   const page = join(tmp, 'motion.html');
   execFileSync(process.execPath, [cli, 'html', file, '--out', page], { cwd: dir, stdio: 'ignore' });
@@ -67,7 +98,7 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
     await pg.goto(pathToFileURL(page).href);
     await pg.evaluate(() => Promise.race([window.__stage.ready(), new Promise(r => setTimeout(r, 15000))]));
     const times = [];
-    for (let g = 0; g < p.length + 1e-6; g += step) for (const t of [g - d, g + d]) if (t >= 0 && t < p.length) times.push(+t.toFixed(4));
+    for (let k = 0; k * step < p.length + 1e-6; k++) for (const t of [T(k, -1), T(k, 1)]) if (t >= 0 && t < p.length) times.push(t);
     for (const t of times) {
       await pg.evaluate(x => Promise.race([__stage.seek(x), new Promise(r => setTimeout(r, 400))]), t);
       at.set(t, await pg.evaluate(snapshot));
@@ -81,14 +112,15 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
     const from = s.t0 + (s.transition?.dur || 0) + .02, to = s.t1 - .02;
     const win = samples.filter(x => x.t >= from && x.t <= to);
     const vids = x => inScene(x, s.id).filter(e => e.video);
-    const v0 = win.length ? vids(win[0]) : [];
-    const camera = win.some(x => vids(x).some((v, j) => v0[j] && (moved(v, v0[j], 8, .015) || v.clip !== v0[j].clip)));
+    // the picture moves: two on-screen states of the same clip differ
+    const firstSeen = new Map();
+    const camera = win.some(x => vids(x).some(v => { if (!v.on) return false; const f = firstSeen.get(v.i); if (!f) { firstSeen.set(v.i, v); return false; } return shifted(v, f, 8, .015); }));
+    const change = (o, e) => e.on !== o.on || (e.video ? shifted(e, o, 40, .03) || (e.on && o.on && e.filter !== o.filter) : shifted(e, o, 30, .08));
     const accents = [];
-    for (let g = Math.ceil((from + d) / step) * step; g < to - d; g += step) {
-      const a = at.get(+(g - d).toFixed(4)), b = at.get(+(g + d).toFixed(4)), before = at.get(+(g - step + d).toFixed(4));
+    for (let k = Math.ceil((from + d) / step - 1e-9); k * step < to - d; k++) {
+      const g = k * step, a = at.get(T(k, -1)), b = at.get(T(k, 1)), before = at.get(T(k - 1, 1));
       if (!a || !b) continue;
       // a change across g that was not already under way just before it (a long wipe counts once, where it starts)
-      const change = (o, e) => (e.video ? moved(e, o, 40, .03) || e.clip !== o.clip || e.filter !== o.filter : e.on !== o.on || (e.on && moved(e, o, 30, .08)));
       const A = new Map(inScene(a, s.id).map(e => [key(e), e])), B = new Map(before ? inScene(before, s.id).map(e => [key(e), e]) : []);
       const hit = (b.flash > .1 && !(a.flash > .1)) || inScene(b, s.id).some(e => {
         const o = A.get(key(e)), q = B.get(key(e));
@@ -97,57 +129,55 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
       if (hit) accents.push(+g.toFixed(3));
     }
     const graphic = (() => {
-      const seen = new Map();
+      const last = new Map();
       for (const x of win) for (const e of inScene(x, s.id)) {
         if (e.video || e.withVideo || e.text || (e.w >= .9 * W && e.h >= .15 * H) || e.w * e.h > .25 * W * H) continue;
-        const o = seen.get(key(e));
-        if (!o) { seen.set(key(e), e); continue; }
-        if (e.on !== o.on || moved(e, o, 4, .04) || e.clip !== o.clip || e.dash !== o.dash) return true;
+        const o = last.get(key(e)); last.set(key(e), e);
+        if (o && (e.on !== o.on || shifted(e, o, 4, .04) || (e.on && o.on && e.dash !== o.dash))) return true;
       }
       return false;
     })();
-    const multi = win.some(x => new Set(vids(x).filter(v => v.on && v.w * v.h >= .05 * W * H && !/inset\(100%/.test(v.clip)).map(v => v.src)).size >= 2);
+    // two pictures: on-screen clips, each with 5 % of the frame not covered by a clip after it in the page
+    const multi = win.some(x => {
+      const on = vids(x).filter(v => v.on);
+      return on.filter((v, j) => area(v.v) - on.slice(j + 1).reduce((n, u) => n + overlap(v.v, u.v), 0) >= .05 * W * H).length >= 2;
+    });
     return { id: s.id, t0: s.t0, t1: s.t1, camera, accents, graphic, multi };
   });
 
+  // new text on screen, counted once: a line that cuts out and back in again has not arrived in steps
+  const growth = xs => { let n = 0; const seen = new Set(); for (const x of xs) { let grew = false; for (const e of x.els) if (e.own && e.on && !seen.has(key(e))) { seen.add(key(e)); grew = true; } if (grew) n++; } return n; };
+  // words that travel, resize, are wiped in or typed while on screen
+  const travels = xs => xs.some((x, j) => j > 0 && x.els.some(e => { if (!e.own) return false; const o = xs[j - 1].els.find(q => key(q) === key(e)); return o && (shifted(e, o, 30, .05) || (e.on && o.on && e.text !== o.text)); }));
   const first = shots.length ? shots[0].t0 : p.length;
-  const steps = els => new Set(els.filter(e => e.own && e.on).map(e => key(e))).size;
   const pre = samples.filter(x => x.t < first);
-  // words that arrive in steps: the number of own-text elements on screen grows more than once
-  const growth = xs => { let n = 0, last = 0; for (const x of xs) { const k = steps(x.els); if (k > last) n++; last = k; } return n; };
-  const travels = xs => xs.some((x, j) => j > 0 && x.els.some(e => { const o = xs[j - 1].els.find(q => key(q) === key(e)); return o && e.on && o.on && moved(e, o, 30, .05); }));
   const opener = { seconds: +first.toFixed(2), steps: growth(pre), moving: travels(pre) };
 
   const kinetic = line => {
     const want = String(line || '').replace(/\s+/g, '');
     if (!want) return null;
-    // the smallest element that ever holds the whole line (one on screen if there is one), then it and the parts of it
-    // that carry text in every sample: a typed line holds only part of the words for a while
-    let hk = null;
-    for (const x of samples) {
-      const h = x.els.filter(e => e.text.includes(want)).sort((a, b) => a.text.length - b.text.length)[0];
-      if (h && (!hk || h.on)) hk = key(h);
-      if (h?.on) break;
-    }
-    if (!hk) return { found: false, onScreen: false, kinetic: false };
-    const scene = hk.split('#')[0], root = +hk.split('#')[1];
-    const parts = x => {
-      const els = x.els.filter(e => e.scene === scene), by = new Map(els.map(e => [e.i, e]));
-      const under = e => { for (let q = e; q; q = by.get(q.parent)) if (q.i === root) return true; return false; };
-      return els.filter(e => (e.own || e.i === root) && under(e));
+    // every element that is the smallest holder of the whole line somewhere (an opener and a shot may both carry it),
+    // each judged with itself and its parts that carry text (a typed line holds only some of the words for a while)
+    const holders = new Set();
+    for (const x of samples) { const h = x.els.filter(e => e.text.includes(want)).sort((a, b) => a.text.length - b.text.length)[0]; if (h) holders.add(key(h)); }
+    if (!holders.size) return { found: false, onScreen: false, kinetic: false };
+    const judge = hk => {
+      const scene = hk.split('#')[0], root = +hk.split('#')[1];
+      const parts = x => {
+        const els = x.els.filter(e => e.scene === scene), by = new Map(els.map(e => [e.i, e]));
+        const under = e => { for (let q = e; q; q = by.get(q.parent)) if (q.i === root) return true; return false; };
+        return els.filter(e => (e.own || e.i === root) && under(e));
+      };
+      const xs = samples.map(x => ({ t: x.t, els: parts(x) }));
+      const shown = xs.filter(r => r.els.some(e => e.on));
+      if (!shown.length) return { found: true, onScreen: false, kinetic: false };
+      const span = xs.filter(r => r.t >= shown[0].t - step && r.t <= shown[shown.length - 1].t + step);
+      const boxMoves = span.some((r, j) => j > 0 && r.els.some(e => { const o = span[j - 1].els.find(q => q.i === e.i); return o && shifted(e, o, 30, .05); }));
+      const why = growth(span) >= 2 ? 'in steps' : travels(span) || boxMoves ? 'moves' : null;
+      return { found: true, onScreen: true, kinetic: !!why, why };
     };
-    const xs = samples.map(x => ({ t: x.t, parts: parts(x) }));
-    const shown = xs.filter(r => r.parts.some(e => e.on));
-    if (!shown.length) return { found: true, onScreen: false, kinetic: false };
-    const span = xs.filter(r => r.t >= shown[0].t - step && r.t <= shown[shown.length - 1].t + step);
-    let why = growth(span.map(r => ({ els: r.parts.filter(e => e.own) }))) >= 2 ? 'in steps' : null;
-    for (let j = 1; !why && j < span.length; j++) {
-      for (const e of span[j].parts) {
-        const o = span[j - 1].parts.find(q => q.i === e.i);
-        if (o && e.on && o.on && (moved(e, o, 30, .05) || e.clip !== o.clip || e.text !== o.text)) { why = 'moves'; break; }
-      }
-    }
-    return { found: true, onScreen: true, kinetic: !!why, why };
+    const all = [...holders].map(judge);
+    return all.find(r => r.kinetic) || all.find(r => r.onScreen) || all[0];
   };
   return { step, shots, opener, title: kinetic(lines.title), closing: kinetic(lines.closing) };
 }

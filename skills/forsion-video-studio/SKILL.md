@@ -359,7 +359,7 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    When the user asks for particular changes to an existing cut, make those and nothing else.
 
    ```html
-   <!-- a title that arrives word by word: one element per word, the entrance on the container -->
+   <!-- a title that arrives word by word: one element per word, the entrance on the container (css: .title span { display: inline-block }) -->
    <h1 class="title" data-in="h0" data-each="0.5" data-fx="zoom"><span>城市</span><span>速写</span></h1>
    <!-- a line drawn on a hit: its length is a custom property (css: transform-origin: left; scale: var(--d, 0) 1) -->
    <i class="rule"></i>
@@ -372,17 +372,18 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    ```js
    // slow push over the shot
    K('video', [[t0, { s: 1 }], [t1, { s: 1.08 }, 'lin']])
-   // or: keep pushing, punch in on hit 2 with a bump of light (one K per element: a second one takes over the first)
-   K('video', [[t0, { s: 1 }], [hits[2] - .01, { s: 1.04 }, 'lin'], [hits[2], { s: 1.18, br: 1.35 }, 'step'], [hits[2] + .25, { br: 1 }, 'out'], [t1, { s: 1.22 }, 'lin']])
+   // or: keep pushing, punch in on hit 2 with a bump of light (one K per element: a second one takes over the first;
+   // give every property its value in the first keyframe, or a seek back to before it keeps the last one drawn)
+   K('video', [[t0, { s: 1, br: 1 }], [hits[2] - .01, { s: 1.04 }, 'lin'], [hits[2], { s: 1.18, br: 1.35 }, 'step'], [hits[2] + .25, { br: 1 }, 'out'], [t1, { s: 1.22 }, 'lin']])
    flash(hits[0], .5)                  // a white flash on a hit (the stage html needs <div data-fvs-flash></div>)
    K('.rule', [[hits[1], { '--d': 0 }], [hits[1] + beat, { '--d': 1 }, 'expo']])
    K('video.l', [[t0, { cr: 50, ct: 100 }], [t0 + beat, { ct: 0 }, 'expo']])          // left half, wiped down
    K('video.r', [[hits[1], { cl: 50, cb: 100 }], [hits[1] + beat, { cb: 0 }, 'expo']]) // right half, on hit 1
-   K('.cam', [[t0, { s: 1.12, x: 60 }], [t1, { s: 1, x: -60 }, 'lin']])               // drift: scaled up first
+   K('.cam', [[t0, { s: 1.12, x: 60 }], [t1, { s: 1.06, x: -50 }, 'lin']])            // drift: scaled up all the way
    ```
 
-   Never scale footage below 1, and drift only as far as the scale allows (`|x| ≤ (s − 1) × width / 2`), or the
-   frame's edge shows. Moves land on hits: declare the hits you animate on. `K` with `s x y r` takes over the
+   Never scale footage below 1, and drift only as far as the scale allows at every moment (`|x| ≤ (s − 1) × width / 2`,
+   the same for `y` with the height), or the frame's edge shows. Moves land on hits: declare the hits you animate on. `K` with `s x y r` takes over the
    element's CSS `transform`, with `b br` its `filter`: grade with CSS custom properties, not a second `filter`.
    Camera moves live in the scene's `js` block and are not on the Elements lane; words, labels and graphics keep
    their `data-in`, so the user can still re-time them.
@@ -395,8 +396,7 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    `muted` on clips whose sound is wind or talk you are not using.
 8. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
    come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
-   the rhythm and `sheet --every 0.5` (or `--from` / `--to` around a shot) to see the moves: one frame per scene
-   cannot show whether anything moved. In your reply, list the shots with the window you took from each clip and the level you chose.
+   the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip and the level you chose.
 
 **Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings
 that matter in plain words, scene by scene, with what you would change (pacing, legibility, text over footage,
