@@ -3,7 +3,9 @@
 Three mistakes a written scene makes, for scripts/verify-review.mjs: a headline too long for its line runs into the
 line under it, that line is dark grey on the dark stage, and a panel drawn later covers it. A second scene puts a
 caption over a video clip, which has to be looked at with the clip on screen. A third leaves its clip at a
-quarter of the frame in a corner, which HyperFrames does not look for and `fvs review` has to.
+quarter of the frame in a corner, which HyperFrames does not look for and `fvs review` has to. A fourth places its
+clip on the whole frame from inside a zero-height `overflow: hidden` wrapper that is not positioned: the wrapper does
+not clip it, so it fills the frame and must not be reported.
 
 ```fvs
 {
@@ -25,6 +27,7 @@ quarter of the frame in a corner, which HyperFrames does not look for and `fvs r
 .fvs-stage .panel { position: absolute; left: 150px; top: 560px; width: 900px; height: 200px; background: #101010; }
 .fvs-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .fvs-stage video.thumb { inset: auto; left: 0; top: 0; width: 854px; height: 480px; }
+.fvs-stage .pin { overflow: hidden; height: 0; }
 .fvs-stage .caption { position: absolute; left: 160px; bottom: 120px; font-size: 64px; color: #fff; }
 ```
 
@@ -59,4 +62,14 @@ quarter of the frame in a corner, which HyperFrames does not look for and `fvs r
 
 ```html
 <video class="thumb" src="media/clip.webm"></video>
+```
+
+## pinned · 穿出
+
+```fvs
+{ "length": "2s", "hits": [0] }
+```
+
+```html
+<div class="pin"><video src="media/clip.webm"></video></div>
 ```

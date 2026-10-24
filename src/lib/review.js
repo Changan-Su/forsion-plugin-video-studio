@@ -38,7 +38,7 @@ export function footageTimes(p) {
 /**
  * Runs in the capture page after `__stage.seek(t)`, with the project's width: how much of the stage the footage on
  * screen covers. Each visible <video>'s picture (its box; with object-fit contain, the default, none or scale-down, the
- * picture inside it), cut to its clipping parents, sampled on a 64×36 grid over the stage. A video marked
+ * picture inside it), cut to the parents whose overflow clips it, sampled on a 64×36 grid over the stage. A video marked
  * `data-layout-ignore` (or inside one) is left out. null: no footage on screen. ponytail: transforms count as their
  * bounding box, clip-path and object-position are ignored; measure the picture's pixels if a wipe or an off-centre crop
  * is ever misreported.
@@ -58,8 +58,19 @@ export function footageOnScreen(width) {
       l += (w - vw * s) / 2; t += (h - vh * s) / 2; w = vw * s; h = vh * s;
     }
     let r = l + w, b = t + h;
-    for (let a = v.parentElement; a && a !== root; a = a.parentElement) { // what a clipping parent cuts away is not on screen
-      if (getComputedStyle(a).overflow === 'visible') continue;
+    // what a parent's overflow cuts away is not on screen, but it cuts only what it contains as a block: an absolutely
+    // placed element skips the unpositioned parents between it and the one it is placed in, a fixed one every parent
+    // that does not hold fixed boxes (a transform of any kind, a filter, perspective, layout or paint containment, or
+    // the will-change of one). ponytail: clip-path and the scrolled offset of a scrolling parent are not counted.
+    const holdsFixed = ac => ['transform', 'translate', 'rotate', 'scale', 'perspective', 'filter', 'backdropFilter'].some(k => ac[k] && ac[k] !== 'none')
+      || /layout|paint|strict|content/.test(ac.contain) || (ac.containerType && ac.containerType !== 'normal')
+      || (ac.contentVisibility && ac.contentVisibility !== 'visible') || /transform|translate|rotate|scale|perspective|filter/.test(ac.willChange);
+    let placed = getComputedStyle(v).position;
+    for (let a = v.parentElement; a && a !== root; a = a.parentElement) {
+      const ac = getComputedStyle(a), boxed = holdsFixed(ac);
+      if (placed === 'fixed' ? !boxed : placed === 'absolute' ? ac.position === 'static' && !boxed : false) continue;
+      placed = ac.position;
+      if (ac.overflow === 'visible') continue;
       const c = a.getBoundingClientRect();
       l = Math.max(l, c.left); t = Math.max(t, c.top); r = Math.min(r, c.right); b = Math.min(b, c.bottom);
     }
