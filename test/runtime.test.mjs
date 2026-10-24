@@ -610,5 +610,10 @@ test('CLI: frames lays out a clip every N seconds, labelled with file time, and 
   assert.match(r.stdout, /long\.mp4 · 61\.0 s · a frame every 3 s at: 0 3 6 .* 60\n/);
   assert.ok(statSync(join(out, 'seven-mp4-frames.png')).size > 1000 && statSync(join(out, 'long-mp4-frames.png')).size > 1000);
   assert.match(run('frames', join(dir, 'seven.mp4'), '--from', '2', '--to', '4', '--every', '0.5', '--out', out).stdout, /every 0\.5 s at: 2 2\.5 3 3\.5\n/);
+  // the container runs a second past the last picture (its sound is longer): that time is left out, not a failure
+  ff('-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=10:duration=2', '-f', 'lavfi', '-i', 'sine=duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', 'tail.mp4');
+  const tail = run('frames', join(dir, 'tail.mp4'), '--every', '1', '--out', out);
+  assert.equal(tail.status, 0, tail.stderr);
+  assert.match(tail.stdout, /tail\.mp4 · 3\.\d s · a frame every 1 s at: 0 1\n/);
   for (const bad of [['--every', '-1'], ['--from', '10'], ['--from', '4', '--to', '2'], ['--to', 'x']]) assert.notEqual(run('frames', join(dir, 'seven.mp4'), ...bad, '--out', out).status, 0, bad.join(' '));
 });

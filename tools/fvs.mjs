@@ -1492,13 +1492,15 @@ ${String(r.stderr || "").trim().split("\n").slice(-6).join("\n")}`);
         const from = flags.from === void 0 ? 0 : +flags.from, to = Math.min(length, flags.to === void 0 ? length : +flags.to);
         if (!(from >= 0 && to > from)) die(`nothing to show between ${flags.from ?? 0} and ${flags.to ?? "the end"} s of ${basename(src)} (${length.toFixed(1)} s long)`);
         const step = (to - from) / every > 24 ? Math.ceil((to - from) / 12) / 2 : every;
-        const times = [];
-        for (let t = from; t < to - 0.04 || !times.length; t += step) times.push(+t.toFixed(2));
-        const shots = times.map((t) => {
-          const r = spawnSync2(ff, ["-v", "error", "-ss", String(t), "-i", src, "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "4", "-f", "image2pipe", "-c:v", "mjpeg", "-"], { maxBuffer: 16 << 20 });
-          if (r.status !== 0 || !r.stdout.length) die(`ffmpeg could not read a frame at ${t} s of ${src}`);
-          return r.stdout.toString("base64");
-        });
+        const times = [], shots = [];
+        for (let t = from; t < to - 0.04 || !shots.length && t < to + step; t += step) {
+          const r = spawnSync2(ff, ["-v", "error", "-ss", String(+t.toFixed(2)), "-i", src, "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "4", "-f", "image2pipe", "-c:v", "mjpeg", "-"], { maxBuffer: 16 << 20 });
+          if (r.status === 0 && r.stdout.length) {
+            times.push(+t.toFixed(2));
+            shots.push(r.stdout.toString("base64"));
+          }
+        }
+        if (!shots.length) die(`ffmpeg could not read a frame of ${src} between ${from} and ${to} s`);
         const out = join2(dir, `${basename(src).replace(/\./g, "-")}-frames.png`);
         await contactSheet(browser, shots, times.map((t) => `${basename(src)} \xB7 ${t} s`), out);
         log(`${out}
