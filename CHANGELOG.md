@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.1 — 2026-10-24
+
+- 修复：被 `K()` 移动或缩放的行内元素（例如片名里的 `<span>`，或 `<h1 data-each data-fx="zoom"><span>…</span></h1>`）现在按 inline-block 排版。之前 CSS 的 transform 对行内元素不起作用，砸入、上移这类入场只剩下「直接出现」，片名看上去是硬切出来的。
+- 修复：`data-each` 写在一行没有子元素的纯文字上时，入场效果现在作用在这一行本身。之前它没有子元素可排，这一行从场景开头就一直在画面上，`data-in` 和效果都不起作用；编辑器元素道上也按同样的规则画。
+- 技能：入场只有在看得见的时候才算数，元素自己或外层也在淡入时，入场就藏在淡入里，看上去只是淡入；「卡点」剪辑每一两拍一切；片尾那句 90–140 px，比前面镜头上的字大。
+- 用了这两种写法的旧工程，画面会变成作者原本想要的样子（片名真的砸进来、那一行按时入场）；别的工程不受影响。工程文件格式不变，需要的 Forsion 和 0.13.0 相同。
+- **English:** Fixed: an inline element that `K()` moves or scales (a `<span>` in a title, or `<h1 data-each data-fx="zoom"><span>…</span></h1>`) is now laid out inline-block. CSS transforms do nothing to inline boxes, so a slam or a rise played as a plain cut and the title seemed to cut in. Fixed: `data-each` on a line of bare text (no child elements) now gives the line itself the entrance; with no children to stagger, the line used to sit on screen from the scene's start, its `data-in` and effect ignored, and the editor's Elements lane now draws it the same way. Skill: an entrance counts only where it is seen (inside an element that is itself fading in it reads as a fade); a beat-cut edit ("卡点") cuts every beat or two; the closing line is 90–140 px, bigger than the lines on the shots. Older projects that use either pattern now play the way their author meant (the title really slams in, the line enters on time); others are unaffected. The project format is unchanged; Forsion versions: the same as 0.13.0.
+
 ## 0.13.0 — 2026-10-24
 
 - 导演剪实拍素材时让画面动起来，不再只是一个镜头接一个镜头地硬切。技能的「Cut footage」新加一步「让画面动起来」，按题目分三档：安静（每个镜头一次慢推或慢拉，字淡入或虚化入）、中档（缺省，普通的「把这些素材剪一下」也是这一档：每个镜头都有运镜，片名和片尾逐词出现或砸入、擦出，每个镜头里至少一个拍点上有事发生）、冲击力（宣传片、预告、开场：再加一段会动的文字片头、拍点上推镜加一下闪亮、分屏或会动的线条、片名砸出来）。技能里给了可以照抄的写法：慢推、拍点推镜、逐词片名、拍点画线、分屏、跟着镜头走的标签；也写明了不能把素材缩到比画面小、`K()` 会接管元素的 `transform` / `filter`。用户只要改现成剪辑的某几处时，照旧只改那几处。

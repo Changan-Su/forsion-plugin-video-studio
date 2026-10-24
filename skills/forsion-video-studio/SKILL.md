@@ -2,7 +2,7 @@
 name: forsion-video-studio
 description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when the user gives clips to cut into a montage, recap or promo, when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
 metadata:
-  version: 0.6.0
+  version: 0.6.1
   author: Forsion
   category: Forsion
 ---
@@ -214,11 +214,12 @@ not on that lane — the user cannot point at it.
 - `data-in="h2"` — appears at hit 2. Also `h2+0.5` / `h2-1` (beats), `2b` (beats from the content start), `1.5s`, `end-1`.
 - `data-fx="cut|fade|up|down|left|right|pop|zoom|blur|wipe|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
   `zoom` slams in from 1.35× its size, `blur` comes into focus (it takes over the element's CSS `filter`), `wipe` is
-  revealed from its left edge. Moves and scales skip inline elements: a `<span>` that moves needs `display: inline-block`.
+  revealed from its left edge. An inline element (a `<span>`) that moves or scales is laid out inline-block for you.
   `zoom` grows from the element's centre: a full-width block of left-aligned text slams in partly off the frame, so give
   it `width: fit-content` (or `transform-origin: left`).
 - `data-out="h4"` — gone at hit 4 (`data-fx-out="fade"` to fade).
-- `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart.
+- `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart (one element per word;
+  on bare text the line itself makes the entrance).
 - `data-seq="h0"` on a container — its children show one after another on hits h0, h1, h2 … (last one to the scene end). The EVA intertitle pattern.
 
 Reach for a script only for what attributes cannot say: continuous motion, canvas drawing, counters, a camera
@@ -334,7 +335,8 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    with nothing worth showing rather than pad with it, and say so.
 3. One shot per scene by default, its length on the beat grid; two clips in one scene for a split screen or a picture
    in picture (each its own `<video>`). Order the shots for a line (wide to close, calm to busy, building to the last
-   one). Size the shots to the frame once, in the project css before the first scene:
+   one). A beat-cut edit ("卡点", "every beat") cuts every beat or two, not every bar: a 15 s cut at 100 BPM is a dozen
+   shots or more, the same clip again from another window where there are too few. Size the shots to the frame once, in the project css before the first scene:
    `.fvs-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }` (a video
    left unsized shows at its own pixel size in a corner).
 4. **Title and closing line go on the footage, not on black cards.** Put the title in the first shot's scene as
@@ -360,13 +362,13 @@ from their shots), every shot is a window you choose inside a file. Choose it by
      frame, a bar), the title slammed in and the closing line landing on a hit.
 
    Words that carry the film are big. On a 1080-high frame: the opener's words and the title 140–260 px (the 2.12
-   promo's cards use 200–380 px), lines on the shots 56–90 px. A small kicker (`01 / STREETS`) is decoration next to
-   them, never the line itself.
+   promo's cards use 200–380 px), the closing line 90–140 px (the film's last word, bigger than the lines before it),
+   lines on the shots 56–90 px. A small kicker (`01 / STREETS`) is decoration next to them, never the line itself.
 
    When the user asks for particular changes to an existing cut, make those and nothing else.
 
    ```html
-   <!-- a title that arrives word by word: one element per word, the entrance on the container (css: .title span { display: inline-block }) -->
+   <!-- a title that arrives word by word: one element per word, the entrance on the container -->
    <h1 class="title" data-in="h0" data-each="0.5" data-fx="zoom"><span>城市</span><span>速写</span></h1>
    <!-- a line drawn on a hit: its length is a custom property (css: transform-origin: left; scale: var(--d, 0) 1) -->
    <i class="rule"></i>
@@ -389,8 +391,10 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    K('.cam', [[t0, { s: 1.12, x: 60 }], [t1, { s: 1.06, x: -50 }, 'lin']])            // drift: scaled up all the way
    ```
 
-   An entrance on the first hit of a scene that has a transition plays while the scene is still fading in and reads as
-   a fade: start it after the transition (`h1`, or `h0+1`) or cut into that shot.
+   An entrance plays only where it is seen. One on the first hit of a scene with a transition plays while the scene
+   is still fading in, and one inside an element that is itself fading in (a `K` on `o`, a `fade`) plays under that
+   fade: both read as a fade. Start it after the transition (`h1`, or `h0+1`) or cut into that shot, and give the
+   entrance to the words alone, not a fade to their container as well.
    Never scale footage below 1, and drift only as far as the scale allows at every moment (`|x| ≤ (s − 1) × width / 2`,
    the same for `y` with the height), or the frame's edge shows. Moves land on hits: declare the hits you animate on. `K` with `s x y r` takes over the
    element's CSS `transform`, with `b br` its `filter`: grade with CSS custom properties, not a second `filter`.

@@ -27,7 +27,7 @@
 //               food      vertical 9:16 cooking short, nothing said about the level (the default, standard)
 //               sports    impact 16:9 highlight at 128 BPM, sound muted
 //               festival  standard 16:9 festival recap, a short caption on every shot
-//               travel    impact vertical 9:16 beat-cut travel vlog at 100 BPM, sound muted
+//               travel    impact vertical 9:16 beat-cut travel vlog at 100 BPM, sound muted, shots of a beat or two
 //             all: the montage's basics, the title and closing line on screen and inside the frame, no text under the
 //             phone floor (`fvs review` text_below_floor) and a legible title and closing line, every shot filling the
 //             frame; standard and impact: the picture moving in most shots, a kinetic title and closing line, beat
@@ -396,7 +396,7 @@ try {
       brief: t => `media 里是一些运动的素材：滑板、冲浪、篮球、足球、骑行、龙舟。帮我剪一支 25 秒左右的运动高光集锦《${t.title}》，结尾一句「${t.closing}」。要燃、要炸，切点卡在 128 BPM 的拍子上，画面和字都要有冲击力。原声都不要，全部静音，音乐我之后自己配。` },
     festival: { level: 'standard', len: [20, 45], sound: 'lower', captions: true, title: '一年好景', closing: '明年再见', name: '灯会 / 舞狮 / 烟花 / 巡游 / 天灯剪成 30 秒节庆回顾:每个镜头一句说明',
       brief: t => `media 里是我今年在各地看节庆拍的素材：灯会、舞狮、烟花、巡游、放天灯。帮我剪一支 30 秒左右的节庆回顾短片《${t.title}》，每个镜头配一句短短的中文说明，结尾一句「${t.closing}」。环境声保留但小一点。` },
-    travel: { level: 'impact', portrait: true, bpm: 100, len: [10, 25], sound: 'mute', title: '山海之间', closing: '下一站，见', name: '手机竖拍的旅行素材剪成 15 秒卡点 vlog(竖屏,冲击力档,100 BPM)',
+    travel: { level: 'impact', portrait: true, bpm: 100, beatCut: true, len: [10, 25], sound: 'mute', title: '山海之间', closing: '下一站，见', name: '手机竖拍的旅行素材剪成 15 秒卡点 vlog(竖屏,冲击力档,100 BPM)',
       brief: t => `media 里是我这次旅行用手机拍的素材，雪山、湖、瀑布、海边、夕阳都有。帮我剪一条 15 秒左右的卡点旅行 vlog，竖屏发小红书，节奏 100 BPM，每一下都卡在拍子上。开头来个有动感的标题《${t.title}》，结尾一句「${t.closing}」。原声都不要。` },
   };
   for (const [key, th] of Object.entries(THEMES)) await scenario(key, th.name, async legs => {
@@ -419,6 +419,8 @@ try {
     // more than half the clips: leaving a weak clip out is a choice (10-24 food: raw meat being washed, left out)
     if (used.size <= set.length / 2) miss.push(`only ${used.size} of the ${set.length} clips are in the cut`);
     if (th.bpm && p.meta.tempo?.bpm !== th.bpm) miss.push(`the project is at ${p.meta.tempo?.bpm} BPM, not ${th.bpm}`);
+    // a beat-cut edit ("卡点", "every beat") cuts every beat or two (10-24 travel: six shots of four beats each)
+    if (th.beatCut && footageSec / Math.max(sh.length, 1) > 2 * m.step * 2 + .01) miss.push(`shots average ${(footageSec / Math.max(sh.length, 1) / (2 * m.step)).toFixed(1)} beats (a beat-cut edit cuts every beat or two)`);
     if (th.bpm) { const off = p.scenes.filter(s => Math.abs(s.t1 / m.step - Math.round(s.t1 / m.step)) > .04); if (off.length) miss.push(`cuts off the eighth-note grid: ${off.map(s => `${s.id}@${s.t1.toFixed(3)}`).join(', ')}`); }
     if (shots(p).flatMap(s => videos(s.html).filter(v => v.clipIn > 0 || s.in > 0)).length < 3) miss.push('fewer than three shots are taken from inside their clip');
     if (!plain(text).includes(plain(th.title)) || !plain(text).includes(plain(th.closing))) miss.push('the title or the closing line is missing');
