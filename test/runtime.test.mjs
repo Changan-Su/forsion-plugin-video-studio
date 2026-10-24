@@ -212,6 +212,7 @@ test('entrances zoom, blur and wipe: hidden before their time, moving at it, set
 
 \`\`\`html
 <p class="zoom" data-in="h1" data-fx="zoom" data-dur="1">Z</p><p class="blur" data-in="h1" data-fx="blur" data-dur="1">B</p><p class="wipe" data-in="h1" data-fx="wipe" data-dur="1">W</p>
+<h1 data-in="h1" data-each="0.5" data-fx="zoom" data-dur="1"><span class="word">inline</span></h1>
 \`\`\`
 `, 'fx');
   const at = async t => { await page.evaluate(x => window.__stage.seek(x), t); return page.evaluate(() => Object.fromEntries(['zoom', 'blur', 'wipe'].map(k => { const s = document.querySelector(`.${k}`).style; return [k, { o: +s.opacity, transform: s.transform, filter: s.filter, clip: s.clipPath }]; }))); };
@@ -220,6 +221,9 @@ test('entrances zoom, blur and wipe: hidden before their time, moving at it, set
   const scale = s => nums(s.match(/scale\(([^)]*)\)/)?.[1] || '1')[0];
   assert.ok(scale(mid.zoom.transform) > 1.01 && mid.zoom.o === 1, `zoom: big at first (${mid.zoom.transform})`);
   assert.equal(scale(after.zoom.transform), 1, 'zoom: settles at its own size');
+  // a <span> moved or scaled is laid out inline-block, or its transform does nothing (its box would not grow)
+  const width = t => page.evaluate(async x => { await window.__stage.seek(x); return document.querySelector('.word').getBoundingClientRect().width; }, t);
+  assert.ok(await width(1.1) > 1.05 * await width(1.6), 'an inline word slams in bigger than it settles');
   assert.ok(nums(mid.blur.filter)[0] > 1 && mid.blur.o > 0 && mid.blur.o < 1, `blur: blurred and fading in (${mid.blur.filter})`);
   close(nums(after.blur.filter), [0, 1], 1e-6, 'blur: sharp after');
   const cr = s => { const n = nums(s.clip); return n[n.length > 1 ? 1 : 0]; };

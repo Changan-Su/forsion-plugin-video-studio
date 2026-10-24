@@ -7,6 +7,7 @@ const BASE_CSS = `
 .fvs-stage{position:relative;overflow:hidden;transform-origin:0 0}
 .fvs-scenes{position:absolute;inset:0}
 .fvs-scene{position:absolute;inset:0;overflow:hidden}
+[data-fvs-inline]{display:inline-block}
 .fvs-transition{position:absolute;inset:0}
 [data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 .fvs-captions{position:absolute;left:6%;right:6%;bottom:7%;z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:.25em;pointer-events:none;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;font-weight:600;line-height:1.35;text-align:center}
