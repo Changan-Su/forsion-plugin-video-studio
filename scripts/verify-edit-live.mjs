@@ -331,8 +331,10 @@ try {
     if (!m.title.kinetic || !m.closing.kinetic) misses.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
     if (!sh.some(s => s.graphic || s.multi)) misses.push('no moving graphic and no two pictures at once');
     if (misses.length) throw fail(`not much motion: ${misses.join('; ')}`, ev);
-    const hard = reviewOf(pr.file).scenes.flatMap(s => s.findings).filter(f => ['contrast_aa_failure', 'text_occluded'].includes(f.code) && f.text && [TITLE, CLOSING].some(l => l.includes(f.text.replace(/\s+/g, '')) || f.text.includes(l)));
-    if (hard.length) throw fail(`the title or the closing line is hard to read: ${hard.map(f => `${f.code} ${f.t?.toFixed(2)}s ${f.text.slice(0, 12)}`).join(' / ')}`, ev);
+    // a finding names its text in `text` or only in `message` (as legible reads it); a word of a split title is part of it
+    const ours = f => { const t = (f.text || '').replace(/\s+/g, ''), m = f.message || ''; return [TITLE, CLOSING].some(l => (t && (l.includes(t) || t.includes(l))) || m.includes(l)); };
+    const hard = reviewOf(pr.file).scenes.flatMap(s => s.findings).filter(f => ['contrast_aa_failure', 'text_occluded'].includes(f.code) && ours(f));
+    if (hard.length) throw fail(`the title or the closing line is hard to read: ${hard.map(f => `${f.code} ${f.t?.toFixed(2)}s ${(f.text || f.message).slice(0, 24)}`).join(' / ')}`, ev);
     const loud = shots(p).flatMap(s => videos(s.html)).filter(v => !v.muted && !(v.gain < 0));
     if (loud.length) throw fail(`clips with their sound at full level: ${loud.map(v => v.src).join(', ')}`, ev);
     if (!/^ok/.test(facts.check)) throw fail(`check: ${facts.check}`, ev);
