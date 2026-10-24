@@ -252,10 +252,12 @@ test('hit(i) past the scene\'s last hit is a runtime error, not a silent NaN', {
 
 \`\`\`js
 K('p', [[hit(1), { s: 1 }], [hit(4), { s: 1.2 }]])
+H(t => hit(5))
 \`\`\`
 `, 'hits');
+  for (const t of [.5, 1, 1.5]) await page.evaluate(x => window.__stage.seek(x), t); // a hook asks every frame: still one error
   const errs = await page.evaluate(() => window.__stage.errors.map(e => e.message));
-  assert.deepEqual(errs, ['hit(4): this scene has 2 hits, hit(0)–hit(1)']);
+  assert.deepEqual(errs, ['hit(4): this scene has 2 hits, hit(0)–hit(1)', 'hit(5): this scene has 2 hits, hit(0)–hit(1)']);
   await page.close();
 });
 

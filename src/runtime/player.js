@@ -133,9 +133,10 @@ export function mount(payload, container, { doc = document, onScene = null, medi
     const at = x => sc.t0 + x * unit;
     // a hit the scene does not have is an error `check --runtime` reports, not a silent NaN that drops the keyframe
     // (10-24: hit(4) in scenes with hits h0–h3 took the camera move out of four shots of five)
+    const missed = new Set(); // once each, though a per-frame hook may ask for it every frame
     const hit = (i, off = 0) => {
       if (i < sc.hits.length) return sc.hits[i] + off * unit;
-      errors.push({ scene: sc.id, message: `hit(${i}): this scene has ${sc.hits.length} hit${sc.hits.length === 1 ? '' : 's'}${sc.hits.length ? `, hit(0)–hit(${sc.hits.length - 1})` : ''}` });
+      if (!missed.has(i)) { missed.add(i); errors.push({ scene: sc.id, message: `hit(${i}): this scene has ${sc.hits.length} hit${sc.hits.length === 1 ? '' : 's'}${sc.hits.length ? `, hit(0)–hit(${sc.hits.length - 1})` : ''}` }); }
       return NaN;
     };
     const cut = (sel, t, opt) => K(sel, [[t - .01, { o: 0 }], [t, { o: 1 }, 'step']], opt);
