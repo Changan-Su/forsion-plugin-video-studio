@@ -608,6 +608,7 @@ test('CLI: frames lays out a clip every N seconds, labelled with file time, and 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /seven\.mp4 · 7\.0 s · a frame every 2 s at: 0 2 4 6\n/);
   assert.match(r.stdout, /long\.mp4 · 61\.0 s · a frame every 3 s at: 0 3 6 .* 60\n/);
-  assert.ok(statSync(join(out, 'seven-frames.png')).size > 1000 && statSync(join(out, 'long-frames.png')).size > 1000);
+  assert.ok(statSync(join(out, 'seven-mp4-frames.png')).size > 1000 && statSync(join(out, 'long-mp4-frames.png')).size > 1000);
   assert.match(run('frames', join(dir, 'seven.mp4'), '--from', '2', '--to', '4', '--every', '0.5', '--out', out).stdout, /every 0\.5 s at: 2 2\.5 3 3\.5\n/);
+  for (const bad of [['--every', '-1'], ['--from', '10'], ['--from', '4', '--to', '2'], ['--to', 'x']]) assert.notEqual(run('frames', join(dir, 'seven.mp4'), ...bad, '--out', out).status, 0, bad.join(' '));
 });

@@ -346,28 +346,32 @@ const commands = {
 
   async frames() {
     if (!pos.length) die('which footage? (fvs frames <media…> [--every 2])');
-    const ff = ffmpegBin(), every = +flags.every || 2, dir = resolve(flags.out || join(tmpdir(), 'fvs-frames'));
+    const ff = ffmpegBin(), every = flags.every === undefined ? 2 : +flags.every, dir = resolve(flags.out || join(tmpdir(), 'fvs-frames'));
+    if (!(every > 0)) die('--every takes a number of seconds above 0');
     mkdirSync(dir, { recursive: true });
     const browser = await chromium();
-    for (const file of pos) {
-      const src = resolve(file);
-      if (!existsSync(src)) die(`no such file: ${src}`);
-      const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(spawnSync(ff, ['-hide_banner', '-i', src], { encoding: 'utf8' }).stderr || '');
-      if (!m) die(`ffmpeg reads no duration from ${src}`);
-      const length = +m[1] * 3600 + +m[2] * 60 + +m[3], from = Math.max(0, +flags.from || 0), to = Math.min(length, flags.to ? +flags.to : length);
-      const step = (to - from) / every > 24 ? Math.ceil((to - from) / 12) / 2 : every; // ponytail: at most ~24 frames a sheet, on half seconds; look closer with --from/--to
-      const times = [];
-      for (let t = from; t < to - 0.04; t += step) times.push(+t.toFixed(2));
-      const shots = times.map(t => {
-        const r = spawnSync(ff, ['-v', 'error', '-ss', String(t), '-i', src, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 });
-        if (r.status !== 0 || !r.stdout.length) die(`ffmpeg could not read a frame at ${t} s of ${src}`);
-        return r.stdout.toString('base64');
-      });
-      const out = join(dir, `${basename(src, extname(src))}-frames.png`);
-      await contactSheet(browser, shots, times.map(t => `${basename(src)} · ${t} s`), out);
-      log(`${out}\n  ${basename(src)} · ${length.toFixed(1)} s · a frame every ${+step.toFixed(2)} s at: ${times.join(' ')}`);
-    }
-    await browser.close();
+    try {
+      for (const file of pos) {
+        const src = resolve(file);
+        if (!existsSync(src)) die(`no such file: ${src}`);
+        const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(spawnSync(ff, ['-hide_banner', '-i', src], { encoding: 'utf8' }).stderr || '');
+        const length = m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : +flags.to;
+        if (!(length > 0)) die(`ffmpeg reads no duration from ${src}; pass --to <seconds>`);
+        const from = flags.from === undefined ? 0 : +flags.from, to = Math.min(length, flags.to === undefined ? length : +flags.to);
+        if (!(from >= 0 && to > from)) die(`nothing to show between ${flags.from ?? 0} and ${flags.to ?? 'the end'} s of ${basename(src)} (${length.toFixed(1)} s long)`);
+        const step = (to - from) / every > 24 ? Math.ceil((to - from) / 12) / 2 : every; // ponytail: at most ~24 frames a sheet, on half seconds; look closer with --from/--to
+        const times = [];
+        for (let t = from; t < to - 0.04 || !times.length; t += step) times.push(+t.toFixed(2));
+        const shots = times.map(t => {
+          const r = spawnSync(ff, ['-v', 'error', '-ss', String(t), '-i', src, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 });
+          if (r.status !== 0 || !r.stdout.length) die(`ffmpeg could not read a frame at ${t} s of ${src}`);
+          return r.stdout.toString('base64');
+        });
+        const out = join(dir, `${basename(src).replace(/\./g, '-')}-frames.png`);
+        await contactSheet(browser, shots, times.map(t => `${basename(src)} · ${t} s`), out);
+        log(`${out}\n  ${basename(src)} · ${length.toFixed(1)} s · a frame every ${+step.toFixed(2)} s at: ${times.join(' ')}`);
+      }
+    } finally { await browser.close(); }
   },
 
   async render() {

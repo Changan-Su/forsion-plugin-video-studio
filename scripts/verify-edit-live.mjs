@@ -135,8 +135,10 @@ async function ask(sessionId, message, dir, timeoutMs = 1_500_000) {
 
 const CJK = /[㐀-鿿]/;
 const ranReview = ev => ev.tools.some(t => /fvs\.mjs\S*"?\s+review\b/.test(t.args));
-// footage looked at in several frames: `fvs frames`, or ffmpeg sampling at a rate or into a grid
-const frameLooks = ev => (ev?.tools || []).filter(t => /fvs\.mjs\S*"?\s+frames\b|ffmpeg[^\n]*(fps=|tile=|select=)/.test(t.args));
+// footage looked at in several frames: `fvs frames`, or ffmpeg sampling at a rate or into a grid (in the command
+// itself, not its JSON encoding)
+const commandOf = t => { try { const a = JSON.parse(t.args); return typeof a.command === 'string' ? a.command : t.args; } catch { return t.args; } };
+const frameLooks = ev => (ev?.tools || []).filter(t => /fvs\.mjs\S*"?[\s\\]+frames\b|ffmpeg[^\n]*(fps=|tile=|select=)/.test(commandOf(t)));
 const views = ev => (ev?.tools || []).filter(t => t.name === 'view_image').length;
 const near = (a, b, eps = 0.02) => Math.abs(a - b) <= eps;
 const shots = p => p.scenes.filter(s => videos(s.html).some(v => v.src));
@@ -214,11 +216,12 @@ try {
     if (long.length) throw fail(`shots longer than "two or three seconds": ${long.map(s => `${s.id} ${s.dur.toFixed(2)} s`).join(', ')}`, ev);
     const clips = shots(p).flatMap(s => videos(s.html));
     if (clips.filter(v => v.clipIn > 0 || p.scenes.find(s => s.html.includes(v.src))?.in > 0).length < 3) throw fail('fewer than three shots are taken from inside their clip', ev);
-    // picking: each clip looked at in several frames (a glob or a loop counts for every clip), or in-points that differ
-    const looks = frameLooks(ev), looked = [...used].filter(src => looks.some(t => t.args.includes(basename(src)) || t.args.includes('*')));
+    // picking: every clip looked at in several frames, or in-points that differ (ponytail: a glob credits every clip
+    // and a failed call still counts; match the glob and the result if this ever passes on a lazy run)
+    const looks = frameLooks(ev), looked = [...used].filter(src => looks.some(t => commandOf(t).includes(basename(src)) || commandOf(t).includes('*')));
     const ins = shots(p).flatMap(s => videos(s.html).map(v => +((v.clipIn || 0) + (s.in || 0)).toFixed(2)));
     legs.push(`挑镜头:多帧看过 ${looked.length}/${used.size} 段(按间隔抽帧 ${looks.length} 次、view_image ${views(ev)} 次);入点 ${new Set(ins).size} 种(${ins.join(' / ')} s)`);
-    if (new Set(ins).size <= 1 && !looked.length) throw fail(`every shot starts ${ins[0]} s into its clip and no clip was looked at in several frames`, ev);
+    if (new Set(ins).size <= 1 && looked.length < used.size) throw fail(`every shot starts ${ins[0]} s into its clip and only ${looked.length} of ${used.size} clips were looked at in several frames`, ev);
     const onShot = line => shots(p).some(s => s.html.includes(line)) || p.captions.some(c => c.text.includes(line) && shots(p).some(s => c.start < s.t1 && c.end > s.t0));
     legs.push(`片名压在镜头上:${onShot('城市速写') ? '是' : '否'};结尾字幕压在镜头上:${onShot('每座城市都在呼吸') ? '是' : '否'};转场:${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type} ${s.transition.dur}s`).join('、') || '全部硬切'}`);
     if (!text.includes('城市速写') || !text.includes('每座城市都在呼吸')) throw fail('the title or the closing line is missing', ev);

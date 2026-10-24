@@ -321,7 +321,8 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    wave breaks, people cross the square), the light and framing are best, the camera is steady and in focus,
    nothing distracting enters. For a screen recording: the moment the feature is seen working. When two moments
    are close, look closer: `fvs frames <clip> --from 6 --to 10 --every 0.5`. The window's start is the shot's
-   `data-clip-in`. Leave out a clip with nothing worth showing rather than pad with it, and say so.
+   `data-clip-in` (plus the scene's `in` when it has one: file time = `data-clip-in` + `in`). Leave out a clip
+   with nothing worth showing rather than pad with it, and say so.
 3. One shot per scene, its length on the beat grid; order the shots for a line (wide to close, calm to busy,
    building to the last one).
 4. **Title and closing line go on the footage, not on black cards.** Put the title in the first shot's scene as
@@ -332,8 +333,9 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    way and may hold to the end. A plain card only when the user asks for one or no shot can carry the text.
 5. **Between shots:** cut on the beat by default; the cuts are the rhythm. Use a short cross-fade
    (`"transition": { "type": "fade", "dur": "0.5 beats" }`, one beat at most) where the energy drops (a slow
-   shot after a busy one, into the last shot), a `dip` to the background only at the very end. A fade on every
-   cut only when the user asks for a soft film.
+   shot after a busy one, into the last shot); a `dip` through the background into the last shot at most (a
+   transition plays at the start of the scene that has it). A fade on every cut only when the user asks for a
+   soft film.
 6. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
 7. Then `check --runtime`, `review` (the title and closing line over footage must come back without a
