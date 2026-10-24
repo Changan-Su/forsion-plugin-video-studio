@@ -434,7 +434,8 @@ try {
     } else {
       if (moving.length < Math.ceil(sh.length * .6)) miss.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
       if (!m.title?.kinetic || !m.closing?.kinetic) miss.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
-      const want = th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
+      // inside-shot accents: a beat-cut edit's shots are a beat or two, its cuts are the accents (10-24 travel: 13 shots)
+      const want = th.beatCut ? 0 : th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
       if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);
       if (th.level === 'impact' && !sh.some(s => s.graphic || s.multi)) miss.push('no moving graphic and no two pictures at once');
     }
