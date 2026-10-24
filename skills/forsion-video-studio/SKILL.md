@@ -215,6 +215,8 @@ not on that lane — the user cannot point at it.
 - `data-fx="cut|fade|up|down|left|right|pop|zoom|blur|wipe|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
   `zoom` slams in from 1.35× its size, `blur` comes into focus (it takes over the element's CSS `filter`), `wipe` is
   revealed from its left edge. Moves and scales skip inline elements: a `<span>` that moves needs `display: inline-block`.
+  `zoom` grows from the element's centre: a full-width block of left-aligned text slams in partly off the frame, so give
+  it `width: fit-content` (or `transform-origin: left`).
 - `data-out="h4"` — gone at hit 4 (`data-fx-out="fade"` to fade).
 - `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart.
 - `data-seq="h0"` on a container — its children show one after another on hits h0, h1, h2 … (last one to the scene end). The EVA intertitle pattern.
@@ -387,6 +389,8 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    K('.cam', [[t0, { s: 1.12, x: 60 }], [t1, { s: 1.06, x: -50 }, 'lin']])            // drift: scaled up all the way
    ```
 
+   An entrance on the first hit of a scene that has a transition plays while the scene is still fading in and reads as
+   a fade: start it after the transition (`h1`, or `h0+1`) or cut into that shot.
    Never scale footage below 1, and drift only as far as the scale allows at every moment (`|x| ≤ (s − 1) × width / 2`,
    the same for `y` with the height), or the frame's edge shows. Moves land on hits: declare the hits you animate on. `K` with `s x y r` takes over the
    element's CSS `transform`, with `b br` its `filter`: grade with CSS custom properties, not a second `filter`.
