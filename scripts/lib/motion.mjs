@@ -17,7 +17,8 @@
 //   opener   time before the first shot, and whether its words arrive in steps (new words on screen more than once)
 //            or move
 //   kinetic  a line (the title, the closing line) that arrives in steps (word by word) or travels, resizes, is
-//            revealed by a clip or typed, rather than only fading or cutting in; and whether it was ever on screen
+//            revealed by a clip or typed, rather than only fading or cutting in; whether it was ever on screen, and
+//            whether all of its words were inside the frame at once (where the text is drawn, overflow included)
 // ponytail: z-index, transforms of the clip box and non-inset clip shapes are ignored; measure pixels if a layered
 // composite is ever misread.
 import { execFileSync } from 'node:child_process';
@@ -58,10 +59,13 @@ function snapshot() {
         if (positioned) placed = /absolute|fixed/.test(ac.position);
       }
       box = cut(box, edges(S));
-      const vw = Math.max(0, box.r - box.l), vh = Math.max(0, box.b - box.t);
+      const vw = Math.max(0, box.r - box.l), vh = Math.max(0, box.b - box.t), own = [...el.childNodes].some(n => n.nodeType === 3 && /\S/.test(n.data));
+      // where its words are drawn, overflow included (a block's own box keeps the stage's width while its text runs past)
+      let tb = null;
+      if (own) { const rg = document.createRange(); rg.selectNodeContents(el); const q = rg.getBoundingClientRect(); tb = { x: Math.round((q.left - S.left) * k), y: Math.round((q.top - S.top) * k), w: Math.round(q.width * k), h: Math.round(q.height * k) }; }
       els.push({
         scene: sc.dataset.scene, i, parent: index.get(el.parentElement) ?? -1, video: el.tagName === 'VIDEO', src: el.getAttribute('src') || '', withVideo: !!el.querySelector('video'),
-        own: [...el.childNodes].some(n => n.nodeType === 3 && /\S/.test(n.data)), text: el.textContent.replace(/\s+/g, ''),
+        own, tb, text: el.textContent.replace(/\s+/g, ''),
         on: o > .5 && vw > 0 && vh > 0, x: Math.round((r.left - S.left) * k), y: Math.round((r.top - S.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k),
         v: { x: Math.round((box.l - S.left) * k), y: Math.round((box.t - S.top) * k), w: Math.round(vw * k), h: Math.round(vh * k) },
         filter: cs.filter, dash: cs.strokeDashoffset,
@@ -178,7 +182,11 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
       const span = xs.filter(r => r.t >= shown[0].t - step && r.t <= shown[shown.length - 1].t + step);
       const boxMoves = span.some((r, j) => j > 0 && r.els.some(e => { const o = span[j - 1].els.find(q => q.i === e.i); return o && shifted(e, o, 30, .05); }));
       const why = growth(span) >= 2 ? 'in steps' : travels(span) || boxMoves ? 'moves' : null;
-      return { found: true, onScreen: true, kinetic: !!why, why };
+      // all of its words inside the frame at once, at a moment when as many of them are on screen as ever are (a line too
+      // wide for a portrait frame runs off its sides, and onScreen only needs some of it showing)
+      const words = r => r.els.filter(e => e.on && e.own), full = Math.max(...xs.map(r => words(r).length));
+      const inFrame = xs.some(r => words(r).length === full && words(r).every(e => e.tb && e.tb.x >= -2 && e.tb.y >= -2 && e.tb.x + e.tb.w <= W + 2 && e.tb.y + e.tb.h <= H + 2));
+      return { found: true, onScreen: true, kinetic: !!why, why, inFrame };
     };
     const all = [...holders].map(judge);
     return all.find(r => r.kinetic) || all.find(r => r.onScreen) || all[0];

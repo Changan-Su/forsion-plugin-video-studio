@@ -21,11 +21,22 @@
 //             at one of three moments (a wipe or a knockout title may be mid-way at the middle); a sheet every 0.5 s
 //   legible   captions over bright footage and one under a lower-third panel, "fix what is hard to read, keep the
 //             words": afterwards `fvs review` finds no contrast or covered-text problem on them, the words are the same
+//   themes    (--only themes, or one of them) short videos of other subjects and shapes, each from its own real footage
+//             (SETS in scripts/lib/fetch-footage.mjs), briefs at the skill's three levels:
+//               nature    calm 16:9 wildlife teaser: held to a ceiling (at most one beat accent a shot, unhurried shots)
+//               food      vertical 9:16 cooking short, nothing said about the level (the default, standard)
+//               sports    impact 16:9 highlight at 128 BPM, sound muted
+//               festival  standard 16:9 festival recap, a short caption on every shot
+//               travel    impact vertical 9:16 beat-cut travel vlog at 100 BPM, sound muted
+//             all: the montage's basics, the title and closing line on screen and inside the frame, no text under the
+//             phone floor (`fvs review` text_below_floor) and a legible title and closing line, every shot filling the
+//             frame; standard and impact: the picture moving in most shots, a kinetic title and closing line, beat
+//             accents, and at impact a moving graphic or two pictures at once; a sheet every 0.5 s
 //
 // After each one the Director's own `review` use is recorded (not required: what is required is the result).
 //
 //   (cd <Genesis>/tangu-agent && npm run build)
-//   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-edit-live.mjs [--only montage,recap,recut,legible,promo]
+//   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-edit-live.mjs [--only montage,recap,recut,legible,promo,themes]
 // Writes artifacts/edit-live/ (or FVS_EDIT_OUT, so runs can go side by side): report.md, results.json, engine.log and <scenario>-evidence/ (过程.md, the final
 // project, the review, a contact sheet and a half-size render), the layout harness-runs/archive.mjs add takes.
 import assert from 'node:assert/strict';
@@ -40,7 +51,7 @@ import { fileURLToPath } from 'node:url';
 import { parseProject } from '../src/lib/project.js';
 import { videos } from '../src/lib/html.js';
 import { emptyTemplate } from '../src/lib/templates.js';
-import { fetchFootage, FOOTAGE } from './lib/fetch-footage.mjs';
+import { fetchFootage, FOOTAGE, SETS } from './lib/fetch-footage.mjs';
 import { unfilled, FLAT_LIMIT } from './lib/frame-fill.mjs';
 import { motionOf } from './lib/motion.mjs';
 
@@ -52,7 +63,7 @@ const MODEL = process.env.FVS_LIVE_MODEL || 'codex/gpt-6-luna';
 const AUTH = resolve(process.env.FVS_LIVE_AUTH || join(homedir(), '.forsion-dev/provider-auth.json'));
 assert.ok(existsSync(AUTH), `no credentials at ${AUTH}: sign in to the Codex subscription in Forsion Desktop (dev), or set FVS_LIVE_AUTH`);
 const onlyAt = process.argv.indexOf('--only');
-const ONLY = new Set((onlyAt > 0 ? process.argv[onlyAt + 1] : 'montage,recap,recut,legible,promo').split(','));
+const ONLY = new Set((onlyAt > 0 ? process.argv[onlyAt + 1] : 'montage,recap,recut,legible,promo').replace('themes', 'nature,food,sports,festival,travel').split(','));
 const DEMOS = resolve(process.env.FVS_DEMOS || join(repo, '../../outputs/release-demos-2.13.5'));
 const RECAP = ['chat-branch-canvas', 'child-sessions', 'forsion-clip', 'guide-space', 'home-glyph-wallpaper', 'penzor-cloud'];
 assert.ok(existsSync(join(repo, 'node_modules/playwright-core')), 'npm install in the plugin repo first (playwright-core)');
@@ -372,6 +383,68 @@ try {
     if (lost.length) throw fail(`caption words changed: ${lost.join(' / ')}`, ev);
     if (now.length) throw fail(`still hard to read: ${now.map(f => `${f.code} ${f.t?.toFixed(2)}s ${(f.text || '').slice(0, 20)} ${f.message.slice(0, 40)}`).join(' / ')}`, ev);
     if (!/^ok/.test(facts.check)) throw fail(`check: ${facts.check}`, ev);
+    return ev;
+  });
+
+  // short videos of other subjects and shapes (see the header): one brief each, judged from the capture page and the render
+  const THEMES = {
+    nature: { level: 'calm', len: [20, 45], sound: 'lower', title: '万物有时', closing: '慢一点，才看得见', name: '野生动物与自然风光剪成 30 秒纪录片预告:安静克制(平静档)',
+      brief: t => `media 里是几段野生动物和自然风光的素材。帮我剪一支 30 秒左右的自然纪录片预告《${t.title}》，结尾一句「${t.closing}」。要安静、克制，像 BBC 自然纪录片那种感觉，镜头慢慢来，不要花哨的特效和闪烁。素材的原声保留，但压低一点。` },
+    food: { level: 'standard', portrait: true, len: [12, 32], sound: 'lower', title: '人间烟火', closing: '好好吃饭', name: '做饭素材剪成竖屏美食短视频(9:16,没说档位)',
+      brief: t => `media 里是几段做饭的素材，有竖着拍的也有横着拍的。帮我剪一条竖屏的美食短视频（9:16，发抖音用），20 秒左右，片名《${t.title}》，结尾一句「${t.closing}」。节奏轻快一点，素材原声保留但小一点。` },
+    sports: { level: 'impact', bpm: 128, len: [15, 38], sound: 'mute', title: '热血', closing: '下一个就是你', name: '滑板 / 冲浪 / 篮球 / 足球 / 骑行剪成 25 秒运动高光(冲击力档,128 BPM)',
+      brief: t => `media 里是一些运动的素材：滑板、冲浪、篮球、足球、骑行、龙舟。帮我剪一支 25 秒左右的运动高光集锦《${t.title}》，结尾一句「${t.closing}」。要燃、要炸，切点卡在 128 BPM 的拍子上，画面和字都要有冲击力。原声都不要，全部静音，音乐我之后自己配。` },
+    festival: { level: 'standard', len: [20, 45], sound: 'lower', captions: true, title: '一年好景', closing: '明年再见', name: '灯会 / 舞狮 / 烟花 / 巡游 / 天灯剪成 30 秒节庆回顾:每个镜头一句说明',
+      brief: t => `media 里是我今年在各地看节庆拍的素材：灯会、舞狮、烟花、巡游、放天灯。帮我剪一支 30 秒左右的节庆回顾短片《${t.title}》，每个镜头配一句短短的中文说明，结尾一句「${t.closing}」。环境声保留但小一点。` },
+    travel: { level: 'impact', portrait: true, bpm: 100, len: [10, 25], sound: 'mute', title: '山海之间', closing: '下一站，见', name: '手机竖拍的旅行素材剪成 15 秒卡点 vlog(竖屏,冲击力档,100 BPM)',
+      brief: t => `media 里是我这次旅行用手机拍的素材，雪山、湖、瀑布、海边、夕阳都有。帮我剪一条 15 秒左右的卡点旅行 vlog，竖屏发小红书，节奏 100 BPM，每一下都卡在拍子上。开头来个有动感的标题《${t.title}》，结尾一句「${t.closing}」。原声都不要。` },
+  };
+  for (const [key, th] of Object.entries(THEMES)) await scenario(key, th.name, async legs => {
+    const set = SETS[key], from = await fetchFootage(join(repo, `artifacts/footage/${key}`), set);
+    const pr = projectWith(key, emptyTemplate({ title: th.title, zh: true }), set.map(f => [join(from, `${f.name}.webm`), `${f.name}.webm`]));
+    const ev = await ask(await session(key, pr.dir), th.brief(th), pr.dir);
+    if (ev.error) throw fail(`the run failed: ${ev.error}`, ev);
+    const { facts, p, at } = evidence(key, pr, ev, { render: true, every: 0.5 });
+    const text = readFileSync(pr.file, 'utf8'), W = p.meta.width, H = p.meta.height;
+    const clips = shots(p).flatMap(s => videos(s.html)), used = new Set(clips.map(v => v.src));
+    const m = await motionOf({ cli, file: pr.file, dir: pr.dir, p, lines: { title: th.title, closing: th.closing } });
+    writeFileSync(join(at, 'motion.json'), JSON.stringify(m, null, 2));
+    const sh = m.shots, moving = sh.filter(s => s.camera), acc = sh.flatMap(s => s.accents), footageSec = sh.reduce((a, s) => a + s.t1 - s.t0, 0);
+    const line = l => `${lineMotion(l)}${l?.onScreen && !l.inFrame ? '、跑出画框' : ''}`;
+    legs.push(`${W}×${H}、${p.scenes.length} 个场景、${p.length.toFixed(2)} s、${p.meta.tempo?.bpm} BPM,用了 ${used.size}/${set.length} 段素材;自己跑 review:${ranReview(ev) ? '是' : '否'};review:${facts.review};按间隔抽帧看素材 ${frameLooks(ev).length} 次`);
+    legs.push(`动效:运镜 ${moving.length}/${sh.length};镜头内卡拍变化 ${acc.length} 处(${sh.filter(s => s.accents.length).length}/${sh.length} 个镜头有);图形 ${sh.filter(s => s.graphic).length}、同屏两画面 ${sh.filter(s => s.multi).length};片名「${th.title}」${line(m.title)};片尾「${th.closing}」${line(m.closing)};转场 ${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type}`).join('、') || '全部硬切'}`);
+    const miss = [];
+    if (th.portrait && Math.abs(W / H - 9 / 16) > .01) miss.push(`not a vertical 9:16 frame (${W}×${H})`);
+    if (!(p.length >= th.len[0] && p.length <= th.len[1])) miss.push(`length ${p.length.toFixed(2)} s outside ${th.len.join('–')} s`);
+    if (used.size < Math.ceil(set.length * .7)) miss.push(`only ${used.size} of the ${set.length} clips are in the cut`);
+    if (th.bpm && p.meta.tempo?.bpm !== th.bpm) miss.push(`the project is at ${p.meta.tempo?.bpm} BPM, not ${th.bpm}`);
+    if (th.bpm) { const off = p.scenes.filter(s => Math.abs(s.t1 / m.step - Math.round(s.t1 / m.step)) > .04); if (off.length) miss.push(`cuts off the eighth-note grid: ${off.map(s => `${s.id}@${s.t1.toFixed(3)}`).join(', ')}`); }
+    if (clips.filter(v => v.clipIn > 0 || p.scenes.find(s => s.html.includes(v.src))?.in > 0).length < 3) miss.push('fewer than three shots are taken from inside their clip');
+    if (!plain(text).includes(plain(th.title)) || !plain(text).includes(plain(th.closing))) miss.push('the title or the closing line is missing');
+    for (const [what, l] of [['title', m.title], ['closing line', m.closing]]) if (!l?.onScreen) miss.push(`the ${what} is never on screen`); else if (!l.inFrame) miss.push(`the ${what} never fits inside the ${W}×${H} frame`);
+    if (th.captions) { const bare = shots(p).filter(s => !CJK.test(s.html.replace(/<video[\s\S]*?(<\/video>|\/>)/g, '')) && !p.captions.some(c => c.start < s.t1 && c.end > s.t0 && CJK.test(c.text))); if (bare.length) miss.push(`shots without a Chinese caption: ${bare.map(s => s.id).join(', ')}`); }
+    if (th.level === 'calm') {
+      if (acc.length > sh.length) miss.push(`${acc.length} beat accents in ${sh.length} shots (a calm cut has at most one a shot)`);
+      if (footageSec / Math.max(sh.length, 1) < 2.5) miss.push(`shots average ${(footageSec / Math.max(sh.length, 1)).toFixed(2)} s (a calm cut takes its time)`);
+    } else {
+      if (moving.length < Math.ceil(sh.length * .6)) miss.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
+      if (!m.title?.kinetic || !m.closing?.kinetic) miss.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
+      const want = th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
+      if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);
+      if (th.level === 'impact' && !sh.some(s => s.graphic || s.multi)) miss.push('no moving graphic and no two pictures at once');
+    }
+    const ours = f => { const t = (f.text || '').replace(/\s+/g, ''), msg = f.message || ''; return [th.title, th.closing].map(plain).some(l => (t && (l.includes(t) || t.includes(l))) || msg.includes(l)); };
+    const found = reviewOf(pr.file).scenes.flatMap(s => s.findings.map(f => ({ ...f, scene: s.id })));
+    const small = found.filter(f => f.code === 'text_below_floor'), hard = found.filter(f => ['contrast_aa_failure', 'text_occluded'].includes(f.code) && ours(f));
+    if (small.length) miss.push(`text under the phone floor: ${small.map(f => `${f.scene} ${(f.message || '').slice(0, 60)}`).join(' / ')}`);
+    if (hard.length) miss.push(`the title or the closing line is hard to read: ${hard.map(f => `${f.code} ${f.t?.toFixed(2)}s`).join(' / ')}`);
+    const loud = clips.filter(v => th.sound === 'mute' ? !v.muted && !(v.gain <= -40) : !v.muted && !(v.gain < 0));
+    if (loud.length) miss.push(`${th.sound === 'mute' ? 'clips not muted' : 'clips with their sound at full level'}: ${loud.map(v => v.src).join(', ')}`);
+    if (!/^ok/.test(facts.check)) miss.push(`check: ${facts.check}`);
+    if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15) || (th.sound === 'lower' && !facts.render?.audio)) miss.push(`render: ${JSON.stringify(facts.render)}`);
+    else legs.push(`半尺寸渲染 ${facts.render.seconds} s、${facts.render.audio ? '有声音' : '无声音'}、${facts.render.mb} MB`);
+    try { filled(key, p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
+    if (miss.length) throw fail(miss.join('; '), ev);
     return ev;
   });
 } catch (e) {
