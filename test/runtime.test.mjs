@@ -257,6 +257,7 @@ test('elements lane: the spans the editor draws are when each element is on scre
 \`\`\`html
 <div data-in="2s" data-out="3s"><span data-in="1s">nested</span></div>
 <div data-in="1s" data-each="1"><span>each a</span><span>each b</span></div>
+<p data-in="h1" data-each="0.5" data-fx="zoom">each with no children: itself</p>
 <div data-seq="h0"><span class="never" data-in="h1">seq with its own in</span><span>seq b</span></div>
 <p data-out="3s" data-fx-out="fade" data-dur="2">fades out</p>
 <div data-seq="h0" data-seq-end="3s"><b>x</b><b>y</b></div>
@@ -305,7 +306,7 @@ test('elements lane: the spans the editor draws are when each element is on scre
   const z = P.sceneById(p, 'z'), content = { t0: z.t0v ?? z.t0, t1: z.t1, hits: z.hitTimes };
   assert.deepEqual(timedSpans(z.html, { s0: z.t0, t1: z.t1, hits: z.hitTimes }, expr => timeExpr(expr, content, unit, beat), { unit, beat }).map(x => [x.label, x.a, x.b, x.of ? `${x.n}/${x.of.items.length}` : '', x.error ? 'error' : '']), [
     ['nested', 3, 4, '', ''], ['nested', 3, 4, '', ''],
-    ['each a', 2, 6, '1/2', ''], ['each b', 2.5, 6, '2/2', ''],
+    ['each a', 2, 6, '1/2', ''], ['each b', 2.5, 6, '2/2', ''], ['each with no children: itself', 2, 6, '', ''],
     ['seq b', 2, 6, '2/2', ''],
     ['fades out', 1, 5, '', ''],
     ['x', 1, 2, '1/2', ''], ['y', 2, 4, '2/2', ''],

@@ -173,7 +173,9 @@ export function mount(payload, container, { doc = document, onScene = null, medi
     }
     for (const el of sc.el.querySelectorAll('[data-in], [data-out]')) {
       const each = el.dataset.each !== undefined ? +el.dataset.each * unit : null;
-      const targets = each !== null ? [...el.children] : [el];
+      // data-each times the children; a line with none (bare text) gets the entrance itself, not none (10-24: a closing
+      // line with data-each and no spans sat on screen from the scene's start)
+      const targets = each !== null && el.children.length ? [...el.children] : [el];
       const tin = el.dataset.in !== undefined ? t(el.dataset.in, el) : null;
       const tout = el.dataset.out !== undefined ? t(el.dataset.out, el) : null;
       const fx = (el.dataset.fx || 'cut').toLowerCase(), outFx = (el.dataset.fxOut || 'cut').toLowerCase();

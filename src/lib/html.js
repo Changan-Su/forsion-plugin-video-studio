@@ -154,7 +154,7 @@ export function timedElements(html) {
  * document order.
  *   - a data-seq container is its children, one per hit from hK, the last one to data-seq-end or the scene's end.
  *     A child past the last hit is never scheduled: it stays on screen, and is an error;
- *   - data-in with data-each is the children too, each one `each` after the one before;
+ *   - data-in with data-each is the children too, each one `each` after the one before (with no children, itself);
  *   - an element is on screen only while everything around it is: its own times, its turn in a sequence and those
  *     of its ancestors all hold at once. What is left may be nothing: then it has no entry.
  * sc = { s0, t1, hits }: the scene's visible start, its end and its hit times. at(expr) reads a time expression (the
@@ -181,12 +181,12 @@ export function timedSpans(html, sc, at, { unit, beat }) {
       }
     }
     if (x.in === undefined && x.out === undefined) continue;
-    const tin = read(x.in), tout = read(x.out), step = +x.each * unit;
+    const tin = read(x.in), tout = read(x.out), step = +x.each * unit, staggered = x.each !== undefined && x.items.length && tin !== null && Number.isFinite(step);
     const gone = tout === null ? Infinity : tout + (String(x.fxOut || '').toLowerCase() === 'fade' ? (x.dur !== undefined ? +x.dur * unit : beat / 2) : 0);
-    if (x.each !== undefined && tin !== null && Number.isFinite(step)) x.items.forEach((c, i) => { limit(c.tag, tin + step * i, gone); block(c, { of: x, n: i + 1 }); });
+    if (staggered) x.items.forEach((c, i) => { limit(c.tag, tin + step * i, gone); block(c, { of: x, n: i + 1 }); });
     else limit(x.tag, tin ?? -Infinity, gone);
     // the container of a sequence or of staggered children is those children; anything else is its own block
-    if (error || (x.seq === undefined && !(x.each !== undefined && tin !== null && Number.isFinite(step)))) block(x, error ? { error } : {});
+    if (error || (x.seq === undefined && !staggered)) block(x, error ? { error } : {});
   }
   const out = [];
   for (const e of blocks.values()) {
