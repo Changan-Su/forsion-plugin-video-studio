@@ -349,12 +349,17 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    - *calm* (a mood piece, landscapes, "quiet", "gentle"): one slow push or pull per shot, words fading or blurring
      in, a soft transition where it helps;
    - *standard*, **the default**, also for a plain "cut these clips": every shot has a camera move (a slow push, or a
-     drift once it is scaled up; one direction per shot), the title and the closing line arrive kinetically (word by
-     word, `zoom` or `wipe`, not a plain fade), and every shot has at least one hit where something happens inside it
-     (a punch-in, a line drawn, a label or a word arriving);
+     drift once it is scaled up; one direction per shot), the film's own title and the closing line arrive
+     kinetically (word by word, `zoom` or `wipe`, not a plain cut or fade; other words in an opener do not stand in
+     for the title), and every shot has at least one hit where something happens inside it (a punch-in, a line
+     drawn, a label or a word arriving);
    - *impact* (a promo, trailer, teaser, opener, "energy", "冲击力", "有气势"): standard, plus the animated opener of
-     step 4, punch-ins with a bump of light on hits, a split screen or a moving graphic (a line, a frame, a bar), the
-     title slammed in and the closing line landing on a hit.
+     step 4, punch-ins with a bump of light on hits, at least one split screen or moving graphic (a line drawn, a
+     frame, a bar), the title slammed in and the closing line landing on a hit.
+
+   Words that carry the film are big. On a 1080-high frame: the opener's words and the title 140–260 px (the 2.12
+   promo's cards use 200–380 px), lines on the shots 56–90 px. A small kicker (`01 / STREETS`) is decoration next to
+   them, never the line itself.
 
    When the user asks for particular changes to an existing cut, make those and nothing else.
 
@@ -396,7 +401,9 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    `muted` on clips whose sound is wind or talk you are not using.
 8. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
    come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
-   the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip and the level you chose.
+   the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip, the
+   level you chose and where each thing that level asks for is (impact, say: the opener 0–2 s, the title slammed in at
+   2.5 s, the split in `market`, punch-ins on …). Anything of the level you cannot point to is still to do.
 
 **Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings
 that matter in plain words, scene by scene, with what you would change (pacing, legibility, text over footage,
