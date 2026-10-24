@@ -197,6 +197,38 @@ root.dataset.api = JSON.stringify({ t0, t1, dur, at1: at(1), hits, h2: hit(2) })
   await page.close();
 });
 
+test('entrances zoom, blur and wipe: hidden before their time, moving at it, settled after it', { skip: !browser }, async () => {
+  const { page, errors } = await capture(`# Fx
+
+\`\`\`fvs
+{ "fvs": 1, "width": 320, "height": 180, "fps": 30, "tempo": { "bpm": 120, "beatsPerBar": 4 } }
+\`\`\`
+
+## a · A
+
+\`\`\`fvs
+{ "length": "4 beats", "hits": [0, 2] }
+\`\`\`
+
+\`\`\`html
+<p class="zoom" data-in="h1" data-fx="zoom" data-dur="1">Z</p><p class="blur" data-in="h1" data-fx="blur" data-dur="1">B</p><p class="wipe" data-in="h1" data-fx="wipe" data-dur="1">W</p>
+\`\`\`
+`, 'fx');
+  const at = async t => { await page.evaluate(x => window.__stage.seek(x), t); return page.evaluate(() => Object.fromEntries(['zoom', 'blur', 'wipe'].map(k => { const s = document.querySelector(`.${k}`).style; return [k, { o: +s.opacity, transform: s.transform, filter: s.filter, clip: s.clipPath }]; }))); };
+  const before = await at(.9), mid = await at(1.1), after = await at(1.6); // hit 1 at 1 s, a beat is .5 s
+  for (const k of ['zoom', 'blur', 'wipe']) assert.equal(before[k].o, 0, `${k}: hidden before its time`);
+  const scale = s => nums(s.match(/scale\(([^)]*)\)/)?.[1] || '1')[0];
+  assert.ok(scale(mid.zoom.transform) > 1.01 && mid.zoom.o === 1, `zoom: big at first (${mid.zoom.transform})`);
+  assert.equal(scale(after.zoom.transform), 1, 'zoom: settles at its own size');
+  assert.ok(nums(mid.blur.filter)[0] > 1 && mid.blur.o > 0 && mid.blur.o < 1, `blur: blurred and fading in (${mid.blur.filter})`);
+  close(nums(after.blur.filter), [0, 1], 1e-6, 'blur: sharp after');
+  const cr = s => { const n = nums(s.clip); return n[n.length > 1 ? 1 : 0]; };
+  assert.ok(mid.wipe.o === 1 && cr(mid.wipe) > 0 && cr(mid.wipe) < 100, `wipe: part revealed (${mid.wipe.clip})`);
+  assert.ok(nums(after.wipe.clip).length && nums(after.wipe.clip).every(x => x === -50), `wipe: nothing clipped after, a text-shadow included (${after.wipe.clip})`); // the browser shortens inset(-50% -50% -50% -50%)
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 /* ───────── the Elements lane: what the editor's timeline says is what the picture does ───────── */
 
 test('elements lane: the spans the editor draws are when each element is on screen', { skip: !browser }, async () => {

@@ -26,7 +26,7 @@
 //
 //   (cd <Genesis>/tangu-agent && npm run build)
 //   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-edit-live.mjs [--only montage,recap,recut,legible,promo]
-// Writes artifacts/edit-live/: report.md, results.json, engine.log and <scenario>-evidence/ (过程.md, the final
+// Writes artifacts/edit-live/ (or FVS_EDIT_OUT, so runs can go side by side): report.md, results.json, engine.log and <scenario>-evidence/ (过程.md, the final
 // project, the review, a contact sheet and a half-size render), the layout harness-runs/archive.mjs add takes.
 import assert from 'node:assert/strict';
 import { spawn, execFileSync, spawnSync } from 'node:child_process';
@@ -61,7 +61,7 @@ const footage = await fetchFootage(join(repo, 'artifacts/footage/city'));
 const startedAt = new Date().toISOString();
 const out = mkdtempSync(join(tmpdir(), 'fvs-edit-live-'));
 const shared = join(out, 'forsion'), home = join(shared, 'tangu'), vault = join(out, 'vault'), work = join(vault, 'Forsion Video Studio');
-const artifacts = join(repo, 'artifacts/edit-live');
+const artifacts = resolve(process.env.FVS_EDIT_OUT || join(repo, 'artifacts/edit-live'));
 rmSync(artifacts, { recursive: true, force: true }); mkdirSync(artifacts, { recursive: true });
 const log = join(artifacts, 'engine.log'); writeFileSync(log, '');
 for (const d of [home, work, join(out, 'workspace')]) mkdirSync(d, { recursive: true });
@@ -143,6 +143,8 @@ async function ask(sessionId, message, dir, timeoutMs = 1_500_000) {
 }
 
 const CJK = /[㐀-鿿]/;
+// the words of some html or a file, tags and spaces gone: a title split into one element per word is still the title
+const plain = h => h.replace(/<[^>]*>/g, '').replace(/\s+/g, '');
 const ranReview = ev => ev.tools.some(t => /fvs\.mjs\S*"?\s+review\b/.test(t.args));
 // footage looked at in several frames: `fvs frames`, or ffmpeg sampling at a rate or into a grid (in the command
 // itself, not its JSON encoding)
@@ -157,6 +159,16 @@ function filled(key, p, legs, ev, at = [.5]) {
   const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), shots(p), at);
   legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(${at.length > 1 ? `${at.join(' / ')} 处取最低的` : '中点'}平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)`);
   if (over.length) throw fail(`footage does not fill the frame (flat share over ${FLAT_LIMIT} at the shot's middle): ${over.map(r => `${r.id} ${r.share}`).join(', ')}`, ev);
+}
+const lineMotion = l => (!l?.found ? '没找到' : !l.onScreen ? '不在画面里' : l.kinetic ? `动态(${l.why === 'in steps' ? '分步出现' : '有位移 / 缩放 / 裁切'})` : '只是淡入或硬切');
+/** The promo's motion read, reported but not judged (the default level of the skill moves these cuts too). */
+async function motionLegs(key, { file, dir }, p, lines, legs) {
+  let m;
+  try { m = await motionOf({ cli, file, dir, p, lines }); } catch (e) { legs.push(`动效没量成:${String(e?.message || e).split('\n')[0]}`); return null; }
+  writeFileSync(join(artifacts, `${key}-evidence/motion.json`), JSON.stringify(m, null, 2));
+  const sh = m.shots;
+  legs.push(`动效(只记录):运镜 ${sh.filter(s => s.camera).length}/${sh.length};镜头内卡拍变化 ${sh.flatMap(s => s.accents).length} 处;图形 ${sh.filter(s => s.graphic).length}、同屏两画面 ${sh.filter(s => s.multi).length};片名 ${lineMotion(m.title)}${lines.closing ? `;片尾 ${lineMotion(m.closing)}` : ''}`);
+  return m;
 }
 const reviewOf = file => JSON.parse(execFileSync(process.execPath, [cli, 'review', file, '--json'], { cwd: dirname(file), encoding: 'utf8', maxBuffer: 64 << 20 }));
 
@@ -239,14 +251,15 @@ try {
     const ins = shots(p).flatMap(s => videos(s.html).map(v => +((v.clipIn || 0) + (s.in || 0)).toFixed(2)));
     legs.push(`挑镜头:多帧看过 ${looked.length}/${used.size} 段(按间隔抽帧 ${looks.length} 次、view_image ${views(ev)} 次);入点 ${new Set(ins).size} 种(${ins.join(' / ')} s)`);
     if (new Set(ins).size <= 1 && looked.length < used.size) throw fail(`every shot starts ${ins[0]} s into its clip and only ${looked.length} of ${used.size} clips were looked at in several frames`, ev);
-    const onShot = line => shots(p).some(s => s.html.includes(line)) || p.captions.some(c => c.text.includes(line) && shots(p).some(s => c.start < s.t1 && c.end > s.t0));
+    const onShot = line => shots(p).some(s => plain(s.html).includes(line)) || p.captions.some(c => c.text.includes(line) && shots(p).some(s => c.start < s.t1 && c.end > s.t0));
     legs.push(`片名压在镜头上:${onShot('城市速写') ? '是' : '否'};结尾字幕压在镜头上:${onShot('每座城市都在呼吸') ? '是' : '否'};转场:${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type} ${s.transition.dur}s`).join('、') || '全部硬切'}`);
-    if (!text.includes('城市速写') || !text.includes('每座城市都在呼吸')) throw fail('the title or the closing line is missing', ev);
+    if (!plain(text).includes('城市速写') || !plain(text).includes('每座城市都在呼吸')) throw fail('the title or the closing line is missing', ev);
     const loud = clips.filter(v => !v.muted && !(v.gain < 0));
     if (loud.length) throw fail(`clips with their sound at full level: ${loud.map(v => v.src).join(', ')}`, ev);
     if (!/^ok/.test(facts.check)) throw fail(`check: ${facts.check}`, ev);
     if (!facts.render?.audio || !near(facts.render.seconds, p.length, 0.15)) throw fail(`render: ${JSON.stringify(facts.render)}`, ev);
     legs.push(`半尺寸渲染 ${facts.render.seconds} s、有声音、${facts.render.mb} MB`);
+    await motionLegs('montage', pr, p, { title: '城市速写', closing: '每座城市都在呼吸' }, legs);
     filled('montage', p, legs, ev);
     return ev;
   });
@@ -268,10 +281,11 @@ try {
     // one caption per feature: on-screen text in the shot, or a caption cue while it is on screen
     const uncaptioned = shots(p).filter(s => !CJK.test(s.html.replace(/<video[\s\S]*?(<\/video>|\/>)/g, '')) && !p.captions.some(c => c.start < s.t1 && c.end > s.t0 && CJK.test(c.text)));
     if (uncaptioned.length) throw fail(`shots without a Chinese caption: ${uncaptioned.map(s => s.id).join(', ')}`, ev);
-    if (!readFileSync(pr.file, 'utf8').includes('Forsion 2.13.5')) throw fail('the title is missing', ev);
+    if (!plain(readFileSync(pr.file, 'utf8')).includes('Forsion2.13.5')) throw fail('the title is missing', ev);
     if (!/^ok/.test(facts.check)) throw fail(`check: ${facts.check}`, ev);
     if (facts.render?.failed || !near(facts.render.seconds, p.length, 0.15)) throw fail(`render: ${JSON.stringify(facts.render)}`, ev);
     legs.push(`录屏原长 ${total.toFixed(1)} s → 成片 ${p.length.toFixed(1)} s;半尺寸渲染 ${facts.render.seconds} s、${facts.render.mb} MB`);
+    await motionLegs('recap', pr, p, { title: 'Forsion 2.13.5' }, legs);
     filled('recap', p, legs, ev);
     return ev;
   });
@@ -311,7 +325,7 @@ try {
     const m = await motionOf({ cli, file: pr.file, dir: pr.dir, p, lines: { title: TITLE, closing: CLOSING } });
     writeFileSync(join(at, 'motion.json'), JSON.stringify(m, null, 2));
     const sh = m.shots, moving = sh.filter(s => s.camera), acc = sh.flatMap(s => s.accents), footageSec = sh.reduce((a, s) => a + s.t1 - s.t0, 0);
-    const line = l => (!l?.found ? '没找到' : !l.onScreen ? '不在画面里' : l.kinetic ? `动态(${l.why === 'in steps' ? '分步出现' : '有位移 / 缩放 / 裁切'})` : '只是淡入或硬切');
+    const line = lineMotion;
     legs.push(`${p.scenes.length} 个场景、${p.length.toFixed(2)} s,用了 ${used.size}/7 段素材;自己跑 review:${ranReview(ev) ? '是' : '否'};review:${facts.review};按间隔抽帧看素材 ${frameLooks(ev).length} 次`);
     legs.push(`片头:第一个镜头前 ${m.opener.seconds} s,文字分 ${m.opener.steps} 步出现${m.opener.moving ? '、有位移' : ''}`);
     legs.push(`镜头运动:${moving.length}/${sh.length} 个镜头画面在动(${moving.map(s => s.id).join('、') || '无'})`);
@@ -322,7 +336,7 @@ try {
     if (used.size < 5) throw fail(`only ${used.size} of the 7 clips are in the cut`, ev);
     const off = p.scenes.filter(s => Math.abs(s.t1 / m.step - Math.round(s.t1 / m.step)) > 0.04);
     if (off.length) throw fail(`cuts off the eighth-note grid: ${off.map(s => `${s.id}@${s.t1.toFixed(3)}`).join(', ')}`, ev);
-    if (!text.includes(TITLE) || !text.includes(CLOSING)) throw fail('the title or the closing line is missing', ev);
+    if (!plain(text).includes(TITLE) || !plain(text).includes(CLOSING)) throw fail('the title or the closing line is missing', ev);
     if (!m.title?.onScreen || !m.closing?.onScreen) throw fail(`the title or the closing line is never on screen (title ${line(m.title)}, closing ${line(m.closing)})`, ev);
     const misses = [];
     if (!(m.opener.seconds >= 60 / (p.meta.tempo?.bpm || 120) && (m.opener.steps >= 2 || m.opener.moving))) misses.push(`no animated opener before the footage (${m.opener.seconds} s, ${m.opener.steps} steps)`);

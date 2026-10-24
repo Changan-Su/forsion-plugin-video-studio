@@ -185,6 +185,11 @@ export function mount(payload, container, { doc = document, onScene = null, medi
           if (fx === 'type') F.type([node], a, +el.dataset.cps || 30);
           else if (fx === 'fade') kf.push([a, { o: 0 }], [a + dur, { o: 1 }, 'out']);
           else if (fx === 'pop') kf.push([a - .01, { o: 0, s: .92 }], [a, { o: 1 }, 'step'], [a + .25, { s: 1 }, 'back']);
+          else if (fx === 'zoom') kf.push([a - .01, { o: 0, s: 1.35 }], [a, { o: 1 }, 'step'], [a + dur, { s: 1 }, 'expo']); // slammed in from big
+          else if (fx === 'blur') kf.push([a, { o: 0, b: 16 }], [a + dur, { o: 1, b: 0 }, 'out']); // takes over the element's CSS filter
+          // revealed from the left edge; the other sides open past the box so a text-shadow is not cut, and the right one
+          // too once the reveal is done
+          else if (fx === 'wipe') kf.push([a - .01, { o: 0, ct: -50, cr: 100, cb: -50, cl: -50 }], [a, { o: 1 }, 'step'], [a + dur, { cr: 0 }, 'expo'], [a + dur + .001, { cr: -50 }, 'step']);
           else if (/^(up|down|left|right)$/.test(fx)) {
             const from = { up: { y: dist }, down: { y: -dist }, left: { x: dist }, right: { x: -dist } }[fx];
             kf.push([a - .01, { o: 0, ...from }], [a, { o: 1 }, 'step'], [a + .18, { x: 0, y: 0 }, 'out']);

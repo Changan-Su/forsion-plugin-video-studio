@@ -1,8 +1,8 @@
 ---
 name: forsion-video-studio
-description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
+description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when the user gives clips to cut into a montage, recap or promo, when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
 metadata:
-  version: 0.5.0
+  version: 0.6.0
   author: Forsion
   category: Forsion
 ---
@@ -212,7 +212,9 @@ where the user selects an element, re-times it and quotes it to you. An element 
 not on that lane — the user cannot point at it.
 
 - `data-in="h2"` — appears at hit 2. Also `h2+0.5` / `h2-1` (beats), `2b` (beats from the content start), `1.5s`, `end-1`.
-- `data-fx="cut|fade|up|down|left|right|pop|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
+- `data-fx="cut|fade|up|down|left|right|pop|zoom|blur|wipe|type"` with `data-dur` (beats), `data-dist` (px), `data-cps`.
+  `zoom` slams in from 1.35× its size, `blur` comes into focus (it takes over the element's CSS `filter`), `wipe` is
+  revealed from its left edge. Moves and scales skip inline elements: a `<span>` that moves needs `display: inline-block`.
 - `data-out="h4"` — gone at hit 4 (`data-fx-out="fade"` to fade).
 - `data-each="0.25"` on a container — apply the entrance to its children, 0.25 beats apart.
 - `data-seq="h0"` on a container — its children show one after another on hits h0, h1, h2 … (last one to the scene end). The EVA intertitle pattern.
@@ -328,8 +330,9 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    are close, look closer: `fvs frames <clip> --from 6 --to 10 --every 0.5`. The window's start is the shot's
    `data-clip-in` (plus the scene's `in` when it has one: file time = `data-clip-in` + `in`). Leave out a clip
    with nothing worth showing rather than pad with it, and say so.
-3. One shot per scene, its length on the beat grid; order the shots for a line (wide to close, calm to busy,
-   building to the last one). Size the shots to the frame once, in the project css before the first scene:
+3. One shot per scene by default, its length on the beat grid; two clips in one scene for a split screen or a picture
+   in picture (each its own `<video>`). Order the shots for a line (wide to close, calm to busy, building to the last
+   one). Size the shots to the frame once, in the project css before the first scene:
    `.fvs-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }` (a video
    left unsized shows at its own pixel size in a corner).
 4. **Title and closing line go on the footage, not on black cards.** Put the title in the first shot's scene as
@@ -337,17 +340,63 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    over a dark gradient scrim that is its own element too, for example
    `background: linear-gradient(transparent, rgba(0,0,0,.65))` across the third of the frame the text sits in.
    A text-shadow alone is often not enough over bright footage. The closing line sits on the last shot the same
-   way and may hold to the end. A plain card only when the user asks for one or no shot can carry the text.
-5. **Between shots:** cut on the beat by default; the cuts are the rhythm. Use a short cross-fade
+   way and may hold to the end. A plain card only when the user asks for one or no shot can carry the text. At the
+   *impact* level (next step) an animated opener may come first: one or two bars without footage where words arrive
+   on the hits and a line is drawn, cutting into the first shot on a hit (often with a `flash`); the title is in
+   the opener or slams onto the first shot.
+5. **Move the picture.** Footage that only cuts plays like a slideshow; give it the motion the animated videos have.
+   Choose the level from the brief, and say which in your reply:
+   - *calm* (a mood piece, landscapes, "quiet", "gentle"): one slow push or pull per shot, words fading or blurring
+     in, a soft transition where it helps;
+   - *standard*, **the default**, also for a plain "cut these clips": every shot has a camera move (a slow push, or a
+     drift once it is scaled up; one direction per shot), the title and the closing line arrive kinetically (word by
+     word, `zoom` or `wipe`, not a plain fade), and every shot has at least one hit where something happens inside it
+     (a punch-in, a line drawn, a label or a word arriving);
+   - *impact* (a promo, trailer, teaser, opener, "energy", "冲击力", "有气势"): standard, plus the animated opener of
+     step 4, punch-ins with a bump of light on hits, a split screen or a moving graphic (a line, a frame, a bar), the
+     title slammed in and the closing line landing on a hit.
+
+   When the user asks for particular changes to an existing cut, make those and nothing else.
+
+   ```html
+   <!-- a title that arrives word by word: one element per word, the entrance on the container -->
+   <h1 class="title" data-in="h0" data-each="0.5" data-fx="zoom"><span>城市</span><span>速写</span></h1>
+   <!-- a line drawn on a hit: its length is a custom property (css: transform-origin: left; scale: var(--d, 0) 1) -->
+   <i class="rule"></i>
+   <!-- a split screen: two clips, each showing half -->
+   <video class="l" src="media/a.webm" data-clip-in="12"></video><video class="r" src="media/b.webm" data-clip-in="4"></video>
+   <!-- a label that stays on what it names while the camera moves: clip and label in one wrapper (css: .cam { position: absolute; inset: 0 }) -->
+   <div class="cam"><video src="media/c.webm" data-clip-in="15"></video><p class="tag" data-in="h1" data-fx="pop">…</p></div>
+   ```
+
+   ```js
+   // slow push over the shot
+   K('video', [[t0, { s: 1 }], [t1, { s: 1.08 }, 'lin']])
+   // or: keep pushing, punch in on hit 2 with a bump of light (one K per element: a second one takes over the first)
+   K('video', [[t0, { s: 1 }], [hits[2] - .01, { s: 1.04 }, 'lin'], [hits[2], { s: 1.18, br: 1.35 }, 'step'], [hits[2] + .25, { br: 1 }, 'out'], [t1, { s: 1.22 }, 'lin']])
+   flash(hits[0], .5)                  // a white flash on a hit (the stage html needs <div data-fvs-flash></div>)
+   K('.rule', [[hits[1], { '--d': 0 }], [hits[1] + beat, { '--d': 1 }, 'expo']])
+   K('video.l', [[t0, { cr: 50, ct: 100 }], [t0 + beat, { ct: 0 }, 'expo']])          // left half, wiped down
+   K('video.r', [[hits[1], { cl: 50, cb: 100 }], [hits[1] + beat, { cb: 0 }, 'expo']]) // right half, on hit 1
+   K('.cam', [[t0, { s: 1.12, x: 60 }], [t1, { s: 1, x: -60 }, 'lin']])               // drift: scaled up first
+   ```
+
+   Never scale footage below 1, and drift only as far as the scale allows (`|x| ≤ (s − 1) × width / 2`), or the
+   frame's edge shows. Moves land on hits: declare the hits you animate on. `K` with `s x y r` takes over the
+   element's CSS `transform`, with `b br` its `filter`: grade with CSS custom properties, not a second `filter`.
+   Camera moves live in the scene's `js` block and are not on the Elements lane; words, labels and graphics keep
+   their `data-in`, so the user can still re-time them.
+6. **Between shots:** cut on the beat by default; the cuts are the rhythm. Use a short cross-fade
    (`"transition": { "type": "fade", "dur": "0.5 beats" }`, one beat at most) where the energy drops (a slow
    shot after a busy one, into the last shot); a `dip` through the background into the last shot at most (a
    transition plays at the start of the scene that has it). A fade on every cut only when the user asks for a
    soft film.
-6. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
+7. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
-7. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
-   come back without a contrast finding; if not, darken the scrim, do not lighten the text), and `sheet --every 2` to see the rhythm.
-   In your reply, list the shots with the window you took from each clip.
+8. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
+   come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
+   the rhythm and `sheet --every 0.5` (or `--from` / `--to` around a shot) to see the moves: one frame per scene
+   cannot show whether anything moved. In your reply, list the shots with the window you took from each clip and the level you chose.
 
 **Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings
 that matter in plain words, scene by scene, with what you would change (pacing, legibility, text over footage,
