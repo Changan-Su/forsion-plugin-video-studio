@@ -129,7 +129,8 @@ export async function fetchFootage(dir, set = FOOTAGE) {
     if (existsSync(file)) continue;
     const r = await fetch(f.url, { headers: { "User-Agent": "ForsionVideoStudio-verify/1.0 (https://forsion.net)" } });
     if (!r.ok) throw new Error(`${f.name}: ${r.status} ${f.url}`);
-    writeFileSync(`${file}.part`, Buffer.from(await r.arrayBuffer())); renameSync(`${file}.part`, file); // runs side by side never read half a file
+    const part = `${file}.${process.pid}.part`; // runs side by side never read or rename each other's half a file
+    writeFileSync(part, Buffer.from(await r.arrayBuffer())); renameSync(part, file);
   }
   writeFileSync(join(dir, "CREDITS.md"), set.map(f => `- ${f.name}.webm — ${f.title}, ${f.author}, ${f.license}, ${f.page}`).join("\n") + "\n");
   return dir;

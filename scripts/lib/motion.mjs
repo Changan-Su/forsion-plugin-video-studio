@@ -43,7 +43,8 @@ function snapshot() {
   };
   const cut = (a, c) => ({ l: Math.max(a.l, c.l), t: Math.max(a.t, c.t), r: Math.min(a.r, c.r), b: Math.min(a.b, c.b) });
   const els = [];
-  for (const sc of stage.querySelectorAll('.fvs-scene')) {
+  // the scenes, and the native captions layer the runtime mounts beside them (a line may be a caption cue)
+  for (const sc of stage.querySelectorAll('.fvs-scene, .fvs-captions')) {
     if (!opacity(sc)) continue;
     const all = [...sc.querySelectorAll('*')], index = new Map(all.map((el, i) => [el, i]));
     all.forEach((el, i) => {
@@ -64,7 +65,7 @@ function snapshot() {
       let tb = null;
       if (own) { const rg = document.createRange(); rg.selectNodeContents(el); const q = rg.getBoundingClientRect(); tb = { x: Math.round((q.left - S.left) * k), y: Math.round((q.top - S.top) * k), w: Math.round(q.width * k), h: Math.round(q.height * k) }; }
       els.push({
-        scene: sc.dataset.scene, i, parent: index.get(el.parentElement) ?? -1, video: el.tagName === 'VIDEO', src: el.getAttribute('src') || '', withVideo: !!el.querySelector('video'),
+        scene: sc.dataset.scene || 'captions', i, parent: index.get(el.parentElement) ?? -1, video: el.tagName === 'VIDEO', src: el.getAttribute('src') || '', withVideo: !!el.querySelector('video'),
         own, tb, text: el.textContent.replace(/\s+/g, ''),
         on: o > .5 && vw > 0 && vh > 0, x: Math.round((r.left - S.left) * k), y: Math.round((r.top - S.top) * k), w: Math.round(r.width * k), h: Math.round(r.height * k),
         v: { x: Math.round((box.l - S.left) * k), y: Math.round((box.t - S.top) * k), w: Math.round(vw * k), h: Math.round(vh * k) },
@@ -182,14 +183,14 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
       const span = xs.filter(r => r.t >= shown[0].t - step && r.t <= shown[shown.length - 1].t + step);
       const boxMoves = span.some((r, j) => j > 0 && r.els.some(e => { const o = span[j - 1].els.find(q => q.i === e.i); return o && shifted(e, o, 30, .05); }));
       const why = growth(span) >= 2 ? 'in steps' : travels(span) || boxMoves ? 'moves' : null;
-      // all of its words inside the frame at once, at a moment when as many of them are on screen as ever are (a line too
-      // wide for a portrait frame runs off its sides, and onScreen only needs some of it showing)
-      const words = r => r.els.filter(e => e.on && e.own), full = Math.max(...xs.map(r => words(r).length));
-      const inFrame = xs.some(r => words(r).length === full && words(r).every(e => e.tb && e.tb.x >= -2 && e.tb.y >= -2 && e.tb.x + e.tb.w <= W + 2 && e.tb.y + e.tb.h <= H + 2));
+      // all of its words inside the frame at once, at a moment when as much of it is on screen as ever is (a line too
+      // wide for a portrait frame runs off its sides, onScreen only needs some of it showing, and a typed line grows)
+      const words = r => r.els.filter(e => e.on && e.own), cover = r => words(r).reduce((n, e) => n + e.text.length, 0), full = Math.max(...xs.map(cover));
+      const inFrame = full > 0 && xs.some(r => cover(r) === full && words(r).every(e => e.tb && e.tb.x >= -2 && e.tb.y >= -2 && e.tb.x + e.tb.w <= W + 2 && e.tb.y + e.tb.h <= H + 2));
       return { found: true, onScreen: true, kinetic: !!why, why, inFrame };
     };
     const all = [...holders].map(judge);
-    return all.find(r => r.kinetic) || all.find(r => r.onScreen) || all[0];
+    return all.find(r => r.kinetic && r.inFrame) || all.find(r => r.kinetic) || all.find(r => r.onScreen && r.inFrame) || all.find(r => r.onScreen) || all[0];
   };
   return { step, shots, opener, title: kinetic(lines.title), closing: kinetic(lines.closing) };
 }

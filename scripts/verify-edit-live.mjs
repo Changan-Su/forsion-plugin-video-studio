@@ -419,12 +419,14 @@ try {
     if (used.size < Math.ceil(set.length * .7)) miss.push(`only ${used.size} of the ${set.length} clips are in the cut`);
     if (th.bpm && p.meta.tempo?.bpm !== th.bpm) miss.push(`the project is at ${p.meta.tempo?.bpm} BPM, not ${th.bpm}`);
     if (th.bpm) { const off = p.scenes.filter(s => Math.abs(s.t1 / m.step - Math.round(s.t1 / m.step)) > .04); if (off.length) miss.push(`cuts off the eighth-note grid: ${off.map(s => `${s.id}@${s.t1.toFixed(3)}`).join(', ')}`); }
-    if (clips.filter(v => v.clipIn > 0 || p.scenes.find(s => s.html.includes(v.src))?.in > 0).length < 3) miss.push('fewer than three shots are taken from inside their clip');
+    if (shots(p).flatMap(s => videos(s.html).filter(v => v.clipIn > 0 || s.in > 0)).length < 3) miss.push('fewer than three shots are taken from inside their clip');
     if (!plain(text).includes(plain(th.title)) || !plain(text).includes(plain(th.closing))) miss.push('the title or the closing line is missing');
     for (const [what, l] of [['title', m.title], ['closing line', m.closing]]) if (!l?.onScreen) miss.push(`the ${what} is never on screen`); else if (!l.inFrame) miss.push(`the ${what} never fits inside the ${W}×${H} frame`);
-    if (th.captions) { const bare = shots(p).filter(s => !CJK.test(s.html.replace(/<video[\s\S]*?(<\/video>|\/>)/g, '')) && !p.captions.some(c => c.start < s.t1 && c.end > s.t0 && CJK.test(c.text))); if (bare.length) miss.push(`shots without a Chinese caption: ${bare.map(s => s.id).join(', ')}`); }
+    // a caption: words in the shot's own html (not in a comment or an attribute), or a caption cue while it is on screen
+    if (th.captions) { const bare = shots(p).filter(s => !CJK.test(plain(s.html.replace(/<!--[\s\S]*?-->/g, ''))) && !p.captions.some(c => c.start < s.t1 && c.end > s.t0 && CJK.test(c.text))); if (bare.length) miss.push(`shots without a Chinese caption: ${bare.map(s => s.id).join(', ')}`); }
     if (th.level === 'calm') {
-      if (acc.length > sh.length) miss.push(`${acc.length} beat accents in ${sh.length} shots (a calm cut has at most one a shot)`);
+      const busy = sh.filter(s => s.accents.length > 1);
+      if (busy.length) miss.push(`beat accents in ${busy.map(s => `${s.id} ×${s.accents.length}`).join(', ')} (a calm cut has at most one a shot)`);
       if (footageSec / Math.max(sh.length, 1) < 2.5) miss.push(`shots average ${(footageSec / Math.max(sh.length, 1)).toFixed(2)} s (a calm cut takes its time)`);
     } else {
       if (moving.length < Math.ceil(sh.length * .6)) miss.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
