@@ -47,11 +47,15 @@ function snapshot() {
     const all = [...sc.querySelectorAll('*')], index = new Map(all.map((el, i) => [el, i]));
     all.forEach((el, i) => {
       const r = el.getBoundingClientRect(), o = opacity(el), cs = getComputedStyle(el);
-      let box = clipped(el, r);
+      // a parent's clip-path cuts everything inside it; its overflow only what it contains as a block: an absolutely
+      // placed element skips the unpositioned parents between it and the one it is placed in (10-24: words placed in
+      // the scene from inside a zero-height `overflow: hidden` wrapper are on screen)
+      let box = clipped(el, r), placed = /absolute|fixed/.test(cs.position);
       for (let a = el.parentElement; a && a !== stage; a = a.parentElement) {
-        const ac = getComputedStyle(a);
+        const ac = getComputedStyle(a), positioned = ac.position !== 'static' || ac.transform !== 'none';
         if (ac.clipPath !== 'none') box = cut(box, clipped(a, a.getBoundingClientRect()));
-        else if (ac.overflow !== 'visible') box = cut(box, edges(a.getBoundingClientRect()));
+        if (ac.overflow !== 'visible' && (!placed || positioned)) box = cut(box, edges(a.getBoundingClientRect()));
+        if (positioned) placed = /absolute|fixed/.test(ac.position);
       }
       box = cut(box, edges(S));
       const vw = Math.max(0, box.r - box.l), vh = Math.max(0, box.b - box.t);
