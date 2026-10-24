@@ -13,7 +13,7 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
-import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview } from '../lib/review.js';
+import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings } from '../lib/review.js';
 
 const VERSION = '0.7.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
@@ -82,7 +82,8 @@ function timeArg(p, v) {
 }
 
 /* ───────── browser & ffmpeg ───────── */
-async function chromium() {
+/** A launched Chromium; `need` false: null instead of exiting when there is no driver or no browser. */
+async function chromium({ need = true } = {}) {
   const req = createRequire(join(process.cwd(), 'x.js'));
   const tries = ['playwright-core', 'playwright'];
   let pw = null;
@@ -92,7 +93,7 @@ async function chromium() {
     }
     if (pw) break;
   }
-  if (!pw) die('This command needs a browser driver. Install one:  npm i -g playwright-core   (or run inside a folder with playwright installed)');
+  if (!pw) { if (!need) return null; die('This command needs a browser driver. Install one:  npm i -g playwright-core   (or run inside a folder with playwright installed)'); }
   const { chromium: C } = pw.chromium ? pw : pw.default;
   const exe = process.env.FVS_CHROMIUM || flags.browser;
   const attempts = [];
@@ -103,6 +104,7 @@ async function chromium() {
   for (const opt of attempts) {
     try { return await C.launch({ ...opt, args: ['--force-color-profile=srgb', '--font-render-hinting=none', '--hide-scrollbars'] }); } catch (e) { lastErr = e; }
   }
+  if (!need) return null;
   die(`Could not start a Chromium-based browser (${String(lastErr && lastErr.message || lastErr).split('\n')[0]}).\nInstall Google Chrome or Microsoft Edge, or run: npx playwright install chromium, or set FVS_CHROMIUM=/path/to/chrome`);
 }
 function globalRequire(m) {
@@ -174,6 +176,31 @@ function missingMedia({ p, dir }) {
   if (p.stageHtml >= 0) inHtml(stageHtml(p), p.toks[p.stageHtml].line, undefined);
   for (const s of p.scenes) inHtml(s.html, s.htmlTok >= 0 ? p.toks[s.htmlTok].line : s.line, s.id);
   return out;
+}
+
+/** Footage that does not fill the frame, which HyperFrames does not look for: our own capture page, seeked to each time. */
+async function footageCheck(ctx, times) {
+  if (!times.length) return [];
+  const browser = await chromium({ need: false });
+  if (!browser) { console.error('warn  not checked whether the footage fills the frame: that needs playwright-core and a Chromium, like `sheet`'); return []; }
+  let stage = null;
+  try {
+    stage = await openStage(ctx, browser, { scale: 0.25, captions: false });
+    const named = Object.fromEntries(Object.entries(stage.payload.assets).map(([rel, url]) => [url, rel])); // page url → the project's path
+    const seen = [];
+    for (const t of times) {
+      await stage.pg.evaluate(x => __stage.seek(x), t);
+      const m = await stage.pg.evaluate(footageOnScreen, ctx.p.meta.width);
+      if (m) seen.push({ ...m, t, shots: m.shots.map(s => ({ ...s, src: named[s.src] || s.src })) });
+    }
+    return footageFindings(seen);
+  } catch (e) { // an extra look, not a reason to lose HyperFrames' report
+    console.error(`warn  not checked whether the footage fills the frame: ${String(e?.message || e).split('\n')[0]}`);
+    return [];
+  } finally {
+    await browser.close();
+    if (stage) rmSync(stage.tmp, { recursive: true, force: true });
+  }
 }
 
 /* ───────── commands ───────── */
@@ -267,7 +294,8 @@ const commands = {
       // a report has its sections; {ok:false, error} is HyperFrames failing to look (no Chrome, a crash), not a clean film
       if (!hf || hf.error || !['lint', 'layout'].every(k => hf[k])) die(`HyperFrames did not run (${hf?.error || (r.error ? r.error.message : `exit ${r.status}`)}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).\n${String(r.stderr || '').trim().split('\n').slice(-6).join('\n')}`);
       if (hf.browserSkipped) console.error('warn  HyperFrames looked at the page source only (its lint stopped the browser pass); the findings below are not about frames');
-      const grouped = groupFindings(p, hf, { all: !!flags.all });
+      const footage = await footageCheck(ctx, flags.at ? times : footageTimes(p));
+      const grouped = groupFindings(p, { ...hf, footage: { findings: footage } }, { all: !!flags.all });
       if (outside.length) console.error(`warn  not reviewed with their assets (outside the project folder): ${outside.join(', ')}`);
       if (flags.json) log(JSON.stringify({ hyperframes: HYPERFRAMES_VERSION, times, ...grouped }, null, 2));
       else log(formatReview(grouped, { times: times.length }));

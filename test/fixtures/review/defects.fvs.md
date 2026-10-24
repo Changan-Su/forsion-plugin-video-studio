@@ -2,7 +2,8 @@
 
 Three mistakes a written scene makes, for scripts/verify-review.mjs: a headline too long for its line runs into the
 line under it, that line is dark grey on the dark stage, and a panel drawn later covers it. A second scene puts a
-caption over a video clip, which has to be looked at with the clip on screen.
+caption over a video clip, which has to be looked at with the clip on screen. A third leaves its clip at a
+quarter of the frame in a corner, which HyperFrames does not look for and `fvs review` has to.
 
 ```fvs
 {
@@ -23,6 +24,7 @@ caption over a video clip, which has to be looked at with the clip on screen.
 .fvs-stage p { position: absolute; left: 164px; top: 600px; margin: 0; font-size: 48px; color: #222; }
 .fvs-stage .panel { position: absolute; left: 150px; top: 560px; width: 900px; height: 200px; background: #101010; }
 .fvs-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.fvs-stage video.thumb { inset: auto; left: 0; top: 0; width: 854px; height: 480px; }
 .fvs-stage .caption { position: absolute; left: 160px; bottom: 120px; font-size: 64px; color: #fff; }
 ```
 
@@ -47,4 +49,14 @@ caption over a video clip, which has to be looked at with the clip on screen.
 ```html
 <video src="media/clip.webm"></video>
 <div class="caption" data-in="h0">A caption over the footage</div>
+```
+
+## corner · 角落
+
+```fvs
+{ "length": "2s", "hits": [0] }
+```
+
+```html
+<video class="thumb" src="media/clip.webm"></video>
 ```

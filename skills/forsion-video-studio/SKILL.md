@@ -91,11 +91,14 @@ middle and just after each hit and reports, by scene: text hidden under somethin
 text blocks overlapping (`content_overlap`), text clipped or out of its box or off the frame (`clipped_text`,
 `text_box_overflow`, `canvas_overflow`), contrast under WCAG AA against what is really behind the text, footage
 included (`contrast_aa_failure`), text on screen too briefly to read (`line_unread`), type too small for a phone
-(`text_below_floor`), long stretches where nothing moves (`dead_stretch`). It is advice, never a gate: it exits 0
-whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
+(`text_below_floor`), long stretches where nothing moves (`dead_stretch`). One check is our own (HyperFrames does
+not look for it; it needs playwright-core and a Chromium like `sheet`, and is skipped with a warning without them):
+footage that does not fill the frame (`footage_not_filling`), e.g. a clip left at its own 854×480 in a corner because
+the rule that sizes it never applied. It is advice, never a gate: it exits 0 whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
 the edge, a word flashed in a montage), keep it and put the marker HyperFrames reads on that element:
 `data-layout-allow-overflow`, `data-layout-allow-occlusion`, `data-layout-allow-overlap`, `data-hold` (stillness
-on purpose) or `data-layout-ignore`; say which ones you kept and why. If `review` cannot run (no network, no npx),
+on purpose) or `data-layout-ignore` (also for footage inset on purpose: picture in picture, a framed screen
+recording); say which ones you kept and why. If `review` cannot run (no network, no npx),
 say so and fall back to `check --runtime` and stills.
 
 ## The file format
@@ -154,7 +157,9 @@ grain('.grain')
 ```
 
 ```css
-/* optional; scoped to this scene automatically (nested under [data-scene="intro"]) */
+/* optional; scoped to this scene automatically (nested under [data-scene="intro"]): write `video { … }`, not
+   `.fvs-scene video { … }` (that looks for a scene inside this one and matches nothing). Rules every scene
+   shares go in the project css block before the first scene. */
 ```
 
 ```js
@@ -324,7 +329,9 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    `data-clip-in` (plus the scene's `in` when it has one: file time = `data-clip-in` + `in`). Leave out a clip
    with nothing worth showing rather than pad with it, and say so.
 3. One shot per scene, its length on the beat grid; order the shots for a line (wide to close, calm to busy,
-   building to the last one).
+   building to the last one). Size the shots to the frame once, in the project css before the first scene:
+   `.fvs-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }` (a video
+   left unsized shows at its own pixel size in a corner).
 4. **Title and closing line go on the footage, not on black cards.** Put the title in the first shot's scene as
    its own element (`data-in="h0"`, gone a beat or two before the cut with `data-out` / `data-fx-out="fade"`),
    over a dark gradient scrim that is its own element too, for example
@@ -338,8 +345,8 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    soft film.
 6. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
-7. Then `check --runtime`, `review` (the title and closing line over footage must come back without a
-   contrast finding; if not, darken the scrim, do not lighten the text), and `sheet --every 2` to see the rhythm.
+7. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
+   come back without a contrast finding; if not, darken the scrim, do not lighten the text), and `sheet --every 2` to see the rhythm.
    In your reply, list the shots with the window you took from each clip.
 
 **Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings

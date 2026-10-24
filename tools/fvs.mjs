@@ -1088,9 +1088,58 @@ function reviewTimes(p) {
   for (const t of picked) if (t >= 0 && t < p.length && out.every((u) => Math.abs(t - u) >= 0.2)) out.push(t);
   return [...new Set(out.map((t) => +t.toFixed(3)))].sort((a, b) => a - b);
 }
+var FILL = 0.9;
+function footageTimes(p) {
+  return p.scenes.filter((s) => videos(s.html).some((v) => v.src)).map((s) => +((s.t0 + s.t1) / 2).toFixed(3));
+}
+function footageOnScreen(width) {
+  const stage = document.querySelector(".fvs-stage")?.getBoundingClientRect();
+  if (!stage || !stage.width) return null;
+  const shown = [...document.querySelectorAll(".fvs-stage video")].filter((v) => !v.closest("[data-layout-ignore]") && v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+  if (!shown.length) return null;
+  const k = width / stage.width, root = document.querySelector(".fvs-stage");
+  const pics = shown.map((v) => {
+    let { left: l, top: t, width: w, height: h } = v.getBoundingClientRect();
+    const fit = getComputedStyle(v).objectFit, vw = v.videoWidth, vh = v.videoHeight;
+    if (fit !== "fill" && fit !== "cover" && vw && vh) {
+      const contain = Math.min(w / vw, h / vh), own = v.offsetWidth ? w / v.offsetWidth : 1;
+      const s = fit === "none" ? own : fit === "scale-down" ? Math.min(contain, own) : contain;
+      l += (w - vw * s) / 2;
+      t += (h - vh * s) / 2;
+      w = vw * s;
+      h = vh * s;
+    }
+    let r = l + w, b = t + h;
+    for (let a = v.parentElement; a && a !== root; a = a.parentElement) {
+      if (getComputedStyle(a).overflow === "visible") continue;
+      const c = a.getBoundingClientRect();
+      l = Math.max(l, c.left);
+      t = Math.max(t, c.top);
+      r = Math.min(r, c.right);
+      b = Math.min(b, c.bottom);
+    }
+    return { src: v.getAttribute("src") || "", l, t, r, b, w: Math.max(0, Math.round((r - l) * k)), h: Math.max(0, Math.round((b - t) * k)) };
+  });
+  let hit = 0;
+  for (let i = 0; i < 64; i++) for (let j = 0; j < 36; j++) {
+    const x = stage.left + (i + 0.5) * stage.width / 64, y = stage.top + (j + 0.5) * stage.height / 36;
+    if (pics.some((q) => x >= q.l && x < q.r && y >= q.t && y < q.b)) hit++;
+  }
+  return { share: hit / (64 * 36), frame: [Math.round(stage.width * k), Math.round(stage.height * k)], shots: pics.map(({ src, w, h }) => ({ src, w, h })) };
+}
+function footageFindings(seen) {
+  return seen.filter((m) => m && m.share < FILL).map((m) => ({
+    code: "footage_not_filling",
+    severity: m.share < 0.5 ? "error" : "warning",
+    time: m.t,
+    selector: m.shots.map((s) => `video[src="${s.src}"]`).join(", "),
+    message: `The footage covers ${Math.round(m.share * 100)}% of the frame: ${m.shots.map((s) => `${s.src || "a video"} at ${s.w}\xD7${s.h}`).join(", ")} in ${m.frame[0]}\xD7${m.frame[1]}; the rest is the stage background.`,
+    fixHint: "size every shot to the frame in the project css, before the first scene (a scene's own css block applies inside that scene only): video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }. A deliberate inset (picture in picture, a framed screen recording): data-layout-ignore on the video."
+  }));
+}
 function flatten(report2) {
   const out = [];
-  for (const section of ["lint", "runtime", "layout", "motion", "contrast", "craft"]) {
+  for (const section of ["lint", "runtime", "layout", "motion", "contrast", "craft", "footage"]) {
     for (const f of report2?.[section]?.findings || []) out.push({ ...f, section });
   }
   return out;
@@ -1192,7 +1241,7 @@ function timeArg(p, v) {
   if (!(+h < s.hitTimes.length)) die(`scene "${id}" has ${s.hitTimes.length} hits`);
   return s.hitTimes[+h];
 }
-async function chromium() {
+async function chromium({ need = true } = {}) {
   const req = createRequire(join2(process.cwd(), "x.js"));
   const tries = ["playwright-core", "playwright"];
   let pw = null;
@@ -1207,7 +1256,10 @@ async function chromium() {
     }
     if (pw) break;
   }
-  if (!pw) die("This command needs a browser driver. Install one:  npm i -g playwright-core   (or run inside a folder with playwright installed)");
+  if (!pw) {
+    if (!need) return null;
+    die("This command needs a browser driver. Install one:  npm i -g playwright-core   (or run inside a folder with playwright installed)");
+  }
   const { chromium: C } = pw.chromium ? pw : pw.default;
   const exe = process.env.FVS_CHROMIUM || flags.browser;
   const attempts = [];
@@ -1222,6 +1274,7 @@ async function chromium() {
       lastErr = e;
     }
   }
+  if (!need) return null;
   die(`Could not start a Chromium-based browser (${String(lastErr && lastErr.message || lastErr).split("\n")[0]}).
 Install Google Chrome or Microsoft Edge, or run: npx playwright install chromium, or set FVS_CHROMIUM=/path/to/chrome`);
 }
@@ -1293,6 +1346,32 @@ function missingMedia({ p, dir }) {
   if (p.stageHtml >= 0) inHtml(stageHtml(p), p.toks[p.stageHtml].line, void 0);
   for (const s of p.scenes) inHtml(s.html, s.htmlTok >= 0 ? p.toks[s.htmlTok].line : s.line, s.id);
   return out;
+}
+async function footageCheck(ctx, times) {
+  if (!times.length) return [];
+  const browser = await chromium({ need: false });
+  if (!browser) {
+    console.error("warn  not checked whether the footage fills the frame: that needs playwright-core and a Chromium, like `sheet`");
+    return [];
+  }
+  let stage = null;
+  try {
+    stage = await openStage(ctx, browser, { scale: 0.25, captions: false });
+    const named = Object.fromEntries(Object.entries(stage.payload.assets).map(([rel, url]) => [url, rel]));
+    const seen = [];
+    for (const t of times) {
+      await stage.pg.evaluate((x) => __stage.seek(x), t);
+      const m = await stage.pg.evaluate(footageOnScreen, ctx.p.meta.width);
+      if (m) seen.push({ ...m, t, shots: m.shots.map((s) => ({ ...s, src: named[s.src] || s.src })) });
+    }
+    return footageFindings(seen);
+  } catch (e) {
+    console.error(`warn  not checked whether the footage fills the frame: ${String(e?.message || e).split("\n")[0]}`);
+    return [];
+  } finally {
+    await browser.close();
+    if (stage) rmSync2(stage.tmp, { recursive: true, force: true });
+  }
 }
 var commands = {
   async new() {
@@ -1385,7 +1464,8 @@ captions: ${p.captions.length} cues, ${Math.min(...p.captions.map((c) => c.start
       if (!hf || hf.error || !["lint", "layout"].every((k) => hf[k])) die(`HyperFrames did not run (${hf?.error || (r.error ? r.error.message : `exit ${r.status}`)}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).
 ${String(r.stderr || "").trim().split("\n").slice(-6).join("\n")}`);
       if (hf.browserSkipped) console.error("warn  HyperFrames looked at the page source only (its lint stopped the browser pass); the findings below are not about frames");
-      const grouped = groupFindings(p, hf, { all: !!flags.all });
+      const footage = await footageCheck(ctx, flags.at ? times : footageTimes(p));
+      const grouped = groupFindings(p, { ...hf, footage: { findings: footage } }, { all: !!flags.all });
       if (outside.length) console.error(`warn  not reviewed with their assets (outside the project folder): ${outside.join(", ")}`);
       if (flags.json) log(JSON.stringify({ hyperframes: HYPERFRAMES_VERSION, times, ...grouped }, null, 2));
       else log(formatReview(grouped, { times: times.length }));

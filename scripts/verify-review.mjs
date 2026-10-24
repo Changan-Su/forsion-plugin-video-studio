@@ -5,6 +5,8 @@
 //             the clip's frame on screen (its contrast is measured against the footage)
 //   marked    data-layout-allow-occlusion on the covered line takes that finding away (what the skill tells the
 //             Director to do with a deliberate choice)
+//   corner    a clip left at a quarter of the frame is reported as footage_not_filling (our own check, a browser of
+//             ours: HyperFrames does not look for it); data-layout-ignore on it takes that away
 //   example   the bundled example passes HyperFrames' lint (the runtime is loaded from a file, not inline) so the
 //             browser pass runs, its scripts run clean, and the project's asset folders are untouched afterwards
 //   advice    findings never fail the command
@@ -33,6 +35,7 @@ for (const want of ['text_occluded:A subtitle nobody can read', 'content_overlap
   assert.ok(intro.some(c => c.startsWith(want)), `intro should report ${want}: ${JSON.stringify(intro)}`);
 }
 assert.ok(codes(defects, 'clip').some(c => c.startsWith('contrast_aa_failure:A caption over the footage')), `the caption over the clip is measured against the footage: ${JSON.stringify(codes(defects, 'clip'))}`);
+assert.deepEqual(defects.scenes.flatMap(s => s.findings.filter(f => f.code === 'footage_not_filling').map(f => `${s.id}:${f.severity}`)), ['corner:error'], 'the clip left in a corner is reported, the one sized to the frame is not');
 assert.ok(existsSync(join(fixtures, 'media/clip.webm')), 'the fixture\'s media survived the review');
 ok(`defects: ${defects.counts.error} errors, in their scenes (${intro.length} in intro)`);
 
@@ -44,7 +47,19 @@ try {
   writeFileSync(marked, readFileSync(marked, 'utf8').replace('<p data-in="h1" data-fx="fade">', '<p data-in="h1" data-fx="fade" data-layout-allow-occlusion>'));
   const after = codes(review(marked), 'intro');
   assert.ok(!after.includes('text_occluded:A subtitle nobody can read'), `the marked line is no longer reported as covered: ${JSON.stringify(after)}`);
-  ok('marked: data-layout-allow-occlusion takes the finding away');
+  writeFileSync(marked, readFileSync(marked, 'utf8').replace('<video class="thumb"', '<video class="thumb" data-layout-ignore'));
+  assert.deepEqual(codes(review(marked), 'corner').filter(c => c.startsWith('footage_not_filling')), [], 'a deliberate inset marked data-layout-ignore is not reported');
+  ok('marked: data-layout-allow-occlusion and data-layout-ignore take their findings away');
+  // the picture, not the box: object-fit none leaves the 320×180 clip small in a full-frame box; a clipping parent
+  // cuts a full-frame clip down to its own 854×480
+  cpSync(fixtures, tmp, { recursive: true });
+  writeFileSync(marked, readFileSync(marked, 'utf8')
+    .replace('<video class="thumb" src="media/clip.webm"></video>', '<div class="win"><video src="media/clip.webm"></video></div>')
+    .replace('.fvs-stage .caption {', '.fvs-stage .win { position: absolute; left: 0; top: 0; width: 854px; height: 480px; overflow: hidden; }\n.fvs-stage .win video { width: 1920px; height: 1080px; }\n.fvs-stage .caption {')
+    .replace('<video src="media/clip.webm"></video>\n<div class="caption"', '<video src="media/clip.webm" style="object-fit: none"></video>\n<div class="caption"'));
+  const fit = review(marked), small = id => codes(fit, id).filter(c => c.startsWith('footage_not_filling')).length;
+  assert.deepEqual([small('clip'), small('corner')], [1, 1], `object-fit none and a clipping parent are measured by what shows: ${JSON.stringify(fit.scenes.map(s => [s.id, s.findings.map(f => f.code)]))}`);
+  ok('fit: object-fit none and a clipping parent are measured by the picture that shows');
 } finally { rmSync(tmp, { recursive: true, force: true }); }
 
 // example

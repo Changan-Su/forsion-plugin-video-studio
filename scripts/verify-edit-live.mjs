@@ -6,9 +6,10 @@
 //   montage   seven real clips (Wikimedia Commons, see scripts/lib/fetch-footage.mjs) into a ~20 s city film: most
 //             clips used, each picked from inside its file, cuts on the 120 BPM grid, title and closing line, the
 //             clips' own sound kept but lower; the clips looked at in several frames (`fvs frames`, or ffmpeg at a
-//             rate) or at least not every shot from one offset; renders with sound
+//             rate) or at least not every shot from one offset; renders with sound, every shot filling the frame (read
+//             from the render's pixels, scripts/lib/frame-fill.mjs)
 //   recap     Forsion 2.13.5's feature recordings (FVS_DEMOS, default <Forsion>/outputs/release-demos-2.13.5) into a
-//             ~40 s update recap: every recording used, cut down, one caption each; renders
+//             ~40 s update recap: every recording used, cut down, one caption each; renders, every shot filling the frame
 //   recut     an existing four-shot cut, four edits in one message: move shot 3 first, halve the last shot, a cross-fade
 //             between every two shots, the closing caption in English; nothing else changes and the caption stays
 //             inside the film
@@ -34,6 +35,7 @@ import { parseProject } from '../src/lib/project.js';
 import { videos } from '../src/lib/html.js';
 import { emptyTemplate } from '../src/lib/templates.js';
 import { fetchFootage, FOOTAGE } from './lib/fetch-footage.mjs';
+import { unfilled, FLAT_LIMIT } from './lib/frame-fill.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = resolve(process.env.FVS_ENGINE_ROOT || join(repo, '../../Forsion-Genesis/tangu-agent'));
@@ -142,6 +144,13 @@ const frameLooks = ev => (ev?.tools || []).filter(t => /fvs\.mjs\S*"?[\s\\]+fram
 const views = ev => (ev?.tools || []).filter(t => t.name === 'view_image').length;
 const near = (a, b, eps = 0.02) => Math.abs(a - b) <= eps;
 const shots = p => p.scenes.filter(s => videos(s.html).some(v => v.src));
+// the footage fills the frame, read from the render's pixels: not from the project and not from `fvs review`, so a
+// mistake both of those miss still fails here (10-24: every clip at 854×480 in a corner, passed as "title on the shot")
+function filled(key, p, legs, ev) {
+  const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), shots(p));
+  legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(中点平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)`);
+  if (over.length) throw fail(`footage does not fill the frame (flat share over ${FLAT_LIMIT} at the shot's middle): ${over.map(r => `${r.id} ${r.share}`).join(', ')}`, ev);
+}
 const reviewOf = file => JSON.parse(execFileSync(process.execPath, [cli, 'review', file, '--json'], { cwd: dirname(file), encoding: 'utf8', maxBuffer: 64 << 20 }));
 
 /** What every scenario leaves behind: the project, the review, a contact sheet, a half-size render when asked. */
@@ -230,6 +239,7 @@ try {
     if (!/^ok/.test(facts.check)) throw fail(`check: ${facts.check}`, ev);
     if (!facts.render?.audio || !near(facts.render.seconds, p.length, 0.15)) throw fail(`render: ${JSON.stringify(facts.render)}`, ev);
     legs.push(`半尺寸渲染 ${facts.render.seconds} s、有声音、${facts.render.mb} MB`);
+    filled('montage', p, legs, ev);
     return ev;
   });
 
@@ -254,6 +264,7 @@ try {
     if (!/^ok/.test(facts.check)) throw fail(`check: ${facts.check}`, ev);
     if (facts.render?.failed || !near(facts.render.seconds, p.length, 0.15)) throw fail(`render: ${JSON.stringify(facts.render)}`, ev);
     legs.push(`录屏原长 ${total.toFixed(1)} s → 成片 ${p.length.toFixed(1)} s;半尺寸渲染 ${facts.render.seconds} s、${facts.render.mb} MB`);
+    filled('recap', p, legs, ev);
     return ev;
   });
 
