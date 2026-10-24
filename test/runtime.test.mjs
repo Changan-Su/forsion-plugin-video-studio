@@ -233,6 +233,32 @@ test('entrances zoom, blur and wipe: hidden before their time, moving at it, set
   await page.close();
 });
 
+test('hit(i) past the scene\'s last hit is a runtime error, not a silent NaN', { skip: !browser }, async () => {
+  const { page } = await capture(`# Hits
+
+\`\`\`fvs
+{ "fvs": 1, "width": 320, "height": 180, "fps": 30, "tempo": { "bpm": 120, "beatsPerBar": 4 } }
+\`\`\`
+
+## a · A
+
+\`\`\`fvs
+{ "length": "4 beats", "hits": [0, 2] }
+\`\`\`
+
+\`\`\`html
+<p>P</p>
+\`\`\`
+
+\`\`\`js
+K('p', [[hit(1), { s: 1 }], [hit(4), { s: 1.2 }]])
+\`\`\`
+`, 'hits');
+  const errs = await page.evaluate(() => window.__stage.errors.map(e => e.message));
+  assert.deepEqual(errs, ['hit(4): this scene has 2 hits, hit(0)–hit(1)']);
+  await page.close();
+});
+
 /* ───────── the Elements lane: what the editor's timeline says is what the picture does ───────── */
 
 test('elements lane: the spans the editor draws are when each element is on screen', { skip: !browser }, async () => {
