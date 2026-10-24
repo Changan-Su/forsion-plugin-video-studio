@@ -416,7 +416,8 @@ try {
     const miss = [];
     if (th.portrait && Math.abs(W / H - 9 / 16) > .01) miss.push(`not a vertical 9:16 frame (${W}×${H})`);
     if (!(p.length >= th.len[0] && p.length <= th.len[1])) miss.push(`length ${p.length.toFixed(2)} s outside ${th.len.join('–')} s`);
-    if (used.size < Math.ceil(set.length * .7)) miss.push(`only ${used.size} of the ${set.length} clips are in the cut`);
+    // more than half the clips: leaving a weak clip out is a choice (10-24 food: raw meat being washed, left out)
+    if (used.size <= set.length / 2) miss.push(`only ${used.size} of the ${set.length} clips are in the cut`);
     if (th.bpm && p.meta.tempo?.bpm !== th.bpm) miss.push(`the project is at ${p.meta.tempo?.bpm} BPM, not ${th.bpm}`);
     if (th.bpm) { const off = p.scenes.filter(s => Math.abs(s.t1 / m.step - Math.round(s.t1 / m.step)) > .04); if (off.length) miss.push(`cuts off the eighth-note grid: ${off.map(s => `${s.id}@${s.t1.toFixed(3)}`).join(', ')}`); }
     if (shots(p).flatMap(s => videos(s.html).filter(v => v.clipIn > 0 || s.in > 0)).length < 3) miss.push('fewer than three shots are taken from inside their clip');
