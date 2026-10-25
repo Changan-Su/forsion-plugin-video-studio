@@ -37,6 +37,12 @@
 //
 //   (cd <Genesis>/tangu-agent && npm run build)
 //   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-edit-live.mjs [--only montage,recap,recut,legible,promo,themes]
+//   asked     (--only asked) the sports clips into a highlight whose brief names the four ways of the skill's step 5b
+//             in plain words (the title as a shot inside its letters, a ring that follows the surfer, three panels, a
+//             sweep and an iris): each where the brief puts it, `fvs track` run on the surf clip
+//   pointed   (--only pointed) a finished sports cut (test/fixtures/edit-live/sports-cut.fvs.md, no A–D in it) and two
+//             messages quoting a scene the way the editor's timeline does: a ring that follows the surfer in `surf`,
+//             the title as a shot inside its letters in `hit`; every other scene stays as it was
 // Writes artifacts/edit-live/ (or FVS_EDIT_OUT, so runs can go side by side): report.md, results.json, engine.log and <scenario>-evidence/ (过程.md, the final
 // project, the review, a contact sheet and a half-size render), the layout harness-runs/archive.mjs add takes.
 import assert from 'node:assert/strict';
@@ -95,7 +101,7 @@ function projectWith(name, text, clips) {
 
 // prepared cuts the recut and legible scenarios start from (clips are linked in from the footage folder)
 const fixture = name => readFileSync(join(repo, `test/fixtures/edit-live/${name}.fvs.md`), 'utf8');
-const RECUT = fixture('recut'), LEGIBLE = fixture('legible');
+const RECUT = fixture('recut'), LEGIBLE = fixture('legible'), SPORTS_CUT = fixture('sports-cut');
 const LEGIBLE_CAPTIONS = ['清晨的车站，墙上的瓷砖讲着老故事', '午后的广场，旗帜在风里', '列车进站，城市开始忙碌'];
 
 // pixels stay local: a stub answers image requests (what is under test is the cut, not a picture model)
@@ -466,6 +472,76 @@ try {
     if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15) || (th.sound === 'lower' && !facts.render?.audio)) miss.push(`render: ${JSON.stringify(facts.render)}`);
     else legs.push(`半尺寸渲染 ${facts.render.seconds} s、${facts.render.audio ? '有声音' : '无声音'}、${facts.render.mb} MB`);
     try { filled(key, p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
+    if (miss.length) throw fail(miss.join('; '), ev);
+    return ev;
+  });
+
+  // step 5b on request: the skill suggests the four ways where a shot calls for one and asks for none (10-25), so these
+  // two check that the Director builds them when the user asks, in a brief and by pointing at a scene
+  const tracks = ev => ev.tools.filter(t => /fvs\.mjs\S*"?\s+track\b/.test(commandOf(t)));
+  const clipsIn = (p, id) => videos(p.scenes.find(s => s.id === id)?.html || '').map(v => basename(v.src).replace(/\.\w+$/, ''));
+  const mixLeg = (p, cb, ev) => `实拍 × 动画:${Object.entries(cb).map(([k, ids]) => `${k} ${ids.length ? ids.join('、') : '无'}`).join(';')};fvs track 跑了 ${tracks(ev).length} 次${tracks(ev).length ? `(${tracks(ev).map(t => commandOf(t).replace(/.*fvs\.mjs"?\s+/, '').slice(0, 80)).join(' / ')})` : ''};转场 ${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type}`).join('、') || '全部硬切'}`;
+  const sportsClips = async () => { const set = SETS.sports, from = await fetchFootage(join(repo, 'artifacts/footage/sports'), set); return set.map(f => [join(from, `${f.name}.webm`), `${f.name}.webm`]); };
+
+  await scenario('asked', '运动素材剪成高光,要求里点名四种实拍 × 动画:字里透画面、跟拍圈、三栏版式、扫屏和圆形展开', async legs => {
+    const TITLE = '热血', CLOSING = '下一个就是你';
+    const pr = projectWith('asked', emptyTemplate({ title: TITLE, zh: true }), await sportsClips());
+    const ev = await ask(await session('asked', pr.dir), `media 里是滑板、冲浪、篮球、足球、骑行的素材。帮我剪一支 25 秒左右的运动高光《${TITLE}》，节奏 128 BPM，原声都不要，结尾一句「${CLOSING}」。有几处我想这样做：片名《${TITLE}》做成画面在字里透出来，再放大成整幅画面；冲浪那段，给冲浪的人加个圈和速度读数，跟着他走；滑板、扣篮、骑行三段排成三栏一起出现，最后一块撑满全屏；中间换场用一次色块扫过，最后一个镜头用圆形展开进来。`, pr.dir);
+    if (ev.error) throw fail(`the run failed: ${ev.error}`, ev);
+    const { facts, p, at } = evidence('asked', pr, ev, { render: true, every: 0.5 });
+    const m = await motionOf({ cli, file: pr.file, dir: pr.dir, p, lines: { title: TITLE, closing: CLOSING } });
+    writeFileSync(join(at, 'motion.json'), JSON.stringify(m, null, 2));
+    const cb = combos(p, readFileSync(pr.file, 'utf8'), m);
+    legs.push(`${p.scenes.length} 个场景、${p.length.toFixed(2)} s;自己跑 review:${ranReview(ev) ? '是' : '否'};review:${facts.review}`);
+    legs.push(mixLeg(p, cb, ev));
+    legs.push(`片名「${TITLE}」${lineMotion(m.title)};片尾「${CLOSING}」${lineMotion(m.closing)}`);
+    const miss = [];
+    if (!cb.A.some(id => plain(p.scenes.find(s => s.id === id).html).includes(TITLE))) miss.push('the title is not a shot inside its letters (A)');
+    if (!cb.B.some(id => clipsIn(p, id).includes('surf'))) miss.push('no graphic follows the surfer (B)');
+    if (!tracks(ev).some(t => /surf/.test(commandOf(t)))) miss.push('fvs track was not run on the surf clip');
+    const sides = id => ['skate', 'dunk', 'cycling'].filter(k => clipsIn(p, id).some(c => c.startsWith(k))).length;
+    if (!cb.C.some(id => sides(id) >= 3)) miss.push('no scene shows skating, the dunk and cycling at once (C)');
+    if (!p.scenes.some(s => s.transition?.type === 'sweep')) miss.push('no sweep');
+    if (p.scenes.at(-1)?.transition?.type !== 'iris') miss.push(`the last shot comes in with ${p.scenes.at(-1)?.transition?.type || 'a cut'}, not an iris`);
+    if (!(p.length >= 15 && p.length <= 38)) miss.push(`length ${p.length.toFixed(2)} s outside 15–38 s`);
+    if (!plain(readFileSync(pr.file, 'utf8')).includes(CLOSING)) miss.push('the closing line is missing');
+    miss.push(...tooSmall(m));
+    if (!/^ok/.test(facts.check)) miss.push(`check: ${facts.check}`);
+    if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15)) miss.push(`render: ${JSON.stringify(facts.render)}`);
+    else legs.push(`半尺寸渲染 ${facts.render.seconds} s、${facts.render.mb} MB`);
+    try { filled('asked', p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
+    if (miss.length) throw fail(miss.join('; '), ev);
+    return ev;
+  });
+
+  await scenario('pointed', '在剪好的运动片上指着镜头说:冲浪那段加跟着人走的圈,片头的片名改成字里透画面', async legs => {
+    const pr = projectWith('sports', SPORTS_CUT, await sportsClips());
+    const before = parseProject(SPORTS_CUT);
+    // what the timeline's "quote in chat" puts at the top of the message (src/ui/studio.js reference(), the host's composeQuotes)
+    const quote = id => { const s = before.scenes.find(x => x.id === id); return `> sports.fvs.md › ## ${s.id}${s.title ? ` · ${s.title}` : ''} › ${s.t0.toFixed(2)}–${s.t1.toFixed(2)}s\n\n`; };
+    const sid = await session('pointed', pr.dir);
+    const ev1 = await ask(sid, `${quote('surf')}给画面里的人加个跟着走的圈。`, pr.dir);
+    if (ev1.error) throw fail(`the first message failed: ${ev1.error}`, ev1);
+    const ev2 = await ask(sid, `${quote('hit')}片名改成画面在字里透出来，再放大成整幅画面。`, pr.dir);
+    const ev = { tools: [...ev1.tools, ...ev2.tools], results: [...ev1.results, ...ev2.results], content: `${ev1.content}\n\n——第二句——\n\n${ev2.content}`, error: ev2.error, ms: ev1.ms + ev2.ms };
+    if (ev.error) throw fail(`the second message failed: ${ev.error}`, ev);
+    const { facts, p } = evidence('pointed', pr, ev, { render: true, every: 0.25 });
+    const cb = combos(p, readFileSync(pr.file, 'utf8'));
+    legs.push(`${p.scenes.length} 个场景、${p.length.toFixed(2)} s;review:${facts.review}`);
+    legs.push(mixLeg(p, cb, ev));
+    const miss = [];
+    if (!cb.B.includes('surf')) miss.push('no graphic follows the surfer in surf (B)');
+    if (!tracks(ev1).some(t => /surf/.test(commandOf(t)))) miss.push('fvs track was not run on the surf clip');
+    if (!cb.A.includes('hit')) miss.push('the title in hit is not a shot inside its letters (A)');
+    // everything else as it was: the scenes, their order and timing (the project's own css may gain a rule)
+    const same = s => JSON.stringify([s.id, s.title, s.html, s.css, s.js, s.dur, s.in, s.transition, s.hitTimes]);
+    const moved = before.scenes.filter(b => !['surf', 'hit'].includes(b.id)).filter(b => { const a = p.scenes.find(s => s.id === b.id); return !a || same(a) !== same(b); }).map(b => b.id);
+    if (JSON.stringify(p.scenes.map(s => s.id)) !== JSON.stringify(before.scenes.map(s => s.id))) miss.push(`scenes now ${p.scenes.map(s => s.id).join(', ')}`);
+    if (moved.length) miss.push(`scenes nobody pointed at changed: ${moved.join(', ')}`);
+    legs.push(`没指到的 ${before.scenes.length - 2} 个场景:${moved.length ? `改了 ${moved.join('、')}` : '都没动'}`);
+    if (!/^ok/.test(facts.check)) miss.push(`check: ${facts.check}`);
+    if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15)) miss.push(`render: ${JSON.stringify(facts.render)}`);
+    try { filled('pointed', p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
     if (miss.length) throw fail(miss.join('; '), ev);
     return ev;
   });
