@@ -23,9 +23,9 @@ export function flatShare(video, t) {
   return flat / n;
 }
 
-/** Each scene with footage at its middle: [{ id, share }], and those over FLAT_LIMIT. */
-export function unfilled(video, scenes) {
-  const read = scenes.map(s => ({ id: s.id, share: flatShare(video, (s.t0 + s.t1) / 2) }));
+/** Each scene with footage, the lowest share at the fractions `at` of it (its middle): [{ id, share }], and those over FLAT_LIMIT. */
+export function unfilled(video, scenes, at = [.5]) {
+  const read = scenes.map(s => ({ id: s.id, share: Math.min(...at.map(f => flatShare(video, s.t0 + f * (s.t1 - s.t0)))) }));
   const shown = r => ({ ...r, share: +r.share.toFixed(2) }); // rounded for the report only, after the comparison
   return { read: read.map(shown), over: read.filter(r => r.share > FLAT_LIMIT).map(shown) };
 }

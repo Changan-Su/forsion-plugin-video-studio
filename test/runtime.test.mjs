@@ -197,6 +197,70 @@ root.dataset.api = JSON.stringify({ t0, t1, dur, at1: at(1), hits, h2: hit(2) })
   await page.close();
 });
 
+test('entrances zoom, blur and wipe: hidden before their time, moving at it, settled after it', { skip: !browser }, async () => {
+  const { page, errors } = await capture(`# Fx
+
+\`\`\`fvs
+{ "fvs": 1, "width": 320, "height": 180, "fps": 30, "tempo": { "bpm": 120, "beatsPerBar": 4 } }
+\`\`\`
+
+## a · A
+
+\`\`\`fvs
+{ "length": "4 beats", "hits": [0, 2] }
+\`\`\`
+
+\`\`\`html
+<p class="zoom" data-in="h1" data-fx="zoom" data-dur="1">Z</p><p class="blur" data-in="h1" data-fx="blur" data-dur="1">B</p><p class="wipe" data-in="h1" data-fx="wipe" data-dur="1">W</p>
+<h1 data-in="h1" data-each="0.5" data-fx="zoom" data-dur="1"><span class="word">inline</span></h1>
+\`\`\`
+`, 'fx');
+  const at = async t => { await page.evaluate(x => window.__stage.seek(x), t); return page.evaluate(() => Object.fromEntries(['zoom', 'blur', 'wipe'].map(k => { const s = document.querySelector(`.${k}`).style; return [k, { o: +s.opacity, transform: s.transform, filter: s.filter, clip: s.clipPath }]; }))); };
+  const before = await at(.9), mid = await at(1.1), after = await at(1.6); // hit 1 at 1 s, a beat is .5 s
+  for (const k of ['zoom', 'blur', 'wipe']) assert.equal(before[k].o, 0, `${k}: hidden before its time`);
+  const scale = s => nums(s.match(/scale\(([^)]*)\)/)?.[1] || '1')[0];
+  assert.ok(scale(mid.zoom.transform) > 1.01 && mid.zoom.o === 1, `zoom: big at first (${mid.zoom.transform})`);
+  assert.equal(scale(after.zoom.transform), 1, 'zoom: settles at its own size');
+  // a <span> moved or scaled is laid out inline-block, or its transform does nothing (its box would not grow)
+  const width = t => page.evaluate(async x => { await window.__stage.seek(x); return document.querySelector('.word').getBoundingClientRect().width; }, t);
+  assert.ok(await width(1.1) > 1.05 * await width(1.6), 'an inline word slams in bigger than it settles');
+  assert.ok(nums(mid.blur.filter)[0] > 1 && mid.blur.o > 0 && mid.blur.o < 1, `blur: blurred and fading in (${mid.blur.filter})`);
+  close(nums(after.blur.filter), [0, 1], 1e-6, 'blur: sharp after');
+  const cr = s => { const n = nums(s.clip); return n[n.length > 1 ? 1 : 0]; };
+  assert.ok(mid.wipe.o === 1 && cr(mid.wipe) > 0 && cr(mid.wipe) < 100, `wipe: part revealed (${mid.wipe.clip})`);
+  assert.ok(nums(after.wipe.clip).length && nums(after.wipe.clip).every(x => x === -50), `wipe: nothing clipped after, a text-shadow included (${after.wipe.clip})`); // the browser shortens inset(-50% -50% -50% -50%)
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test('hit(i) past the scene\'s last hit is a runtime error, not a silent NaN', { skip: !browser }, async () => {
+  const { page } = await capture(`# Hits
+
+\`\`\`fvs
+{ "fvs": 1, "width": 320, "height": 180, "fps": 30, "tempo": { "bpm": 120, "beatsPerBar": 4 } }
+\`\`\`
+
+## a · A
+
+\`\`\`fvs
+{ "length": "4 beats", "hits": [0, 2] }
+\`\`\`
+
+\`\`\`html
+<p>P</p>
+\`\`\`
+
+\`\`\`js
+K('p', [[hit(1), { s: 1 }], [hit(4), { s: 1.2 }]])
+H(t => hit(5))
+\`\`\`
+`, 'hits');
+  for (const t of [.5, 1, 1.5]) await page.evaluate(x => window.__stage.seek(x), t); // a hook asks every frame: still one error
+  const errs = await page.evaluate(() => window.__stage.errors.map(e => e.message));
+  assert.deepEqual(errs, ['hit(4): this scene has 2 hits, hit(0)–hit(1)', 'hit(5): this scene has 2 hits, hit(0)–hit(1)']);
+  await page.close();
+});
+
 /* ───────── the Elements lane: what the editor's timeline says is what the picture does ───────── */
 
 test('elements lane: the spans the editor draws are when each element is on screen', { skip: !browser }, async () => {
@@ -225,6 +289,7 @@ test('elements lane: the spans the editor draws are when each element is on scre
 \`\`\`html
 <div data-in="2s" data-out="3s"><span data-in="1s">nested</span></div>
 <div data-in="1s" data-each="1"><span>each a</span><span>each b</span></div>
+<p data-in="h1" data-each="0.5" data-fx="zoom">each with no children: itself</p>
 <div data-seq="h0"><span class="never" data-in="h1">seq with its own in</span><span>seq b</span></div>
 <p data-out="3s" data-fx-out="fade" data-dur="2">fades out</p>
 <div data-seq="h0" data-seq-end="3s"><b>x</b><b>y</b></div>
@@ -273,7 +338,7 @@ test('elements lane: the spans the editor draws are when each element is on scre
   const z = P.sceneById(p, 'z'), content = { t0: z.t0v ?? z.t0, t1: z.t1, hits: z.hitTimes };
   assert.deepEqual(timedSpans(z.html, { s0: z.t0, t1: z.t1, hits: z.hitTimes }, expr => timeExpr(expr, content, unit, beat), { unit, beat }).map(x => [x.label, x.a, x.b, x.of ? `${x.n}/${x.of.items.length}` : '', x.error ? 'error' : '']), [
     ['nested', 3, 4, '', ''], ['nested', 3, 4, '', ''],
-    ['each a', 2, 6, '1/2', ''], ['each b', 2.5, 6, '2/2', ''],
+    ['each a', 2, 6, '1/2', ''], ['each b', 2.5, 6, '2/2', ''], ['each with no children: itself', 2, 6, '', ''],
     ['seq b', 2, 6, '2/2', ''],
     ['fades out', 1, 5, '', ''],
     ['x', 1, 2, '1/2', ''], ['y', 2, 4, '2/2', ''],

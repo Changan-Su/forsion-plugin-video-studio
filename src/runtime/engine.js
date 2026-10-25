@@ -61,7 +61,13 @@ export function createStage(root) {
       const kf = kfs.map(([t, props = {}, e = 'io']) => (acc = { ...acc, ...props }, { t, v: acc, e }));
       if (!kf.length) return;
       const hasTf = kf.some(k => Object.keys(k.v).some(p => TF.includes(p)));
-      q(sel).forEach((el, i) => tracks.push({ el, kf, hasTf, off: (opt.stagger || 0) * i }));
+      q(sel).forEach((el, i) => {
+        // a move or a scale does nothing to an inline box: such an element is laid out inline-block (player.js CSS; an
+        // S() cut still hides it). 10-24: two titles of one <span> each with data-fx="zoom" cut in at their own size.
+        // ponytail: a span that wrapped across lines now wraps as one box; animate its words if that ever matters
+        if (hasTf && globalThis.getComputedStyle?.(el).display === 'inline') el.setAttribute('data-fvs-inline', '');
+        tracks.push({ el, kf, hasTf, off: (opt.stagger || 0) * i });
+      });
     },
     /* hard cut: shown only inside [a, b) */
     S(sel, a, b) { const els = q(sel); hooks.push(t => { for (const el of els) el.style.display = t >= a && t < b ? '' : 'none'; }); },

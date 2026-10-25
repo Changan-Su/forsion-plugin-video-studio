@@ -1846,7 +1846,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
       const setA = (tag, name, v) => tryCommit(src => P.setSceneBlock(src, s.id, 'html', HT.setAttr(P.sceneById(P.parseProject(src), s.id).html, tag, name, v === '' ? null : v)));
       const rows = [h('div', { class: 'fvs-timed head' }, h('small'), h('small', { text: t('appear') }), h('small', { text: t('disappear') }), h('small', { text: t('effect') }))];
       for (const x of timed) {
-        const fx = select(`tfx:${s.id}:${x.tag}`, ['cut', 'fade', 'up', 'down', 'left', 'right', 'pop', 'type'].map(k => [k, t(`fx-${k}`)]), x.fx || 'cut', v => setA(x.tag, 'data-fx', v === 'cut' ? '' : v), { 'aria-label': t('effect'), disabled: !!x.seq && x.in === undefined });
+        const fx = select(`tfx:${s.id}:${x.tag}`, ['cut', 'fade', 'up', 'down', 'left', 'right', 'pop', 'zoom', 'blur', 'wipe', 'type'].map(k => [k, t(`fx-${k}`)]), x.fx || 'cut', v => setA(x.tag, 'data-fx', v === 'cut' ? '' : v), { 'aria-label': t('effect'), disabled: !!x.seq && x.in === undefined });
         const on = S.selEl && S.selEl.scene === s.id && (S.selEl.tag === x.tag || (x.items || []).some(c => c.tag === S.selEl.tag));
         rows.push(h('div', { class: `fvs-timed${on ? ' on' : ''}` },
           h('span', { class: 'lbl', title: x.label, text: x.seq !== undefined ? `${x.label} · seq` : x.label }),

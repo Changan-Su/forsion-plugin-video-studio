@@ -94,6 +94,57 @@ export function footageFindings(seen) {
   }));
 }
 
+/** Scenes whose source has words (outside tags, scripts, styles and comments): typed or timed text counts before it shows. */
+export function wordedScenes(p) {
+  const words = html => /\S/.test(html.replace(/<(script|style)\b[\s\S]*?<\/\1>|<!--[\s\S]*?-->/gi, '').replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;/g, ' '));
+  return p.scenes.filter(s => words(s.html || '')).map(s => s.id);
+}
+
+/**
+ * Runs in the capture page after `__stage.seek(t)`: dark gradients (or a see-through dark fill, its opacity counted)
+ * over a third of the stage or more, on an element or its ::before / ::after, in a scene with no words: none in its
+ * source (`worded`, wordedScenes()) and none on the page now (text a scene script wrote). A scrim is there for text;
+ * on a bare shot it only darkens the footage (the title's scrim copied onto every shot). Inside `data-layout-ignore` is
+ * left out; a scene root's own background is behind its footage and is not counted, its pseudo-elements are.
+ * ponytail: colours computed as rgb()/rgba() only (an oklch or color-mix stop is not read); the box's share of the
+ * stage stands for the gradient's (a gradient fading out halfway, or dark only in its first 6 px, counts its whole
+ * box; a pseudo-element is measured as its element's box); a parent's clipping and a scrim stacked under opaque
+ * footage are not looked for; an overlay in the stage's html outside every scene is not looked at.
+ */
+export function scrimsOnScreen(worded = []) {
+  const root = document.querySelector('.fvs-stage'), stage = root?.getBoundingClientRect();
+  if (!stage || !stage.width) return [];
+  const alpha = (c, k) => { const n = c.match(/[\d.]+/g); return n && Math.max(+n[0], +n[1], +n[2]) < 80 ? +(n[3] ?? 1) * k : 0; }; // a dark colour's alpha, else 0
+  const words = sc => { if (worded.includes(sc.dataset.scene)) return true; const w = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT); for (let n; (n = w.nextNode());) if (n.data.trim() && !n.parentElement.closest('script, style')) return true; return false; };
+  const bare = new Map();
+  return [...root.querySelectorAll('[data-scene]')].flatMap(sc => [sc, ...sc.querySelectorAll('*')]).flatMap(el => {
+    if (el.tagName === 'VIDEO' || el.closest('[data-layout-ignore]') || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return [];
+    const own = getComputedStyle(el);
+    return (el.matches('[data-scene]') ? ['::before', '::after'] : ['', '::before', '::after']).flatMap(pseudo => {
+      const cs = pseudo ? getComputedStyle(el, pseudo) : own;
+      if (pseudo && (cs.content === 'none' || cs.content === 'normal' || cs.display === 'none')) return [];
+      const k = +own.opacity * (pseudo ? +cs.opacity : 1), fill = alpha(cs.backgroundColor.match(/rgba?\([^)]*\)/)?.[0] || '', k);
+      const tint = fill >= 0.3 && fill < 1;
+      if (!tint && !(cs.backgroundImage.includes('gradient(') && (cs.backgroundImage.match(/rgba?\([^)]*\)/g) || []).some(c => alpha(c, k) >= 0.3))) return [];
+      const r = el.getBoundingClientRect();
+      const share = Math.max(0, Math.min(r.right, stage.right) - Math.max(r.left, stage.left)) * Math.max(0, Math.min(r.bottom, stage.bottom) - Math.max(r.top, stage.top)) / (stage.width * stage.height);
+      if (share < 1 / 3) return [];
+      const sc = el.closest('[data-scene]');
+      if (!bare.has(sc)) bare.set(sc, !words(sc));
+      return bare.get(sc) ? [{ scene: sc.dataset.scene, selector: el.tagName.toLowerCase() + [...el.classList].map(c => `.${c}`).join('') + pseudo, share }] : [];
+    });
+  });
+}
+
+/** scrimsOnScreen() results ({ t, scene, selector, share }) as findings for the `footage` section. */
+export function scrimFindings(seen) {
+  return seen.map(m => ({
+    code: 'scrim_without_text', severity: 'warning', time: m.t, selector: m.selector,
+    message: `A dark scrim covers ${Math.round(m.share * 100)}% of the frame in "${m.scene}", a shot with no words: it only darkens the footage.`,
+    fixHint: 'a scrim is for text: keep it only in the scenes with a title, caption or closing line, as a band behind the part of the frame the text sits in, and take it out of this scene. A deliberate grade or vignette: data-layout-ignore on it.',
+  }));
+}
+
 /** Every finding of a `hyperframes check --json` report (and our `footage` section), flattened, with its section. */
 function flatten(report) {
   const out = [];

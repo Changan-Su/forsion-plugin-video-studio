@@ -7,6 +7,7 @@ const BASE_CSS = `
 .fvs-stage{position:relative;overflow:hidden;transform-origin:0 0}
 .fvs-scenes{position:absolute;inset:0}
 .fvs-scene{position:absolute;inset:0;overflow:hidden}
+.fvs-stage [data-fvs-inline]{display:inline-block}
 .fvs-transition{position:absolute;inset:0}
 [data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 .fvs-captions{position:absolute;left:6%;right:6%;bottom:7%;z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:.25em;pointer-events:none;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;font-weight:600;line-height:1.35;text-align:center}
@@ -130,7 +131,14 @@ export function mount(payload, container, { doc = document, onScene = null, medi
     const K = (sel, kfs, opt) => F.K(q(sel), kfs, opt);
     const S = (sel, a, b) => F.S(q(sel), a, b);
     const at = x => sc.t0 + x * unit;
-    const hit = (i, off = 0) => (i < sc.hits.length ? sc.hits[i] + off * unit : NaN);
+    // a hit the scene does not have is an error `check --runtime` reports, not a silent NaN that drops the keyframe
+    // (10-24: hit(4) in scenes with hits h0–h3 took the camera move out of four shots of five)
+    const missed = new Set(); // once each, though a per-frame hook may ask for it every frame
+    const hit = (i, off = 0) => {
+      if (i < sc.hits.length) return sc.hits[i] + off * unit;
+      if (!missed.has(i)) { missed.add(i); errors.push({ scene: sc.id, message: `hit(${i}): this scene has ${sc.hits.length} hit${sc.hits.length === 1 ? '' : 's'}${sc.hits.length ? `, hit(0)–hit(${sc.hits.length - 1})` : ''}` }); }
+      return NaN;
+    };
     const cut = (sel, t, opt) => K(sel, [[t - .01, { o: 0 }], [t, { o: 1 }, 'step']], opt);
     const slide = (sel, t, from = { y: 20 }, opt) => K(sel, [[t - .01, { o: 0, ...from }], [t, { o: 1 }, 'step'], [t + .18, { x: 0, y: 0 }, 'out']], opt);
     const fade = (sel, t, d = beat / 2, opt) => K(sel, [[t, { o: 0 }], [t + d, { o: 1 }, 'out']], opt);
@@ -173,7 +181,9 @@ export function mount(payload, container, { doc = document, onScene = null, medi
     }
     for (const el of sc.el.querySelectorAll('[data-in], [data-out]')) {
       const each = el.dataset.each !== undefined ? +el.dataset.each * unit : null;
-      const targets = each !== null ? [...el.children] : [el];
+      // data-each times the children; a line with none (bare text) gets the entrance itself, not none (10-24: a closing
+      // line with data-each and no spans sat on screen from the scene's start)
+      const targets = each !== null && el.children.length ? [...el.children] : [el];
       const tin = el.dataset.in !== undefined ? t(el.dataset.in, el) : null;
       const tout = el.dataset.out !== undefined ? t(el.dataset.out, el) : null;
       const fx = (el.dataset.fx || 'cut').toLowerCase(), outFx = (el.dataset.fxOut || 'cut').toLowerCase();
@@ -185,6 +195,11 @@ export function mount(payload, container, { doc = document, onScene = null, medi
           if (fx === 'type') F.type([node], a, +el.dataset.cps || 30);
           else if (fx === 'fade') kf.push([a, { o: 0 }], [a + dur, { o: 1 }, 'out']);
           else if (fx === 'pop') kf.push([a - .01, { o: 0, s: .92 }], [a, { o: 1 }, 'step'], [a + .25, { s: 1 }, 'back']);
+          else if (fx === 'zoom') kf.push([a - .01, { o: 0, s: 1.35 }], [a, { o: 1 }, 'step'], [a + dur, { s: 1 }, 'expo']); // slammed in from big
+          else if (fx === 'blur') kf.push([a, { o: 0, b: 16 }], [a + dur, { o: 1, b: 0 }, 'out']); // takes over the element's CSS filter
+          // revealed from the left edge; the other sides open past the box so a text-shadow is not cut, and the right one
+          // too once the reveal is done
+          else if (fx === 'wipe') kf.push([a - .01, { o: 0, ct: -50, cr: 100, cb: -50, cl: -50 }], [a, { o: 1 }, 'step'], [a + dur, { cr: 0 }, 'expo'], [a + dur + .001, { cr: -50 }, 'step']);
           else if (/^(up|down|left|right)$/.test(fx)) {
             const from = { up: { y: dist }, down: { y: -dist }, left: { x: dist }, right: { x: -dist } }[fx];
             kf.push([a - .01, { o: 0, ...from }], [a, { o: 1 }, 'step'], [a + .18, { x: 0, y: 0 }, 'out']);

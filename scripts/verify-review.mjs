@@ -7,6 +7,8 @@
 //             Director to do with a deliberate choice)
 //   corner    a clip left at a quarter of the frame is reported as footage_not_filling (our own check, a browser of
 //             ours: HyperFrames does not look for it); data-layout-ignore on it takes that away
+//   bare      a dark scrim on a shot with no words is reported as scrim_without_text (ours too), the same scrim behind
+//             a title is not; data-layout-ignore on it takes that away
 //   example   the bundled example passes HyperFrames' lint (the runtime is loaded from a file, not inline) so the
 //             browser pass runs, its scripts run clean, and the project's asset folders are untouched afterwards
 //   advice    findings never fail the command
@@ -39,6 +41,12 @@ assert.deepEqual(defects.scenes.flatMap(s => s.findings.filter(f => f.code === '
 assert.ok(existsSync(join(fixtures, 'media/clip.webm')), 'the fixture\'s media survived the review');
 ok(`defects: ${defects.counts.error} errors, in their scenes (${intro.length} in intro)`);
 
+// bare
+const scrimsAt = res => res.scenes.flatMap(s => s.findings.filter(f => f.code === 'scrim_without_text').map(f => `${s.id}:${f.selector}`));
+const scrims = join(fixtures, 'scrims.fvs.md');
+assert.deepEqual(scrimsAt(review(scrims)), ['bare:div.shade', 'dimmed:div.dim', 'pseudo:div.frame::after'], 'the scrim on the bare shot, a black fill at 60 % opacity and a gradient on ::after are reported; the same scrim behind a title is not, nor behind one typed in later, nor a thin dark rule');
+ok('bare: a scrim on a shot with no words is reported, behind a title it is not');
+
 // marked
 const tmp = mkdtempSync(join(tmpdir(), 'fvs-verify-review-'));
 try {
@@ -49,6 +57,9 @@ try {
   assert.ok(!after.includes('text_occluded:A subtitle nobody can read'), `the marked line is no longer reported as covered: ${JSON.stringify(after)}`);
   writeFileSync(marked, readFileSync(marked, 'utf8').replace('<video class="thumb"', '<video class="thumb" data-layout-ignore'));
   assert.deepEqual(codes(review(marked), 'corner').filter(c => c.startsWith('footage_not_filling')), [], 'a deliberate inset marked data-layout-ignore is not reported');
+  const graded = join(tmp, 'scrims.fvs.md');
+  writeFileSync(graded, readFileSync(graded, 'utf8').replace('<div class="shade"></div>\n<div class="rule">', '<div class="shade" data-layout-ignore></div>\n<div class="rule">'));
+  assert.deepEqual(scrimsAt(review(graded)).filter(c => c.startsWith('bare:')), [], 'a deliberate grade marked data-layout-ignore is not reported');
   ok('marked: data-layout-allow-occlusion and data-layout-ignore take their findings away');
   // the picture, not the box: object-fit none leaves the 320×180 clip small in a full-frame box; a clipping parent
   // cuts a full-frame clip down to its own 854×480; will-change: transform makes the zero-height wrapper the one the
