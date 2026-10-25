@@ -1110,8 +1110,13 @@ function footageOnScreen(width) {
       h = vh * s;
     }
     let r = l + w, b = t + h;
+    const holdsFixed = (ac) => ["transform", "translate", "rotate", "scale", "perspective", "filter", "backdropFilter"].some((k2) => ac[k2] && ac[k2] !== "none") || /layout|paint|strict|content/.test(ac.contain) || ac.containerType && ac.containerType !== "normal" || ac.contentVisibility && ac.contentVisibility !== "visible" || /transform|translate|rotate|scale|perspective|filter/.test(ac.willChange);
+    let placed = getComputedStyle(v).position;
     for (let a = v.parentElement; a && a !== root; a = a.parentElement) {
-      if (getComputedStyle(a).overflow === "visible") continue;
+      const ac = getComputedStyle(a), boxed = holdsFixed(ac);
+      if (placed === "fixed" ? !boxed : placed === "absolute" ? ac.position === "static" && !boxed : false) continue;
+      placed = ac.position;
+      if (ac.overflow === "visible") continue;
       const c = a.getBoundingClientRect();
       l = Math.max(l, c.left);
       t = Math.max(t, c.top);

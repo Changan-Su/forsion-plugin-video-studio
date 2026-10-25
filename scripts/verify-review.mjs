@@ -35,7 +35,7 @@ for (const want of ['text_occluded:A subtitle nobody can read', 'content_overlap
   assert.ok(intro.some(c => c.startsWith(want)), `intro should report ${want}: ${JSON.stringify(intro)}`);
 }
 assert.ok(codes(defects, 'clip').some(c => c.startsWith('contrast_aa_failure:A caption over the footage')), `the caption over the clip is measured against the footage: ${JSON.stringify(codes(defects, 'clip'))}`);
-assert.deepEqual(defects.scenes.flatMap(s => s.findings.filter(f => f.code === 'footage_not_filling').map(f => `${s.id}:${f.severity}`)), ['corner:error'], 'the clip left in a corner is reported, the one sized to the frame is not');
+assert.deepEqual(defects.scenes.flatMap(s => s.findings.filter(f => f.code === 'footage_not_filling').map(f => `${s.id}:${f.severity}`)), ['corner:error'], 'the clip left in a corner is reported; the ones that fill the frame are not, also one placed on the frame from inside an unpositioned overflow: hidden wrapper that does not clip it');
 assert.ok(existsSync(join(fixtures, 'media/clip.webm')), 'the fixture\'s media survived the review');
 ok(`defects: ${defects.counts.error} errors, in their scenes (${intro.length} in intro)`);
 
@@ -51,15 +51,17 @@ try {
   assert.deepEqual(codes(review(marked), 'corner').filter(c => c.startsWith('footage_not_filling')), [], 'a deliberate inset marked data-layout-ignore is not reported');
   ok('marked: data-layout-allow-occlusion and data-layout-ignore take their findings away');
   // the picture, not the box: object-fit none leaves the 320×180 clip small in a full-frame box; a clipping parent
-  // cuts a full-frame clip down to its own 854×480
+  // cuts a full-frame clip down to its own 854×480; will-change: transform makes the zero-height wrapper the one the
+  // pinned clip is placed in, so its overflow does cut it
   cpSync(fixtures, tmp, { recursive: true });
   writeFileSync(marked, readFileSync(marked, 'utf8')
     .replace('<video class="thumb" src="media/clip.webm"></video>', '<div class="win"><video src="media/clip.webm"></video></div>')
     .replace('.fvs-stage .caption {', '.fvs-stage .win { position: absolute; left: 0; top: 0; width: 854px; height: 480px; overflow: hidden; }\n.fvs-stage .win video { width: 1920px; height: 1080px; }\n.fvs-stage .caption {')
-    .replace('<video src="media/clip.webm"></video>\n<div class="caption"', '<video src="media/clip.webm" style="object-fit: none"></video>\n<div class="caption"'));
+    .replace('<video src="media/clip.webm"></video>\n<div class="caption"', '<video src="media/clip.webm" style="object-fit: none"></video>\n<div class="caption"')
+    .replace('.fvs-stage .pin { overflow: hidden; height: 0; }', '.fvs-stage .pin { overflow: hidden; height: 0; will-change: transform; }\n.fvs-stage .pin video { height: 1080px; }'));
   const fit = review(marked), small = id => codes(fit, id).filter(c => c.startsWith('footage_not_filling')).length;
-  assert.deepEqual([small('clip'), small('corner')], [1, 1], `object-fit none and a clipping parent are measured by what shows: ${JSON.stringify(fit.scenes.map(s => [s.id, s.findings.map(f => f.code)]))}`);
-  ok('fit: object-fit none and a clipping parent are measured by the picture that shows');
+  assert.deepEqual([small('clip'), small('corner'), small('pinned')], [1, 1, 1], `object-fit none, a positioned clipping parent and one that holds its clip with will-change are measured by what shows: ${JSON.stringify(fit.scenes.map(s => [s.id, s.findings.map(f => f.code)]))}`);
+  ok('fit: object-fit none, a clipping parent and a will-change wrapper are measured by the picture that shows');
 } finally { rmSync(tmp, { recursive: true, force: true }); }
 
 // example
