@@ -113,13 +113,25 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /** JSON that is safe inside a <script> element. */
 export const scriptJSON = v => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
+// HyperFrames' composition contract: a sized root and a timed host, neither with a GSAP timeline (data-no-timeline,
+// or it waits for one), and the host's frame source registered once the capture stage is mounted.
+const hfRoot = P => {
+  const timed = `data-start="0" data-duration="${+P.length}" data-no-timeline`;
+  return `<div id="fvs-hf-root" data-composition-id="fvs" data-width="${+P.width}" data-height="${+P.height}" data-fps="${+P.fps}" ${timed} style="position:relative;width:${+P.width}px;height:${+P.height}px;overflow:hidden"><div id="fvs-hf-host" data-composition-id="fvs-stage" data-track-index="0" ${timed} style="position:absolute;inset:0"></div></div>`;
+};
+const HF_SOURCE = `\n<script>(()=>{const host=document.getElementById('fvs-hf-host'),stage=document.querySelector('.fvs-stage'),s=window.__stage;if(stage)host.append(stage);
+if(window.__hyperframes&&window.__hyperframes.registerFrameSource)window.__hyperframes.registerFrameSource({element:host,ready:s.ready(),render:t=>s.seek(t)});})();</script>`;
+
 /**
  * A standalone page: the payload, the runtime and a mode.
  *   mode 'player'  – a page with a transport and chapter list (what "Export HTML" writes)
  *   mode 'capture' – the bare stage at 1:1 with window.__stage.seek(t) (what the renderer drives)
  *   mode 'embed'   – the stage fitted to the window, driven by the Studio through window.__fvs
+ *   mode 'hf'      – the capture page as a HyperFrames composition (fvs review): the stage inside a timed host whose
+ *                    frame source is __stage.seek, so HyperFrames waits for each frame (videos included). Pass
+ *                    runtimeUrl: its lint rejects the clock code an inline runtime carries.
  */
-export function buildHtml(payload, runtimeSource, { mode = 'player', extraHead = '' } = {}) {
+export function buildHtml(payload, runtimeSource, { mode = 'player', extraHead = '', runtimeUrl = '' } = {}) {
   const fonts = payload.fonts.map(u => `<link rel="stylesheet" href="${esc(u)}">`).join('\n');
   // a video's sound has the same url as the video asset: write it once (an inlined clip would double the page)
   const assets = payload.assets || {};
@@ -136,10 +148,10 @@ export function buildHtml(payload, runtimeSource, { mode = 'player', extraHead =
 ${fonts}
 ${extraHead}
 </head>
-<body>
+<body>${mode === 'hf' ? hfRoot(payload) : ''}
 <script type="application/json" id="fvs-data">${scriptJSON(payload)}</script>
-<script>${runtimeSource.replace(/<\/script/gi, '<\\/script')}</script>
-<script>FVS.boot(${JSON.stringify(mode)});</script>
+${runtimeUrl ? `<script src="${esc(runtimeUrl)}"></script>` : `<script>${runtimeSource.replace(/<\/script/gi, '<\\/script')}</script>`}
+<script>FVS.boot(${JSON.stringify(mode === 'hf' ? 'capture' : mode)});</script>${mode === 'hf' ? HF_SOURCE : ''}
 </body>
 </html>
 `;

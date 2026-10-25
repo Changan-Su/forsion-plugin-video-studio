@@ -1,6 +1,6 @@
 // fvs — the Forsion Video Studio command line. Single file, no install needed except for `render`,
 // `still`, `sheet` and `check --runtime` (a Chromium through playwright-core) and ffmpeg (render, sync).
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, mkdtempSync, readdirSync, statSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve, relative, basename, extname, sep, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir, homedir, platform } from 'node:os';
@@ -13,6 +13,7 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
+import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview } from '../lib/review.js';
 
 const VERSION = '0.7.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
@@ -20,6 +21,8 @@ const HELP = `fvs ${VERSION} — Forsion Video Studio
   fvs new <file.fvs.md> [--template eva|blank] [--title T]   start a project
   fvs info <file>                      scenes, times, hits (read this before editing)
   fvs check <file> [--runtime]         parse errors; --runtime also runs every scene script in a browser
+  fvs review <file> [--at t,t…] [--all] [--json]   what the frames look like: text hidden, overlapping, off frame,
+                                       low contrast, too short to read (HyperFrames checks, via npx; advice, not a gate)
   fvs cues <file> [--out cues.json]    the cue sheet a score is written against (JSON)
   fvs captions <file> [--out f.srt]    the captions track as a SubRip file
   fvs html <file> [--out f.html] [--inline]   standalone web video (player page)
@@ -214,6 +217,54 @@ const commands = {
     }
     if (n) die(`${n} error(s)`);
     log(`ok · ${ctx.p.scenes.length} scenes · ${ctx.p.length.toFixed(2)} s${flags.runtime ? ' · scripts ran clean' : ''}`);
+  },
+
+  async review() {
+    const ctx = load(pos[0]);
+    report(ctx.p);
+    const { p, dir } = ctx;
+    const times = flags.at ? String(flags.at).split(',').map(v => timeArg(p, v.trim())).filter(t => t != null && t >= 0 && t < p.length) : reviewTimes(p);
+    if (!times.length) die('nothing to look at (no scenes, or --at is outside the film)');
+    const tmp = mkdtempSync(join(tmpdir(), 'fvs-review-'));
+    try {
+      // HyperFrames serves the folder over http (file:// is refused), so the project's assets go next to the page:
+      // top-level folders linked (a junction on Windows needs no rights), loose top-level files copied. Paths outside
+      // the project, and the names the page itself uses, are left out. Nothing is ever written through a link.
+      const payload = compile(p);
+      const outside = [], linked = new Set(), OWN = new Set(['index.html', 'fvs-runtime.js', '.hyperframes']);
+      for (const ref of Object.keys(payload.assets)) {
+        const rel = ref.replace(/\\/g, '/'), parts = rel.split('/'), top = parts[0];
+        if (parts.includes('..') || /^[a-z]:$/i.test(top) || !top || OWN.has(top)) { outside.push(ref); continue; }
+        const from = join(dir, top), to = join(tmp, top);
+        if (linked.has(top) || !existsSync(from)) continue;
+        linked.add(top);
+        const folder = statSync(from).isDirectory();
+        if (folder && parts.length > 1) symlinkSync(from, to, 'junction');
+        else if (!folder && parts.length === 1) copyFileSync(from, to);
+      }
+      writeFileSync(join(tmp, 'fvs-runtime.js'), RUNTIME, { flag: 'wx' });
+      writeFileSync(join(tmp, 'index.html'), buildHtml(payload, RUNTIME, { mode: 'hf', runtimeUrl: 'fvs-runtime.js' }), { flag: 'wx' });
+      // npx's own script run by this node, no shell (no quoting to get wrong on Windows); FVS_HYPERFRAMES = the path of
+      // a hyperframes CLI script already on this machine, run the same way, instead of npx
+      const own = process.env.FVS_HYPERFRAMES;
+      const npxCli = [join(dirname(process.execPath), 'node_modules/npm/bin/npx-cli.js'), join(dirname(process.execPath), '../lib/node_modules/npm/bin/npx-cli.js')].find(f => existsSync(f));
+      const args = [...(own ? [own] : npxCli ? [npxCli, '--yes', `hyperframes@${HYPERFRAMES_VERSION}`] : ['--yes', `hyperframes@${HYPERFRAMES_VERSION}`]), 'check', tmp, '--json', '--at', times.join(',')];
+      if (!own && !npxCli && platform() === 'win32') die('npx was not found next to this Node; set FVS_HYPERFRAMES to the hyperframes CLI script');
+      const r = spawnSync(own || npxCli ? process.execPath : 'npx', args, { encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, DO_NOT_TRACK: '1', HYPERFRAMES_NO_TELEMETRY: '1' } });
+      let hf = null;
+      try { hf = JSON.parse(r.stdout); } catch { /* below */ }
+      // a report has its sections; {ok:false, error} is HyperFrames failing to look (no Chrome, a crash), not a clean film
+      if (!hf || hf.error || !['lint', 'layout'].every(k => hf[k])) die(`HyperFrames did not run (${hf?.error || (r.error ? r.error.message : `exit ${r.status}`)}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).\n${String(r.stderr || '').trim().split('\n').slice(-6).join('\n')}`);
+      if (hf.browserSkipped) console.error('warn  HyperFrames looked at the page source only (its lint stopped the browser pass); the findings below are not about frames');
+      const grouped = groupFindings(p, hf, { all: !!flags.all });
+      if (outside.length) console.error(`warn  not reviewed with their assets (outside the project folder): ${outside.join(', ')}`);
+      if (flags.json) log(JSON.stringify({ hyperframes: HYPERFRAMES_VERSION, times, ...grouped }, null, 2));
+      else log(formatReview(grouped, { times: times.length }));
+    } finally {
+      // the links go first, on their own: removing the folder must never reach into the project's media
+      for (const name of readdirSync(tmp)) { const at = join(tmp, name); try { if (lstatSync(at).isSymbolicLink()) unlinkSync(at); } catch { /* removed below */ } }
+      rmSync(tmp, { recursive: true, force: true });
+    }
   },
 
   async cues() {

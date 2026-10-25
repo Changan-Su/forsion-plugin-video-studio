@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 — 2026-10-24
+
+- 新命令 `fvs review`：用 HyperFrames（HeyGen 开源的网页视频工具，Apache-2.0）的检查看一遍画面，报出文字被挡、两段文字压在一起、文字出画或被裁、文字在背后画面上（包括视频素材）对比度不够、文字停留太短来不及读、字太小、长时间画面不动。采样点是每个场景的中点和每个拍点之后 0.3 秒，结果按场景列出。它只提建议、不拦人：查出什么都正常退出。故意的设计（描边空心字、出血到画外、蒙太奇里一闪的词）在那个元素上加 HyperFrames 认的标记即可，例如 `data-layout-allow-occlusion`。
+- 导演 Agent 改完后会先 `check --runtime` 再 `review`，再看抽帧；「看一遍成片提意见」也会先跑 `review`。技能里写了每条检查是什么、哪些标记可用、跑不起来时怎么退回。
+- `review` 通过 `npx` 调用固定版本的 HyperFrames（0.8.190），第一次运行要联网下载约 330 MB（npm 包和一个 Chrome），仍然需要 Node 和 npx。调用时关掉它的匿名遥测（`DO_NOT_TRACK=1`）。工程里的素材是链接到临时目录去检查的，不会被改动或复制进工程。
+- 新的验证脚本 `npm run verify:review`：埋了三处错的夹具工程必须全部报出，字幕压在视频上要按素材画面量对比度，加了标记的那条要消失，示例工程的检查必须真的进到浏览器那一步。
+- 编辑器界面和工程文件格式没有变化，需要的 Forsion 和 0.10.3 相同。
+- **English:** New command `fvs review`: the frames looked at by HyperFrames' checks (HeyGen's open-source web-video tool, Apache-2.0). It reports text hidden under something opaque, text blocks overlapping, text clipped or off the frame, contrast under WCAG AA against what is really behind the text (video footage included), text on screen too briefly to read, type too small for a phone, and long stretches where nothing moves. It looks at each scene's middle and 0.3 s after each hit and lists the findings by scene. It is advice, never a gate: it exits 0 whatever it finds; a deliberate choice (an outline numeral, a bleed off the edge, a word flashed in a montage) keeps its look with a marker HyperFrames reads, such as `data-layout-allow-occlusion`. The Director now runs `check --runtime`, then `review`, then looks at frames after an edit, and "Review the cut" starts with `review`; the skill says what each check means, which markers exist and what to do when it cannot run. `review` runs a pinned HyperFrames release (0.8.190) through `npx`: the first run needs the network and downloads about 330 MB (the package and a Chrome); Node with npx is still needed. Its anonymous telemetry is turned off for the call (`DO_NOT_TRACK=1`). The project's assets are linked into a temporary folder for the check, never changed or copied into the project. New check `npm run verify:review`. The editor and the project format are unchanged; Forsion versions: the same as 0.10.3.
+
 ## 0.10.3 — 2026-10-10
 
 - 修复：预览里播放视频片段时画面一停一跳。播放中的片段落后 0.15 秒就会被重新定位；可片段在定位途中报的是「要去的位置」，不是画面真正所在的位置，所以定位只要花得比 0.15 秒久（进入点离关键帧远、4K 素材），途中就会再被定位一次，永远到不了。实测一段 1080p 接一段 4K（都从关键帧之后 135 帧处进入）播放 10 秒，片段被重新定位四十多次，每次解码器都从关键帧重新解一遍。现在正在定位的片段不再被打断；到了之后还差得远的，按它上一次定位花的时间往前多送一段，一次到位。同样的素材现在是 0 次。

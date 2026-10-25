@@ -43,7 +43,7 @@ function contextBlock(ctx, s, tools) {
   ];
   if (tools) {
     const cli = tools.cliAbs || tools.cli;
-    lines.push(`Command line: node ${q(cli)} <command> <project> (run "node ${q(cli)} help"). Start with "info" to see the scenes, times and hits; "check --runtime" after editing; "sheet" or "still" to look at frames.`);
+    lines.push(`Command line: node ${q(cli)} <command> <project> (run "node ${q(cli)} help"). Start with "info" to see the scenes, times and hits; "check --runtime" after editing, then "review" (what the frames look like: hidden, overlapping or unreadable text, contrast over footage; advice, not a gate); "sheet" or "still" to look at frames.`);
     lines.push(`Music toolkit (Python): ${q(tools.musicAbs || tools.music)} (see its README.md).`);
   }
   if (sel) lines.push(`The user has scene "${sel.id}"${sel.title ? ` (${sel.title})` : ''} selected (${sel.t0.toFixed(2)}–${sel.t1.toFixed(2)} s).`);
@@ -52,11 +52,11 @@ function contextBlock(ctx, s, tools) {
 }
 
 export const TASKS = {
-  ask: text => `Task from the user (their words):\n${text}\n\nDo it in the project file. When you are done, run the check, look at a contact sheet of the scenes you changed, and tell the user in their language what changed.`,
+  ask: text => `Task from the user (their words):\n${text}\n\nDo it in the project file. When you are done, run the check and the review, look at a contact sheet of the scenes you changed, and tell the user in their language what changed.`,
   score: () => 'Task: compose an original score for this video and add it to the project.\n1. Export the cue sheet (the "cues" command) and read the scenes, tempo and hits.\n2. Write a score script with the music toolkit that puts accents on the hits (stingers on the big cuts, breaths before hits that fall inside running music), render it to WAV/MP3 next to the project (for example audio/score.mp3) and add it to the project settings "audio" list.\n3. Run the "sync" command and fix hits that miss an accent.\nNever copy an existing melody. Tell the user what you made and how to change it.',
   render: out => `Task: render this project to MP4 at ${q(out)} with the "render" command (use --workers 3). If the browser driver or ffmpeg is missing, install or locate it (see the skill) and say what you did. When it is done, check a few frames of the MP4 and report the file path, length and size.`,
   sync: () => 'Task: check that the picture cuts land on the music. Run the "sync" command. For each hit that misses an accent, decide whether the hit or the music should move: nudge the hit to the accent when it is a picture-only cut, or suggest a score change. Edit the file, re-run the sync check, and report what you changed.',
-  review: () => 'Task: review the cut. Make a contact sheet with the "sheet" command, look at it, read the project, and give the user a short list of concrete improvements (pacing, legibility, text, sync). Do not edit anything until the user agrees.',
+  review: () => 'Task: review the cut. Run the "review" command and make a contact sheet with the "sheet" command, look at both, read the project, and give the user a short list of concrete improvements (pacing, legibility, text over footage, sync), scene by scene. Say which review findings look deliberate rather than mistakes. Do not edit anything until the user agrees.',
 };
 
 /** Start a visible conversation with the Director. Falls back to the clipboard off Tangu. */
