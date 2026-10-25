@@ -447,9 +447,9 @@ try {
       // inside-shot accents: a beat-cut edit's shots are a beat or two, its cuts are the accents (10-24 travel: 13 shots)
       const want = th.beatCut ? 0 : th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
       if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);
-      // footage and graphics as one picture (step 5b): standard at least one way, impact at least two different ones
-      const kinds = Object.entries(cb).filter(([, ids]) => ids.length).map(([k]) => k), need = th.level === 'impact' ? 2 : 1;
-      if (kinds.length < need) miss.push(`footage and graphics combined in ${kinds.length ? kinds.join(', ') : 'no way'} (want ${need} of A–D)`);
+      // footage and graphics as one picture (step 5b) is a suggestion where a shot's content calls for it: reported in
+      // the 实拍 × 动画 leg, not judged (10-25: the user dropped the quota after three red rounds)
+      if (th.level === 'impact' && !sh.some(s => s.graphic || s.multi)) miss.push('no moving graphic and no two pictures at once');
     }
     const ours = f => { const t = (f.text || '').replace(/\s+/g, ''), msg = f.message || ''; return [th.title, th.closing].map(plain).some(l => (t && (l.includes(t) || t.includes(l))) || msg.includes(l)); };
     const found = reviewOf(pr.file).scenes.flatMap(s => s.findings.map(f => ({ ...f, scene: s.id })));

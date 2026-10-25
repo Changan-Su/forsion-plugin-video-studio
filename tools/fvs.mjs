@@ -1153,7 +1153,7 @@ function combos(p, text, m) {
 function combosLine(p, text) {
   if (!p.scenes.some((s) => videos(s.html).some((v) => v.src))) return "";
   const cb = combos(p, text), used = Object.entries(cb).filter(([, ids]) => ids.length), none = Object.keys(cb).filter((k) => !cb[k].length);
-  return `footage \xD7 graphics (step 5b): ${used.map(([k, ids]) => `${k} \xD7${ids.length} (${ids.join(", ")})`).join(" \xB7 ") || "none"}${used.length && none.length ? ` \xB7 no ${none.join(", ")}` : ""}. Standard wants one of A\u2013D, impact two different ones; a sweep or iris two or three times a film at most.`;
+  return `footage \xD7 graphics (step 5b): ${used.map(([k, ids]) => `${k} \xD7${ids.length} (${ids.join(", ")})`).join(" \xB7 ") || "none"}${used.length && none.length ? ` \xB7 no ${none.join(", ")}` : ""}. Use one where a shot's content calls for it, none is required; a sweep or iris two or three times a film at most.`;
 }
 
 // src/lib/review.js

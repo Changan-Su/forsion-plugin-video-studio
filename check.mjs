@@ -74,6 +74,7 @@ ok('setup survives a minimal host');
 // 3. engine side: skill, agent
 const skill = readFileSync(at('skills/forsion-video-studio/SKILL.md'), 'utf8');
 if (!/^---\nname: forsion-video-studio\ndescription: .+/m.test(skill)) fail('SKILL.md frontmatter needs name and description');
+for (const [ref] of skill.matchAll(/references\/[\w.-]+\.md/g)) if (!existsSync(at(`skills/forsion-video-studio/${ref}`))) fail(`SKILL.md points to ${ref}, which is not in the skill's folder`);
 const agentToml = readFileSync(at('agents/fvs-director/config.toml'), 'utf8');
 if (!/^name = ".+"$/m.test(agentToml) || !/^version = "\d+\.\d+\.\d+"$/m.test(agentToml) || !/developer_instructions = '''/.test(agentToml)) fail('agent config.toml needs quoted name, version and developer_instructions');
 if (!src.includes("'fvs-director'") && !src.includes('"fvs-director"')) fail('the UI must hand off to the bundled fvs-director agent');

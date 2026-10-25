@@ -356,19 +356,17 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    on the hits and a line is drawn, cutting into the first shot on a hit (often with a `flash`); the title is in
    the opener or slams onto the first shot.
 5. **Move the picture.** Footage that only cuts plays like a slideshow; give it the motion the animated videos have.
-   Choose the level from the brief before you write the scenes, and with it which ways of step 5b go in which shots;
-   say both in your reply:
+   Choose the level from the brief before you write the scenes, and say which in your reply:
    - *calm* (a mood piece, landscapes, "quiet", "gentle"): one slow push or pull per shot, words fading or blurring
      in, a soft transition where it helps;
    - *standard*, **the default**, also for a plain "cut these clips": every shot has a camera move (a slow push, or a
-     drift once it is scaled up; one direction per shot), at least one way of combining footage and graphics
-     (step 5b), the film's own title and the closing line arrive
+     drift once it is scaled up; one direction per shot), the film's own title and the closing line arrive
      kinetically (word by word, `zoom` or `wipe`, not a plain cut or fade; other words in an opener do not stand in
      for the title), and every shot has at least one hit where something happens inside it (a punch-in, a line
      drawn, a label or a word arriving);
    - *impact* (a promo, trailer, teaser, opener, "energy", "冲击力", "有气势"): standard, plus the animated opener of
-     step 4, punch-ins with a bump of light on hits, at least two different ways of combining footage and
-     graphics (step 5b), the title slammed in and the closing line landing on a hit.
+     step 4, punch-ins with a bump of light on hits, at least one split screen or moving graphic (a line drawn, a
+     frame, a bar), the title slammed in and the closing line landing on a hit.
 
    Words that carry the film are big. On a 1080-high frame: the opener's words and the title 140–260 px (the 2.12
    promo's cards use 200–380 px), the closing line 90–140 px (the film's last word, bigger than the lines before it),
@@ -409,44 +407,19 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    element's CSS `transform`, with `b br` its `filter`: grade with CSS custom properties, not a second `filter`.
    Camera moves live in the scene's `js` block and are not on the Elements lane; words, labels and graphics keep
    their `data-in`, so the user can still re-time them.
-5b. **Combine footage and graphics.** Words laid over a full-frame clip are captions, not motion design. Make the
-   graphics and the footage one picture, in one of four ways:
-   - **A · the shot inside a shape.** The clip plays inside the letters of a word (or a circle, a bar) and the shape
-     opens until the shot is the frame: a black layer with white words over the clip, `mix-blend-mode: multiply`, and
-     a `K` scale on that layer to ×60 with its `transform-origin` inside the thickest stroke (find it on `fvs still`).
-   - **B · graphics on what is in the shot.** A ring and a label that stay on the surfer, a line along the wave
-     crest or the road, a number counting up next to the runner. Find the thing on `fvs frames <clip> --grid`, then
-     `fvs track <clip> --at <its data-clip-in> --point <x%,y%> [--frame <width>x<height>]` prints the keyframes to
-     paste and a sheet with the positions ringed: view it, and cut the path where it says *lost*. Put the clip and
-     the graphics in one `.cam` wrapper so a camera move carries both.
-   - **C · a layout.** Two to four panels, each a positioned box with its clip inside (the project's video rule
-     fills the panel), rising in or reframing on hits, words in the gaps; on a later hit one panel opens to the whole
-     frame. Drive each panel's box with custom properties.
-   - **D · a graphic transition.** `"transition": "sweep"` (a band of the film's colour crosses and the cut happens
-     under it) or `"iris"`, on a hit, at most two or three in a film.
-
-   ```html
-   <!-- A: the shot inside the word (css: .knock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #000; mix-blend-mode: multiply; transform-origin: 1244px 356px } .knock b { color: #fff; font-size: 640px; font-weight: 600 }) -->
-   <video src="media/a.webm" data-clip-in="12"></video><div class="knock" data-layout-ignore><b>热血</b></div>
-   <!-- B: a ring and a reading on the surfer (css: .cam { position: absolute; inset: 0 } .pin { position: absolute; left: 0; top: 0 } children placed around 0,0) -->
-   <div class="cam"><video src="media/surf.webm" data-clip-in="8"></video><div class="pin"><i class="ring" data-in="h1" data-fx="pop"></i><b class="read" data-in="h2" data-fx="wipe"><span class="n">0</span> km/h</b></div></div>
-   <!-- C: panels (css: .p { position: absolute; overflow: hidden; left: calc(var(--l) * 1px); top: calc(var(--t) * 1px); width: calc(var(--w) * 1px); height: calc(var(--h) * 1px) }) -->
-   <div class="p p1"><video src="media/b.webm" data-clip-in="9" data-layout-ignore></video></div><div class="p p2"><video src="media/c.webm" data-clip-in="3" data-layout-ignore></video></div>
-   ```
-
-   ```js
-   K('.knock', [[t0, { s: 1, o: 1 }], [hit(2), { s: 1 }], [hit(2) + .4, { s: 3 }, 'in'], [hit(2) + .6, { o: 1 }], [hit(2) + .85, { s: 60, o: 0 }, 'in']]); // A
-   const path = [[0, 912, 564], [0.25, 960, 532] /* … pasted from fvs track */];                                         // B
-   K('.pin', path.map(([d, x, y], i) => [t0 + d, { x, y }, i ? 'lin' : undefined]));
-   const n = $('.n'); H(t => { n.textContent = Math.round(31 * prog(t, hit(2), hit(4), 'out')); });
-   const col = i => ({ '--l': 64 + i * 605, '--t': 200, '--w': 581, '--h': 600 });                                      // C
-   K('.p1', [[t0, { ...col(0), '--t': 1100 }], [hit(0), {}], [hit(0) + .45, { '--t': 200 }, 'expo']]);
-   K('.p2', [[t0, { ...col(1), '--t': 1100 }], [hit(1), {}], [hit(1) + .45, { '--t': 200 }, 'expo'], [hit(3), {}], [hit(3) + .5, { '--l': 0, '--t': 0, '--w': 1920, '--h': 1080 }, 'expo']]);
-   ```
-
-   Mark what leaves the frame bare on purpose with `data-layout-ignore` (the panels' clips, the black layer of A):
-   `review` then reads it as a choice, not footage that fails to fill the frame. In your reply, say which of A–D
-   you used and in which shots.
+5b. **Footage and graphics as one picture, where the footage calls for it.** Words laid over a full-frame clip are
+   captions; a shot whose content suits it can carry more. Look at what the contact sheets show and match it:
+   - a title over a shot with movement or texture (a crowd, water, a street): **A**, the shot plays inside the
+     letters and opens to the whole frame;
+   - one clear subject moving through the frame (a surfer, a rider, a runner, a car): **B**, a ring, a line or a
+     reading that stays on it (`fvs track`);
+   - clips that are sides of one thing (three moves, three places, before and after): **C**, panels side by side,
+     one opening to the whole frame on a hit;
+   - a change of place, time or energy between two shots: **D**, `"transition": "sweep"` or `"iris"`, two or three
+     a film at most.
+   None is required, and nothing forced: a shot that suits none of them is better left as it is. Before you build
+   one, read `references/footage-graphics.md` in this skill's folder (how each is built, the code to copy). In your
+   reply, say which you used, in which shots and what in the shot called for it, or that no shot suited one.
 6. **Between shots:** cut on the beat by default; the cuts are the rhythm. Use a short cross-fade
    (`"transition": { "type": "fade", "dur": "0.5 beats" }`, one beat at most) where the energy drops (a slow
    shot after a busy one, into the last shot); a `dip` through the background into the last shot at most (a
@@ -454,8 +427,7 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    soft film.
 7. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
-8. Then `check --runtime`: its last line says which of A–D (step 5b) the film uses and where; what your level asks for
-   and that line does not show is still to do. Then `review`, which takes a minute or two on a film with footage: give
+8. Then `check --runtime` (its last line says which of A–D, step 5b, the film uses and where). Then `review`, which takes a minute or two on a film with footage: give
    the command a long timeout (`timeout_ms: 600000`) and read what it says before you reply (no `footage_not_filling` or `scrim_without_text`; the title and closing line over footage must
    come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
    the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip, the
