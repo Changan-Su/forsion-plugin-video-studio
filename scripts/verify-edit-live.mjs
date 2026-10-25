@@ -177,7 +177,7 @@ function filled(key, p, legs, ev, at = [.5]) {
 const lineMotion = l => (!l?.found ? '没找到' : !l.onScreen ? '不在画面里' : (l.kinetic ? `动态(${l.why === 'in steps' ? '分步出现' : '有位移 / 缩放 / 裁切'})` : '只是淡入或硬切') + `,字高 ${l.tall} px`);
 // the title and the closing line carry the film: tall on the pixels (text box height on a 1080 short side; the skill
 // asks a 140–260 px title and a 90–140 px closing line). 10-25: a title that lost its css was 32 px and judged kinetic
-const small = m => [['title', m.title, 100], ['closing', m.closing, 70]].filter(([, l, min]) => l?.onScreen && l.tall < min).map(([k, l, min]) => `${k} ${l.tall} px tall (want ${min})`);
+const tooSmall = m => [['title', m.title, 100], ['closing', m.closing, 70]].filter(([, l, min]) => l?.onScreen && l.tall < min).map(([k, l, min]) => `${k} ${l.tall} px tall (want ${min})`);
 /** The promo's motion read, reported but not judged (the default level of the skill moves these cuts too). */
 async function motionLegs(key, { file, dir }, p, lines, legs) {
   let m;
@@ -360,7 +360,7 @@ try {
     if (moving.length < Math.ceil(sh.length * 0.6)) misses.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
     if (acc.length < Math.max(4, Math.round(footageSec / 3))) misses.push(`${acc.length} changes on the beat inside shots (want ${Math.max(4, Math.round(footageSec / 3))})`);
     if (!m.title.kinetic || !m.closing.kinetic) misses.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
-    misses.push(...small(m));
+    misses.push(...tooSmall(m));
     if (!sh.some(s => s.graphic || s.multi)) misses.push('no moving graphic and no two pictures at once');
     if (misses.length) throw fail(`not much motion: ${misses.join('; ')}`, ev);
     // a finding names its text in `text` or only in `message` (as legible reads it); a word of a split title is part of it
@@ -443,7 +443,7 @@ try {
     } else {
       if (moving.length < Math.ceil(sh.length * .6)) miss.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
       if (!m.title?.kinetic || !m.closing?.kinetic) miss.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
-      miss.push(...small(m));
+      miss.push(...tooSmall(m));
       // inside-shot accents: a beat-cut edit's shots are a beat or two, its cuts are the accents (10-24 travel: 13 shots)
       const want = th.beatCut ? 0 : th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
       if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);
