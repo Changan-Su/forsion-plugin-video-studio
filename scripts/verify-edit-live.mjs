@@ -39,7 +39,7 @@
 //   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-edit-live.mjs [--only montage,recap,recut,legible,promo,themes]
 //   asked     (--only asked) the sports clips into a highlight whose brief names the four ways of the skill's step 5b
 //             in plain words (the title as a shot inside its letters, a ring that follows the surfer, three panels, a
-//             sweep and an iris): each where the brief puts it, `fvs track` run on the surf clip
+//             sweep and an iris): each where the brief puts it, the ring's path on the surfer (scripts/lib/follow.mjs)
 //   pointed   (--only pointed) a finished sports cut (test/fixtures/edit-live/sports-cut.fvs.md, no A–D in it) and two
 //             messages quoting a scene the way the editor's timeline does: a ring that follows the surfer in `surf`,
 //             the title as a shot inside its letters in `hit`; every other scene stays as it was
@@ -61,6 +61,7 @@ import { emptyTemplate } from '../src/lib/templates.js';
 import { fetchFootage, FOOTAGE, SETS } from './lib/fetch-footage.mjs';
 import { unfilled, FLAT_LIMIT } from './lib/frame-fill.mjs';
 import { motionOf } from './lib/motion.mjs';
+import { follows } from './lib/follow.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = resolve(process.env.FVS_ENGINE_ROOT || join(repo, '../../Forsion-Genesis/tangu-agent'));
@@ -481,6 +482,13 @@ try {
   const tracks = ev => ev.tools.filter(t => /fvs\.mjs\S*"?\s+track\b/.test(commandOf(t)));
   const clipsIn = (p, id) => videos(p.scenes.find(s => s.id === id)?.html || '').map(v => basename(v.src).replace(/\.\w+$/, ''));
   const mixLeg = (p, cb, ev) => `实拍 × 动画:${Object.entries(cb).map(([k, ids]) => `${k} ${ids.length ? ids.join('、') : '无'}`).join(';')};fvs track 跑了 ${tracks(ev).length} 次${tracks(ev).length ? `(${tracks(ev).map(t => commandOf(t).replace(/.*fvs\.mjs"?\s+/, '').slice(0, 80)).join(' / ')})` : ''};转场 ${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type}`).join('、') || '全部硬切'}`;
+  // the path stays on the surfer: our own track from its first point (scripts/lib/follow.mjs), not whether the
+  // Director ran `fvs track` (10-25: read off a sheet by eye, within 28 px of the tracker the whole way)
+  const onIt = (p, dir, id, legs) => {
+    const f = follows({ cli, dir, p, id });
+    legs.push(`跟拍路径对得上画面:${f.why || `${f.ok ? '是' : '否'},和台架自己跟踪的路径最大差 ${f.max} px、中位 ${f.median} px(${f.n} 个点、到 ${f.until} s)`}`);
+    return f.ok ? [] : [`the path in ${id} is not on the surfer (${f.why || `${f.max} px off`})`];
+  };
   const sportsClips = async () => { const set = SETS.sports, from = await fetchFootage(join(repo, 'artifacts/footage/sports'), set); return set.map(f => [join(from, `${f.name}.webm`), `${f.name}.webm`]); };
 
   await scenario('asked', '运动素材剪成高光,要求里点名四种实拍 × 动画:字里透画面、跟拍圈、三栏版式、扫屏和圆形展开', async legs => {
@@ -497,8 +505,9 @@ try {
     legs.push(`片名「${TITLE}」${lineMotion(m.title)};片尾「${CLOSING}」${lineMotion(m.closing)}`);
     const miss = [];
     if (!cb.A.some(id => plain(p.scenes.find(s => s.id === id).html).includes(TITLE))) miss.push('the title is not a shot inside its letters (A)');
-    if (!cb.B.some(id => clipsIn(p, id).includes('surf'))) miss.push('no graphic follows the surfer (B)');
-    if (!tracks(ev).some(t => /surf/.test(commandOf(t)))) miss.push('fvs track was not run on the surf clip');
+    const onSurf = cb.B.find(id => clipsIn(p, id).includes('surf'));
+    if (!onSurf) miss.push('no graphic follows the surfer (B)');
+    else miss.push(...onIt(p, pr.dir, onSurf, legs));
     const sides = id => ['skate', 'dunk', 'cycling'].filter(k => clipsIn(p, id).some(c => c.startsWith(k))).length;
     if (!cb.C.some(id => sides(id) >= 3)) miss.push('no scene shows skating, the dunk and cycling at once (C)');
     if (!p.scenes.some(s => s.transition?.type === 'sweep')) miss.push('no sweep');
@@ -531,7 +540,7 @@ try {
     legs.push(mixLeg(p, cb, ev));
     const miss = [];
     if (!cb.B.includes('surf')) miss.push('no graphic follows the surfer in surf (B)');
-    if (!tracks(ev1).some(t => /surf/.test(commandOf(t)))) miss.push('fvs track was not run on the surf clip');
+    else miss.push(...onIt(p, pr.dir, 'surf', legs));
     if (!cb.A.includes('hit')) miss.push('the title in hit is not a shot inside its letters (A)');
     // everything else as it was: the scenes, their order and timing (the project's own css may gain a rule)
     const same = s => JSON.stringify([s.id, s.title, s.html, s.css, s.js, s.dur, s.in, s.transition, s.hitTimes]);
