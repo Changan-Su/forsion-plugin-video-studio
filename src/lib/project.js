@@ -25,7 +25,7 @@ export const ID_RE = /^[A-Za-z][\w-]*$/;
 export const DEFAULTS = { width: 1920, height: 1080, fps: 30 };
 
 /** Transition ids (stable; the UI translates them). A transition plays at the start of the scene that names it. */
-export const TRANSITIONS = ['fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur'];
+export const TRANSITIONS = ['fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur', 'iris', 'sweep'];
 
 /* ───────── tokens ───────── */
 

@@ -9,6 +9,7 @@ const BASE_CSS = `
 .fvs-scene{position:absolute;inset:0;overflow:hidden}
 .fvs-stage [data-fvs-inline]{display:inline-block}
 .fvs-transition{position:absolute;inset:0}
+.fvs-sweep{position:absolute;left:0;top:0;z-index:2147482000;height:100%;background:var(--fvs-sweep,currentColor);pointer-events:none}
 [data-fvs-flash]{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 .fvs-captions{position:absolute;left:6%;right:6%;bottom:7%;z-index:2147483000;display:flex;flex-direction:column;align-items:center;gap:.25em;pointer-events:none;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif;font-weight:600;line-height:1.35;text-align:center}
 .fvs-captions[data-position=top]{top:7%;bottom:auto}
@@ -30,10 +31,14 @@ const TRANSITION = {
   'wipe-left': p => ({ b: { clipPath: `inset(0 0 0 ${(1 - p) * 100}%)` } }), // revealed from the right edge, the edge travelling left
   zoom: p => ({ b: { opacity: p, transform: `scale(${1.08 - .08 * p})` } }),
   blur: p => ({ b: { opacity: p, filter: `blur(${12 * (1 - p)}px)` } }),
+  iris: p => ({ b: { clipPath: `circle(${p * 72}% at 50% 50%)` } }), // opens from the middle; at 72 % the circle reaches the corners
+  // a slanted band (.fvs-sweep, colour --fvs-sweep, default the stage's text colour) crosses right to left, the next scene
+  // behind it: b shows from the band's left edge on, so the cut happens under the band, which fills the frame at p = .5
+  sweep: (p, W, H) => { const k = H / 4, L = W - p * (2 * W + 2.5 * k); return { b: { clipPath: `polygon(${L + k}px 0, ${W + k}px 0, ${W + k}px ${H}px, ${L}px ${H}px)`, zIndex: 2147482000 }, band: `translateX(${L}px)` }; }, // over anything the outgoing scene raised; the captions stay on top
 };
 const NUDGE = 1e-4; // seek renders t + NUDGE (see seek)
 const OUTGOING = new Set(['dip', 'push-left']); // the ones that move the previous scene too
-const TX_PROPS = ['opacity', 'transform', 'clipPath', 'filter'];
+const TX_PROPS = ['opacity', 'transform', 'clipPath', 'filter', 'zIndex'];
 export const TRANSITION_TYPES = Object.keys(TRANSITION);
 
 /* ───────── time expressions: "h3", "h3+0.5", "2b", "1.5s", "end-1", "0.25" ───────── */
@@ -111,7 +116,19 @@ export function mount(payload, container, { doc = document, onScene = null, medi
 
   // at most one transition runs at a time (each lies inside its own scene), so one hook paints them all
   const txs = [];
-  list.forEach((s, i) => { const tr = transitionOf(s); if (tr && i > 0) txs.push({ t0: s.t0, d: tr.dur, fx: TRANSITION[tr.type], a: OUTGOING.has(tr.type) ? layers[i - 1] : null, b: layers[i] }); });
+  list.forEach((s, i) => {
+    const tr = transitionOf(s);
+    if (!tr || i === 0) return;
+    let band = null;
+    if (tr.type === 'sweep') { // the band (W + 2.5k wide, k the slant) inside b's wrapper, above the scene; shown only while the sweep runs
+      const k = P.height / 4, w = P.width + 2.5 * k;
+      band = doc.createElement('div');
+      band.className = 'fvs-sweep';
+      Object.assign(band.style, { width: `${w}px`, clipPath: `polygon(${k}px 0, ${w}px 0, ${w - k}px 100%, 0 100%)`, display: 'none' });
+      layers[i].append(band);
+    }
+    txs.push({ t0: s.t0, d: tr.dur, fx: TRANSITION[tr.type], a: OUTGOING.has(tr.type) ? layers[i - 1] : null, b: layers[i], band });
+  });
   if (txs.length) {
     F.H(t => {
       const x = txs.find(x => t >= x.t0 && t < x.t0 + x.d);
@@ -120,8 +137,10 @@ export function mount(payload, container, { doc = document, onScene = null, medi
         const st = x.fx(prog(t, x.t0, x.t0 + x.d, 'io'), P.width, P.height);
         if (st.a && x.a) on.set(x.a, st.a);
         if (st.b) on.set(x.b, st.b);
+        if (x.band) Object.assign(x.band.style, { display: '', transform: st.band });
       }
       for (const w of wraps) { const st = on.get(w); for (const k of TX_PROPS) w.style[k] = st && st[k] !== undefined ? String(st[k]) : ''; }
+      for (const y of txs) if (y.band && y !== x) y.band.style.display = 'none';
     });
   }
 

@@ -37,6 +37,12 @@
 //
 //   (cd <Genesis>/tangu-agent && npm run build)
 //   FVS_ENGINE_ROOT=<Genesis>/tangu-agent node scripts/verify-edit-live.mjs [--only montage,recap,recut,legible,promo,themes]
+//   asked     (--only asked) the sports clips into a highlight whose brief names the four ways of the skill's step 5b
+//             in plain words (the title as a shot inside its letters, a ring that follows the surfer, three panels, a
+//             sweep and an iris): each where the brief puts it, the ring's path on the surfer (scripts/lib/follow.mjs)
+//   pointed   (--only pointed) a finished sports cut (test/fixtures/edit-live/sports-cut.fvs.md, no A–D in it) and two
+//             messages quoting a scene the way the editor's timeline does: a ring that follows the surfer in `surf`,
+//             the title as a shot inside its letters in `hit`; every other scene stays as it was
 // Writes artifacts/edit-live/ (or FVS_EDIT_OUT, so runs can go side by side): report.md, results.json, engine.log and <scenario>-evidence/ (过程.md, the final
 // project, the review, a contact sheet and a half-size render), the layout harness-runs/archive.mjs add takes.
 import assert from 'node:assert/strict';
@@ -49,11 +55,13 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseProject } from '../src/lib/project.js';
-import { videos } from '../src/lib/html.js';
+import { videos, scan } from '../src/lib/html.js';
+import { combos } from '../src/lib/combos.js';
 import { emptyTemplate } from '../src/lib/templates.js';
 import { fetchFootage, FOOTAGE, SETS } from './lib/fetch-footage.mjs';
 import { unfilled, FLAT_LIMIT } from './lib/frame-fill.mjs';
 import { motionOf } from './lib/motion.mjs';
+import { follows } from './lib/follow.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engine = resolve(process.env.FVS_ENGINE_ROOT || join(repo, '../../Forsion-Genesis/tangu-agent'));
@@ -94,7 +102,7 @@ function projectWith(name, text, clips) {
 
 // prepared cuts the recut and legible scenarios start from (clips are linked in from the footage folder)
 const fixture = name => readFileSync(join(repo, `test/fixtures/edit-live/${name}.fvs.md`), 'utf8');
-const RECUT = fixture('recut'), LEGIBLE = fixture('legible');
+const RECUT = fixture('recut'), LEGIBLE = fixture('legible'), SPORTS_CUT = fixture('sports-cut');
 const LEGIBLE_CAPTIONS = ['清晨的车站，墙上的瓷砖讲着老故事', '午后的广场，旗帜在风里', '列车进站，城市开始忙碌'];
 
 // pixels stay local: a stub answers image requests (what is under test is the cut, not a picture model)
@@ -166,12 +174,17 @@ const near = (a, b, eps = 0.02) => Math.abs(a - b) <= eps;
 const shots = p => p.scenes.filter(s => videos(s.html).some(v => v.src));
 // the footage fills the frame, read from the render's pixels: not from the project and not from `fvs review`, so a
 // mistake both of those miss still fails here (10-24: every clip at 854×480 in a corner, passed as "title on the shot")
+// A shot whose html marks something data-layout-ignore leaves the frame bare on purpose (panels, the shot inside a word)
 function filled(key, p, legs, ev, at = [.5]) {
-  const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), shots(p), at);
-  legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(${at.length > 1 ? `${at.join(' / ')} 处取最低的` : '中点'}平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)`);
+  const all = shots(p), meant = all.filter(s => scan(s.html).tags.some(t => t.attrs.some(a => a.name === 'data-layout-ignore')));
+  const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), all.filter(s => !meant.includes(s)), at);
+  legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(${at.length > 1 ? `${at.join(' / ')} 处取最低的` : '中点'}平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)${meant.length ? `;标了 data-layout-ignore、不判:${meant.map(s => s.id).join('、')}` : ''}`);
   if (over.length) throw fail(`footage does not fill the frame (flat share over ${FLAT_LIMIT} at the shot's middle): ${over.map(r => `${r.id} ${r.share}`).join(', ')}`, ev);
 }
-const lineMotion = l => (!l?.found ? '没找到' : !l.onScreen ? '不在画面里' : l.kinetic ? `动态(${l.why === 'in steps' ? '分步出现' : '有位移 / 缩放 / 裁切'})` : '只是淡入或硬切');
+const lineMotion = l => (!l?.found ? '没找到' : !l.onScreen ? '不在画面里' : (l.kinetic ? `动态(${l.why === 'in steps' ? '分步出现' : '有位移 / 缩放 / 裁切'})` : '只是淡入或硬切') + `,字高 ${l.tall} px`);
+// the title and the closing line carry the film: tall on the pixels (text box height on a 1080 short side; the skill
+// asks a 140–260 px title and a 90–140 px closing line). 10-25: a title that lost its css was 32 px and judged kinetic
+const tooSmall = m => [['title', m.title, 100], ['closing', m.closing, 70]].filter(([, l, min]) => l?.onScreen && l.tall < min).map(([k, l, min]) => `${k} ${l.tall} px tall (want ${min})`);
 /** The promo's motion read, reported but not judged (the default level of the skill moves these cuts too). */
 async function motionLegs(key, { file, dir }, p, lines, legs) {
   let m;
@@ -354,6 +367,7 @@ try {
     if (moving.length < Math.ceil(sh.length * 0.6)) misses.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
     if (acc.length < Math.max(4, Math.round(footageSec / 3))) misses.push(`${acc.length} changes on the beat inside shots (want ${Math.max(4, Math.round(footageSec / 3))})`);
     if (!m.title.kinetic || !m.closing.kinetic) misses.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
+    misses.push(...tooSmall(m));
     if (!sh.some(s => s.graphic || s.multi)) misses.push('no moving graphic and no two pictures at once');
     if (misses.length) throw fail(`not much motion: ${misses.join('; ')}`, ev);
     // a finding names its text in `text` or only in `message` (as legible reads it); a word of a split title is part of it
@@ -412,6 +426,8 @@ try {
     const sh = m.shots, moving = sh.filter(s => s.camera), acc = sh.flatMap(s => s.accents), footageSec = sh.reduce((a, s) => a + s.t1 - s.t0, 0);
     const line = l => `${lineMotion(l)}${l?.onScreen && !l.inFrame ? '、跑出画框' : ''}`;
     legs.push(`${W}×${H}、${p.scenes.length} 个场景、${p.length.toFixed(2)} s、${p.meta.tempo?.bpm} BPM,用了 ${used.size}/${set.length} 段素材;自己跑 review:${ranReview(ev) ? '是' : '否'};review:${facts.review};按间隔抽帧看素材 ${frameLooks(ev).length} 次`);
+    const cb = combos(p, text, m);
+    legs.push(`实拍 × 动画:${Object.entries(cb).map(([k, ids]) => `${k} ${ids.length ? ids.join('、') : '无'}`).join(';')};跑了 fvs track:${ev.tools.some(t => /fvs\.mjs\S*"?\s+track\b/.test(t.args)) ? '是' : '否'}`);
     legs.push(`动效:运镜 ${moving.length}/${sh.length};镜头内卡拍变化 ${acc.length} 处(${sh.filter(s => s.accents.length).length}/${sh.length} 个镜头有);图形 ${sh.filter(s => s.graphic).length}、同屏两画面 ${sh.filter(s => s.multi).length};片名「${th.title}」${line(m.title)};片尾「${th.closing}」${line(m.closing)};转场 ${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type}`).join('、') || '全部硬切'}`);
     const miss = [];
     if (th.portrait && Math.abs(W / H - 9 / 16) > .01) miss.push(`not a vertical 9:16 frame (${W}×${H})`);
@@ -427,6 +443,7 @@ try {
     for (const [what, l] of [['title', m.title], ['closing line', m.closing]]) if (!l?.onScreen) miss.push(`the ${what} is never on screen`); else if (!l.inFrame) miss.push(`the ${what} never fits inside the ${W}×${H} frame`);
     // a caption: words in the shot's own html (not in a comment or an attribute), or a caption cue while it is on screen
     if (th.captions) { const bare = shots(p).filter(s => !CJK.test(plain(s.html.replace(/<!--[\s\S]*?-->/g, ''))) && !p.captions.some(c => c.start < s.t1 && c.end > s.t0 && CJK.test(c.text))); if (bare.length) miss.push(`shots without a Chinese caption: ${bare.map(s => s.id).join(', ')}`); }
+    miss.push(...tooSmall(m));
     if (th.level === 'calm') {
       const busy = sh.filter(s => s.accents.length > 1);
       if (busy.length) miss.push(`beat accents in ${busy.map(s => `${s.id} ×${s.accents.length}`).join(', ')} (a calm cut has at most one a shot)`);
@@ -437,6 +454,8 @@ try {
       // inside-shot accents: a beat-cut edit's shots are a beat or two, its cuts are the accents (10-24 travel: 13 shots)
       const want = th.beatCut ? 0 : th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
       if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);
+      // footage and graphics as one picture (step 5b) is a suggestion where a shot's content calls for it: reported in
+      // the 实拍 × 动画 leg, not judged (10-25: the user dropped the quota after three red rounds)
       if (th.level === 'impact' && !sh.some(s => s.graphic || s.multi)) miss.push('no moving graphic and no two pictures at once');
     }
     const ours = f => { const t = (f.text || '').replace(/\s+/g, ''), msg = f.message || ''; return [th.title, th.closing].map(plain).some(l => (t && (l.includes(t) || t.includes(l))) || msg.includes(l)); };
@@ -454,6 +473,84 @@ try {
     if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15) || (th.sound === 'lower' && !facts.render?.audio)) miss.push(`render: ${JSON.stringify(facts.render)}`);
     else legs.push(`半尺寸渲染 ${facts.render.seconds} s、${facts.render.audio ? '有声音' : '无声音'}、${facts.render.mb} MB`);
     try { filled(key, p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
+    if (miss.length) throw fail(miss.join('; '), ev);
+    return ev;
+  });
+
+  // step 5b on request: the skill suggests the four ways where a shot calls for one and asks for none (10-25), so these
+  // two check that the Director builds them when the user asks, in a brief and by pointing at a scene
+  const tracks = ev => ev.tools.filter(t => /fvs\.mjs\S*"?\s+track\b/.test(commandOf(t)));
+  const clipsIn = (p, id) => videos(p.scenes.find(s => s.id === id)?.html || '').map(v => basename(v.src).replace(/\.\w+$/, ''));
+  const mixLeg = (p, cb, ev) => `实拍 × 动画:${Object.entries(cb).map(([k, ids]) => `${k} ${ids.length ? ids.join('、') : '无'}`).join(';')};fvs track 跑了 ${tracks(ev).length} 次${tracks(ev).length ? `(${tracks(ev).map(t => commandOf(t).replace(/.*fvs\.mjs"?\s+/, '').slice(0, 80)).join(' / ')})` : ''};转场 ${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type}`).join('、') || '全部硬切'}`;
+  // the path stays on the surfer: our own track from its first point (scripts/lib/follow.mjs), not whether the
+  // Director ran `fvs track` (10-25: read off a sheet by eye, within 28 px of the tracker the whole way)
+  const onIt = (p, dir, id, legs) => {
+    const f = follows({ cli, dir, p, id });
+    legs.push(`跟拍路径对得上画面:${f.why || `${f.ok ? '是' : '否'},和台架自己跟踪的路径最大差 ${f.max} px、中位 ${f.median} px(${f.n} 个点、到 ${f.until} s)`}`);
+    return f.ok ? [] : [`the path in ${id} is not on the surfer (${f.why || `${f.max} px off`})`];
+  };
+  const sportsClips = async () => { const set = SETS.sports, from = await fetchFootage(join(repo, 'artifacts/footage/sports'), set); return set.map(f => [join(from, `${f.name}.webm`), `${f.name}.webm`]); };
+
+  await scenario('asked', '运动素材剪成高光,要求里点名四种实拍 × 动画:字里透画面、跟拍圈、三栏版式、扫屏和圆形展开', async legs => {
+    const TITLE = '热血', CLOSING = '下一个就是你';
+    const pr = projectWith('asked', emptyTemplate({ title: TITLE, zh: true }), await sportsClips());
+    const ev = await ask(await session('asked', pr.dir), `media 里是滑板、冲浪、篮球、足球、骑行的素材。帮我剪一支 25 秒左右的运动高光《${TITLE}》，节奏 128 BPM，原声都不要，结尾一句「${CLOSING}」。有几处我想这样做：片名《${TITLE}》做成画面在字里透出来，再放大成整幅画面；冲浪那段，给冲浪的人加个圈和速度读数，跟着他走；滑板、扣篮、骑行三段排成三栏一起出现，最后一块撑满全屏；中间换场用一次色块扫过，最后一个镜头用圆形展开进来。`, pr.dir, 2_700_000); // four built pieces and a track take longer than one cut (10-25: still checking at 25 min)
+    if (ev.error) throw fail(`the run failed: ${ev.error}`, ev);
+    const { facts, p, at } = evidence('asked', pr, ev, { render: true, every: 0.5 });
+    const m = await motionOf({ cli, file: pr.file, dir: pr.dir, p, lines: { title: TITLE, closing: CLOSING } });
+    writeFileSync(join(at, 'motion.json'), JSON.stringify(m, null, 2));
+    const cb = combos(p, readFileSync(pr.file, 'utf8'), m);
+    legs.push(`${p.scenes.length} 个场景、${p.length.toFixed(2)} s;自己跑 review:${ranReview(ev) ? '是' : '否'};review:${facts.review}`);
+    legs.push(mixLeg(p, cb, ev));
+    legs.push(`片名「${TITLE}」${lineMotion(m.title)};片尾「${CLOSING}」${lineMotion(m.closing)}`);
+    const miss = [];
+    if (!cb.A.some(id => plain(p.scenes.find(s => s.id === id).html).includes(TITLE))) miss.push('the title is not a shot inside its letters (A)');
+    const onSurf = cb.B.find(id => clipsIn(p, id).includes('surf'));
+    if (!onSurf) miss.push('no graphic follows the surfer (B)');
+    else miss.push(...onIt(p, pr.dir, onSurf, legs));
+    const sides = id => ['skate', 'dunk', 'cycling'].filter(k => clipsIn(p, id).some(c => c.startsWith(k))).length;
+    if (!cb.C.some(id => sides(id) >= 3)) miss.push('no scene shows skating, the dunk and cycling at once (C)');
+    if (!p.scenes.some(s => s.transition?.type === 'sweep')) miss.push('no sweep');
+    if (p.scenes.at(-1)?.transition?.type !== 'iris') miss.push(`the last shot comes in with ${p.scenes.at(-1)?.transition?.type || 'a cut'}, not an iris`);
+    if (!(p.length >= 15 && p.length <= 38)) miss.push(`length ${p.length.toFixed(2)} s outside 15–38 s`);
+    if (!plain(readFileSync(pr.file, 'utf8')).includes(CLOSING)) miss.push('the closing line is missing');
+    miss.push(...tooSmall(m));
+    if (!/^ok/.test(facts.check)) miss.push(`check: ${facts.check}`);
+    if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15)) miss.push(`render: ${JSON.stringify(facts.render)}`);
+    else legs.push(`半尺寸渲染 ${facts.render.seconds} s、${facts.render.mb} MB`);
+    try { filled('asked', p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
+    if (miss.length) throw fail(miss.join('; '), ev);
+    return ev;
+  });
+
+  await scenario('pointed', '在剪好的运动片上指着镜头说:冲浪那段加跟着人走的圈,片头的片名改成字里透画面', async legs => {
+    const pr = projectWith('sports', SPORTS_CUT, await sportsClips());
+    const before = parseProject(SPORTS_CUT);
+    // what the timeline's "quote in chat" puts at the top of the message (src/ui/studio.js reference(), the host's composeQuotes)
+    const quote = id => { const s = before.scenes.find(x => x.id === id); return `> sports.fvs.md › ## ${s.id}${s.title ? ` · ${s.title}` : ''} › ${s.t0.toFixed(2)}–${s.t1.toFixed(2)}s\n\n`; };
+    const sid = await session('pointed', pr.dir);
+    const ev1 = await ask(sid, `${quote('surf')}给画面里的人加个跟着走的圈。`, pr.dir);
+    if (ev1.error) throw fail(`the first message failed: ${ev1.error}`, ev1);
+    const ev2 = await ask(sid, `${quote('hit')}片名改成画面在字里透出来，再放大成整幅画面。`, pr.dir);
+    const ev = { tools: [...ev1.tools, ...ev2.tools], results: [...ev1.results, ...ev2.results], content: `${ev1.content}\n\n——第二句——\n\n${ev2.content}`, error: ev2.error, ms: ev1.ms + ev2.ms };
+    if (ev.error) throw fail(`the second message failed: ${ev.error}`, ev);
+    const { facts, p } = evidence('pointed', pr, ev, { render: true, every: 0.25 });
+    const cb = combos(p, readFileSync(pr.file, 'utf8'));
+    legs.push(`${p.scenes.length} 个场景、${p.length.toFixed(2)} s;review:${facts.review}`);
+    legs.push(mixLeg(p, cb, ev));
+    const miss = [];
+    if (!cb.B.includes('surf')) miss.push('no graphic follows the surfer in surf (B)');
+    else miss.push(...onIt(p, pr.dir, 'surf', legs));
+    if (!cb.A.includes('hit')) miss.push('the title in hit is not a shot inside its letters (A)');
+    // everything else as it was: the scenes, their order and timing (the project's own css may gain a rule)
+    const same = s => JSON.stringify([s.id, s.title, s.html, s.css, s.js, s.dur, s.in, s.transition, s.hitTimes]);
+    const moved = before.scenes.filter(b => !['surf', 'hit'].includes(b.id)).filter(b => { const a = p.scenes.find(s => s.id === b.id); return !a || same(a) !== same(b); }).map(b => b.id);
+    if (JSON.stringify(p.scenes.map(s => s.id)) !== JSON.stringify(before.scenes.map(s => s.id))) miss.push(`scenes now ${p.scenes.map(s => s.id).join(', ')}`);
+    if (moved.length) miss.push(`scenes nobody pointed at changed: ${moved.join(', ')}`);
+    legs.push(`没指到的 ${before.scenes.length - 2} 个场景:${moved.length ? `改了 ${moved.join('、')}` : '都没动'}`);
+    if (!/^ok/.test(facts.check)) miss.push(`check: ${facts.check}`);
+    if (facts.render?.failed || !near(facts.render?.seconds, p.length, .15)) miss.push(`render: ${JSON.stringify(facts.render)}`);
+    try { filled('pointed', p, legs, ev, [.25, .5, .75]); } catch (e) { miss.push(e.message); }
     if (miss.length) throw fail(miss.join('; '), ev);
     return ev;
   });

@@ -96,6 +96,8 @@ const expected = (type, p) => ({
   'wipe-left': { b: { clipPath: [0, 0, 0, (1 - p) * 100] } },
   zoom: { b: { opacity: [p], transform: [1.08 - .08 * p] } },
   blur: { b: { opacity: [p], filter: [12 * (1 - p)] } },
+  iris: { b: { clipPath: [p * 72, 50, 50] } },
+  sweep: (() => { const k = H / 4, L = W - p * (2 * W + 2.5 * k); return { b: { clipPath: [L + k, 0, W + k, 0, W + k, H, L, H] } }; })(),
 })[type];
 
 const snapshot = page => page.evaluate(() => [...document.querySelectorAll('.fvs-scene')].map(el => {

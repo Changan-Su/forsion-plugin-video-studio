@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.14.0 — 2026-10-25
+
+- 导演剪实拍素材时，可以把画面和动画做成一体，不只是把字盖在整幅画面上。技能「Cut footage」新加第 5b 步，按镜头内容挑做法，具体写法放在技能文件夹的 `references/footage-graphics.md`，用到时再读：
+  - A 画面装进字或形状里（片名压在有动感、有质感的镜头上时）：画面先在字里透出来，字再放大成整幅画面；
+  - B 图形贴着画面里的东西（画面里有一个清楚的主体在动时）：圈、标签、读数跟着人走，线沿着浪尖或路画过去；
+  - C 版式（几段素材是同一件事的几个侧面时）：两到四块画面按拍子排开、重排，最后一块撑满全屏；
+  - D 图形转场（换地点、换时间、换节奏时）：色块扫过、圆形展开，一部片两三次以内。
+
+  都是建议，不要求数量：没有镜头适合，就不用。`fvs check` 最后一行会列出这部片用了哪几种、在哪些镜头。
+- 新命令 `fvs track <素材> --at <秒> --point <x%,y%>`：从给定的点开始，每 0.25 秒找一次那个东西在画面里的位置，起点会吸附到附近反差最大的一块。它打印可以直接贴进场景脚本的关键帧（按 `--frame` 给的画面尺寸和 cover 裁切换算成像素），并出一张标好位置的抽帧图；跟丢的地方会标出来，关键帧在那里截断。`fvs frames --grid` 在抽帧图上画 10% 网格并标数字，方便读出起点。
+- 新转场：
+  - `iris`：下一个镜头在圆里从中间展开；
+  - `sweep`：一条斜切色带从右往左扫过，换镜头发生在色带下面，中点盖满全屏。颜色用 `--fvs-sweep` 设置，缺省是画面文字的颜色。
+
+  编辑器的转场下拉里也有（圆形展开 / 色块扫过）。
+- 故意不铺满画面的素材（版式里的面板、字里透出的画面）标 `data-layout-ignore` 后，`review` 不再报「素材没铺满画面」。
+- 工程文件格式只多了两种转场名。用了它们的工程在 0.13 及更早的版本里，那个场景会报一条错误，并按硬切播放。需要的 Forsion 和 0.13.0 相同。
+- **English:** When the Director cuts footage it can make the footage and the graphics one picture instead of only laying words over full-frame clips. The skill's "Cut footage" has a new step 5b that picks a way by what is in the shot; how to build each is in `references/footage-graphics.md` in the skill's folder, read when one is used:
+  - A, the shot inside a word or shape (a title over a shot with movement or texture): it plays inside the letters, which then open into the whole frame;
+  - B, graphics on what is in the shot (one clear subject moving through the frame): a ring, a label or a reading that follows the surfer, a line along the wave crest or the road;
+  - C, a layout (clips that are sides of one thing): two to four panels laid out and rearranged on hits, one finally opening to the whole frame;
+  - D, a graphic transition (a change of place, time or energy): a sweep or an iris, two or three a film at most.
+
+  These are suggestions, not a count: where no shot suits one, none is used. The last line of `fvs check` lists which the film uses and where.
+
+  New command `fvs track <clip> --at <s> --point <x%,y%>`. Starting from the point, snapped to the most textured patch nearby, it finds the thing every 0.25 s and prints keyframes to paste into the scene script, in stage pixels for `--frame` with the cover crop. It also writes a sheet with the positions ringed. Where it lost the thing it says so and cuts the keyframes there. `fvs frames --grid` draws a numbered 10 % grid on the sheet to read the start point off.
+
+  New transitions: `iris` (the next shot opens in a circle from the middle) and `sweep` (a slanted band crosses right to left, the cut happens under it and the band fills the frame halfway). The sweep colour is `--fvs-sweep`, by default the stage's text colour. Both are also in the editor's transition menu (Iris / Sweep).
+
+  Footage that leaves the frame bare on purpose (panels in a layout, the shot inside a word) takes `data-layout-ignore`, and `review` no longer reports it as not filling the frame.
+
+  The project format only gains the two transition names. In 0.13 and earlier a project that uses them reports an error for that scene and plays it as a cut. Forsion versions: the same as 0.13.0.
+
 ## 0.13.2 — 2026-10-25
 
 - `fvs review` 新增一条检查 `scrim_without_text`：没有字的镜头上盖着大面积暗色渐变（或半透明的暗色底）时报出来。之前导演常把片名下面那层暗色渐变复制到每一个镜头上，整条片子的边缘都像压着一圈阴影；10-24 的五条题材短片里有四条是这样，运动那条 18 个镜头里有 16 个。检查方法：在每个有素材的场景中点，找面积超过画面三分之一、带暗色渐变的元素，它所在的场景里一个字都没有就报出来。只是警告，不拦人；故意的调色或暗角加 `data-layout-ignore`。

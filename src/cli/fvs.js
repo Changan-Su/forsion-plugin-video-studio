@@ -13,6 +13,8 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
+import { trackPoint, coverPoint } from '../lib/track.js';
+import { combosLine } from '../lib/combos.js';
 import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings, scrimsOnScreen, scrimFindings, wordedScenes } from '../lib/review.js';
 
 const VERSION = '0.7.0';
@@ -28,8 +30,12 @@ const HELP = `fvs ${VERSION} — Forsion Video Studio
   fvs html <file> [--out f.html] [--inline]   standalone web video (player page)
   fvs still <file> --at <t|scene[:hit]> [--out f.png] [--scale 0.5]   one frame as PNG
   fvs sheet <file> [--scenes | --every <sec>] [--out sheet.png]       contact sheet of frames
-  fvs frames <media…> [--every 2] [--from s] [--to s] [--out dir]    a contact sheet per footage file, each
-                                       frame labelled with its time in the file (pick in-points from it)
+  fvs frames <media…> [--every 2] [--from s] [--to s] [--grid] [--out dir]   a contact sheet per footage file, each
+                                       frame labelled with its time in the file (pick in-points from it); --grid
+                                       draws lines every 10 % of the frame (read a position off for track)
+  fvs track <media> --at <s> --point <x%,y%> [--to s] [--every 0.25] [--frame 1920x1080] [--out dir]
+                                       follow one thing through the clip: its position every 0.25 s, as keyframes
+                                       for a graphic that stays on it, and a sheet with the positions ringed
   fvs render <file> [--out f.mp4] [--from s] [--to s] [--scale 0.5] [--workers 3] [--crf 18]
                     [--keep-frames dir] [--no-audio] [--no-captions] MP4 with the project's audio and captions
   fvs render-job <job.json>            export with real progress and a .cancel marker
@@ -131,10 +137,18 @@ function ffmpegBin() {
 }
 
 /** Frames (base64 JPEG, 320 px wide) laid out with their labels as one PNG. */
-async function contactSheet(browser, shots, labels, out) {
+/**
+ * Frames side by side, each labelled. `grid`: lines every 10 % of the frame, numbered along the top and left edge (to
+ * read a position off); `marks[i]` = [x %, y %]: a ring there (where `track` found the thing).
+ */
+async function contactSheet(browser, shots, labels, out, { grid = false, marks = null, width = 320 } = {}) {
   const cols = Math.min(6, Math.ceil(Math.sqrt(shots.length * 1.4)));
-  const sheet = await browser.newPage({ viewport: { width: cols * 332 + 12, height: 400 } });
-  await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},320px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><img style="display:block;width:320px" src="data:image/jpeg;base64,${b}"><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join('')}</div></body>`);
+  const lines = 'background-image:linear-gradient(to right,rgba(255,224,0,.6) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,224,0,.6) 1px,transparent 1px);background-size:10% 10%';
+  const nums = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+  const over = i => (grid ? `<div style="position:absolute;inset:0;${lines}"></div>${nums.map(n => `<b style="position:absolute;left:${n}%;top:1px;transform:translateX(-50%);font:600 10px sans-serif;color:#ffe000;text-shadow:0 0 2px #000">${n}</b><b style="position:absolute;top:${n}%;left:2px;transform:translateY(-50%);font:600 10px sans-serif;color:#ffe000;text-shadow:0 0 2px #000">${n}</b>`).join('')}` : '')
+    + (marks && marks[i] ? `<i style="position:absolute;left:${marks[i][0]}%;top:${marks[i][1]}%;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #ff3b30;border-radius:50%;box-shadow:0 0 0 1px #000"></i>` : '');
+  const sheet = await browser.newPage({ viewport: { width: cols * (width + 12) + 12, height: 400 } });
+  await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},${width}px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><div style="position:relative"><img style="display:block;width:${width}px" src="data:image/jpeg;base64,${b}">${over(i)}</div><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join('')}</div></body>`);
   await sheet.screenshot({ path: out, fullPage: true });
   await sheet.close();
 }
@@ -259,6 +273,8 @@ const commands = {
     }
     if (n) die(`${n} error(s)`);
     log(`ok · ${ctx.p.scenes.length} scenes · ${ctx.p.length.toFixed(2)} s${flags.runtime ? ' · scripts ran clean' : ''}`);
+    const mix = combosLine(ctx.p, ctx.text);
+    if (mix) log(mix);
   },
 
   async review() {
@@ -394,14 +410,72 @@ const commands = {
         const step = (to - from) / every > 24 ? Math.ceil((to - from) / 12) / 2 : every; // ponytail: at most ~24 frames a sheet, on half seconds; look closer with --from/--to
         const times = [], shots = [];
         for (let t = from; t < to - 0.04 || !shots.length && t < to + step; t += step) {
-          const r = spawnSync(ff, ['-v', 'error', '-ss', String(+t.toFixed(2)), '-i', src, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 });
+          const r = spawnSync(ff, ['-v', 'error', '-ss', String(+t.toFixed(2)), '-i', src, '-frames:v', '1', '-vf', `scale=${flags.grid ? 480 : 320}:-2`, '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 });
           if (r.status === 0 && r.stdout.length) { times.push(+t.toFixed(2)); shots.push(r.stdout.toString('base64')); } // none past the last picture (the sound can run longer)
         }
         if (!shots.length) die(`ffmpeg could not read a frame of ${src} between ${from} and ${to} s`);
         const out = join(dir, `${basename(src).replace(/\./g, '-')}-frames.png`);
-        await contactSheet(browser, shots, times.map(t => `${basename(src)} · ${t} s`), out);
+        await contactSheet(browser, shots, times.map(t => `${basename(src)} · ${t} s`), out, { grid: !!flags.grid, width: flags.grid ? 480 : 320 });
         log(`${out}\n  ${basename(src)} · ${length.toFixed(1)} s · a frame every ${+step.toFixed(2)} s at: ${times.join(' ')}`);
       }
+    } finally { await browser.close(); }
+  },
+
+  async track() {
+    const usage = 'fvs track <media> --at <s> --point <x%,y%> [--to s] [--every 0.25] [--frame 1920x1080] (read the point off `fvs frames <media> --grid`)';
+    if (!pos[0]) die(`which footage? (${usage})`);
+    const src = resolve(pos[0]);
+    if (!existsSync(src)) die(`no such file: ${src}`);
+    const at = +flags.at, point = String(flags.point || '').split(',').map(Number), every = flags.every === undefined ? .25 : +flags.every;
+    if (!(at >= 0) || point.length !== 2 || !point.every(v => v >= 0 && v <= 100)) die(`--at <seconds into the file> and --point <x%,y%> (0–100 each): ${usage}`);
+    if (!(every >= .04)) die('--every takes seconds, at least 0.04');
+    const ff = ffmpegBin(), probe = spawnSync(ff, ['-hide_banner', '-i', src], { encoding: 'utf8' }).stderr || '';
+    const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(probe), size = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(probe);
+    if (!size) die(`ffmpeg reads no video stream from ${src}`);
+    // a phone clip stored on its side with a rotation flag decodes upright: the picture's sides swap
+    const turned = /rotat\w*\s*(?:of\s*)?:?\s*-?(?:90|270)\b/i.test(probe);
+    const vw = +size[turned ? 2 : 1], vh = +size[turned ? 1 : 2], length = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : Infinity;
+    const to = Math.min(length, flags.to === undefined ? at + 4 : +flags.to);
+    if (!(to > at)) die(`nothing to follow between ${at} and ${to} s (the clip is ${length.toFixed(1)} s long)`);
+    const AW = 480, AH = Math.round(AW * vh / vw / 2) * 2; // analysed at 480 px wide
+    // each time read on its own, seeked exactly (as the sheet below and the renderer's clip do): an fps filter picks
+    // frames that can sit a sampling step off the times they are labelled with
+    const frames = [];
+    for (let t = at; t <= to - .02 || !frames.length; t += every) {
+      const r = spawnSync(ff, ['-v', 'error', '-ss', String(+t.toFixed(3)), '-i', src, '-frames:v', '1', '-vf', `scale=${AW}:${AH}`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 16 << 20 });
+      if (r.status !== 0 || (r.stdout?.length || 0) < AW * AH) break; // past the last picture
+      frames.push(r.stdout.subarray(0, AW * AH));
+    }
+    const count = frames.length;
+    if (!count) die(`ffmpeg could not read frames of ${src} from ${at} s`);
+    const found = trackPoint(frames, AW, AH, [point[0] / 100 * AW, point[1] / 100 * AH], { half: Math.round(AW * .025), search: Math.round(AW * (+flags.search || 10) / 100), snap: Math.round(AW * .03) });
+    const [W, H] = String(flags.frame || '1920x1080').split('x').map(Number);
+    // lost: a match much worse than the trusted ones before it (the median so far; what comes after a loss is not trusted)
+    const trusted = [], median = a => [...a].sort((p, q) => p - q)[a.length >> 1];
+    let gone = false;
+    const rows = found.map((f, i) => {
+      const dt = +(i * every).toFixed(3), [sx, sy] = coverPoint(f.x / AW * vw, f.y / AH * vh, vw, vh, W, H);
+      const lost = gone || (i > 0 && f.err > Math.max(trusted.length >= 2 ? 2.5 * median(trusted) : 30, 18));
+      if (lost) gone = true; else if (i > 0) trusted.push(f.err);
+      return { dt, file: +(at + dt).toFixed(3), xp: f.x / AW * 100, yp: f.y / AH * 100, sx, sy, lost };
+    });
+    log(`${basename(src)} · ${at}–${+(at + (count - 1) * every).toFixed(2)} s · every ${every} s · started at ${rows[0].xp.toFixed(1)} %, ${rows[0].yp.toFixed(1)} % (snapped from ${point.join(' %, ')} %)`);
+    log(`  file s    x %     y %     stage px (${W}×${H}, object-fit cover)`);
+    for (const r of rows) log(`  ${r.file.toFixed(2).padEnd(8)}  ${r.xp.toFixed(1).padEnd(6)}  ${r.yp.toFixed(1).padEnd(6)}  ${r.sx}, ${r.sy}${r.lost ? '   ? lost: the match got much worse here (covered, out of frame, a cut)' : ''}`);
+    const ok = rows.findIndex(r => r.lost), keep = ok < 0 ? rows : rows.slice(0, ok);
+    log(`\nkeyframes for the scene js (seconds from the shot's start, which is file ${at} s: data-clip-in="${at}"):`);
+    log(`const path = [${keep.map(r => `[${r.dt}, ${r.sx}, ${r.sy}]`).join(', ')}];`);
+    log("K('.pin', path.map(([d, x, y], i) => [t0 + d, { x, y }, i ? 'lin' : undefined]));");
+    if (ok >= 0) log(`(cut at ${rows[ok].file} s, where it was lost)`);
+    const dir = resolve(flags.out || join(tmpdir(), 'fvs-track'));
+    mkdirSync(dir, { recursive: true });
+    const browser = await chromium({ need: false });
+    if (!browser) return;
+    try {
+      const shots = rows.map(r => spawnSync(ff, ['-v', 'error', '-ss', String(r.file), '-i', src, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 }).stdout.toString('base64'));
+      const out = join(dir, `${basename(src).replace(/\./g, '-')}-track.png`);
+      await contactSheet(browser, shots, rows.map(r => `${r.file} s${r.lost ? ' · lost?' : ''}`), out, { marks: rows.map(r => [r.xp, r.yp]) });
+      log(`sheet (check the ring stays on it): ${out}`);
     } finally { await browser.close(); }
   },
 

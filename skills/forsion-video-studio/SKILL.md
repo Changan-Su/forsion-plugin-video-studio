@@ -2,7 +2,7 @@
 name: forsion-video-studio
 description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when the user gives clips to cut into a montage, recap or promo, when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
 metadata:
-  version: 0.6.1
+  version: 0.7.0
   author: Forsion
   category: Forsion
 ---
@@ -69,7 +69,8 @@ node fvs.mjs info <project>                 # scenes, start/end, hits → READ T
 node fvs.mjs check <project> --runtime      # parse errors + runs every scene script in a browser
 node fvs.mjs review <project> [--at cards,cards:3,12.5]   # what the frames look like (below) → read it, fix, mark
 node fvs.mjs sheet <project> [--every 2]    # contact sheet PNG (one frame per scene, or every N s) → look at it
-node fvs.mjs frames media/*.webm [--every 2] [--from s --to s]   # a sheet per footage file, frames labelled
+node fvs.mjs frames media/*.webm [--every 2] [--from s --to s] [--grid]   # a sheet per footage file, frames labelled
+node fvs.mjs track media/a.webm --at 8 --point 50,52 [--to 12] [--frame 1080x1920]   # follow one thing: keyframes to paste
                                             # with their time in the file → look at each before picking in-points
 node fvs.mjs still <project> --at cards:3   # one frame: seconds, a scene id, or scene:hit
 node fvs.mjs cues <project>                 # the cue sheet JSON a score is written against
@@ -181,7 +182,9 @@ grain('.grain')
   in parentheses; `cues` and `sync` skip them; their indices stay the same).
 - `transition` (optional): `"fade"` or `{ "type": "fade", "dur": "1 beat" }`, played at the start of this
   scene. Types: `fade`, `dip` (through the stage background), `slide-left`, `slide-up`, `push-left`,
-  `wipe-left` (revealed from the right edge), `zoom`, `blur`. Default `dur` is 1 beat (0.5 s without a tempo),
+  `wipe-left` (revealed from the right edge), `zoom`, `blur`, `iris` (opens in a circle from the middle), `sweep` (a
+  slanted band of `--fvs-sweep` crosses right to left and the cut happens under it; set the colour in the project
+  css: `.fvs-stage { --fvs-sweep: #ff5a1f; }`, default the stage's text colour). Default `dur` is 1 beat (0.5 s without a tempo),
   clamped to this scene's length. For `dur` the previous scene stays on screen
   underneath and keeps animating (its `data-seq` keeps its last item); ignored on the first scene. In animated
   scenes hard cuts on hits are the house style: use transitions for section changes, not everywhere (footage
@@ -353,7 +356,7 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    on the hits and a line is drawn, cutting into the first shot on a hit (often with a `flash`); the title is in
    the opener or slams onto the first shot.
 5. **Move the picture.** Footage that only cuts plays like a slideshow; give it the motion the animated videos have.
-   Choose the level from the brief, and say which in your reply:
+   Choose the level from the brief before you write the scenes, and say which in your reply:
    - *calm* (a mood piece, landscapes, "quiet", "gentle"): one slow push or pull per shot, words fading or blurring
      in, a soft transition where it helps;
    - *standard*, **the default**, also for a plain "cut these clips": every shot has a camera move (a slow push, or a
@@ -399,11 +402,24 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    is still fading in, and one inside an element that is itself fading in (a `K` on `o`, a `fade`) plays under that
    fade: both read as a fade. Start it after the transition (`h1`, or `h0+1`) or cut into that shot, and give the
    entrance to the words alone, not a fade to their container as well.
-   Never scale footage below 1, and drift only as far as the scale allows at every moment (`|x| ≤ (s − 1) × width / 2`,
+   Never scale footage below 1 (a panel in a layout is the frame for its clip, which still fills the panel), and drift only as far as the scale allows at every moment (`|x| ≤ (s − 1) × width / 2`,
    the same for `y` with the height), or the frame's edge shows. Moves land on hits: declare the hits you animate on. `K` with `s x y r` takes over the
    element's CSS `transform`, with `b br` its `filter`: grade with CSS custom properties, not a second `filter`.
    Camera moves live in the scene's `js` block and are not on the Elements lane; words, labels and graphics keep
    their `data-in`, so the user can still re-time them.
+5b. **Footage and graphics as one picture, where the footage calls for it.** Words laid over a full-frame clip are
+   captions; a shot whose content suits it can carry more. Look at what the contact sheets show and match it:
+   - a title over a shot with movement or texture (a crowd, water, a street): **A**, the shot plays inside the
+     letters and opens to the whole frame;
+   - one clear subject moving through the frame (a surfer, a rider, a runner, a car): **B**, a ring, a line or a
+     reading that stays on it (`fvs track`);
+   - clips that are sides of one thing (three moves, three places, before and after): **C**, panels side by side,
+     one opening to the whole frame on a hit;
+   - a change of place, time or energy between two shots: **D**, `"transition": "sweep"` or `"iris"`, two or three
+     a film at most.
+   None is required, and nothing forced: a shot that suits none of them is better left as it is. Before you build
+   one, read `references/footage-graphics.md` in this skill's folder (how each is built, the code to copy). In your
+   reply, say which you used, in which shots and what in the shot called for it, or that no shot suited one.
 6. **Between shots:** cut on the beat by default; the cuts are the rhythm. Use a short cross-fade
    (`"transition": { "type": "fade", "dur": "0.5 beats" }`, one beat at most) where the energy drops (a slow
    shot after a busy one, into the last shot); a `dip` through the background into the last shot at most (a
@@ -411,7 +427,8 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    soft film.
 7. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
-8. Then `check --runtime`, `review` (no `footage_not_filling` or `scrim_without_text`; the title and closing line over footage must
+8. Then `check --runtime` (its last line says which of A–D, step 5b, the film uses and where). Then `review`, which takes a minute or two on a film with footage: give
+   the command a long timeout (`timeout_ms: 600000`) and read what it says before you reply (no `footage_not_filling` or `scrim_without_text`; the title and closing line over footage must
    come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
    the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip, the
    level you chose and where each thing that level asks for is (impact, say: the opener 0–2 s, the title slammed in at
