@@ -1145,10 +1145,7 @@ function combos(p, text, m) {
   return {
     A: sh.filter((s) => fx.test(s.css || "") || fx.test(s.html) || uses(s.html)).map((s) => s.id),
     // a pasted path ([[0, x, y], [0.25, x, y] …) that drives a K: `K('.pin', path.map(…))`
-    B: sh.filter((s) => {
-      const m2 = /(\w+)\s*=\s*\[\s*\[\s*0(?:\.0+)?\s*,\s*-?\d+\s*,\s*-?\d+\s*\]\s*,\s*\[\s*\d*\.?\d+\s*,/.exec(s.js || "");
-      return !!m2 && new RegExp(`K\\(\\s*['"][^'"]+['"]\\s*,\\s*${m2[1]}\\.map\\(`).test(s.js);
-    }).map((s) => s.id),
+    B: sh.filter((s) => [...(s.js || "").matchAll(/(\w+)\s*=\s*\[\s*\[\s*0(?:\.0+)?\s*,\s*-?\d+\s*,\s*-?\d+\s*\]\s*,\s*\[\s*\d*\.?\d+\s*,/g)].some((m2) => new RegExp(`K\\(\\s*['"][^'"]+['"]\\s*,\\s*${m2[1]}\\.map\\(`).test(s.js))).map((s) => s.id),
     C: m ? (m.shots || []).filter((x) => x.multi).map((x) => x.id) : sh.filter((s) => videos(s.html).filter((v) => v.src).length >= 2).map((s) => s.id),
     D: p.scenes.filter((s) => s.transition && ["iris", "sweep"].includes(s.transition.type)).map((s) => s.id)
   };

@@ -63,7 +63,7 @@ function snapshot() {
       const vw = Math.max(0, box.r - box.l), vh = Math.max(0, box.b - box.t), own = [...el.childNodes].some(n => n.nodeType === 3 && /\S/.test(n.data));
       // where its words are drawn, overflow included (a block's own box keeps the stage's width while its text runs past)
       let tb = null;
-      if (own) { const rg = document.createRange(); rg.selectNodeContents(el); const q = rg.getBoundingClientRect(); tb = { x: Math.round((q.left - S.left) * k), y: Math.round((q.top - S.top) * k), w: Math.round(q.width * k), h: Math.round(q.height * k) }; }
+      if (own) { const rg = document.createRange(); rg.selectNodeContents(el); const q = rg.getBoundingClientRect(); tb = { x: Math.round((q.left - S.left) * k), y: Math.round((q.top - S.top) * k), w: Math.round(q.width * k), h: Math.round(q.height * k), lh: Math.round(Math.max(0, ...[...rg.getClientRects()].map(r => r.height)) * k) }; }
       els.push({
         scene: sc.dataset.scene || 'captions', i, parent: index.get(el.parentElement) ?? -1, video: el.tagName === 'VIDEO', src: el.getAttribute('src') || '', withVideo: !!el.querySelector('video'),
         own, tb, text: el.textContent.replace(/\s+/g, ''),
@@ -187,8 +187,8 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
       // wide for a portrait frame runs off its sides, onScreen only needs some of it showing, and a typed line grows)
       const words = r => r.els.filter(e => e.on && e.own), cover = r => words(r).reduce((n, e) => n + e.text.length, 0), full = Math.max(...xs.map(cover));
       const inFrame = full > 0 && xs.some(r => cover(r) === full && words(r).every(e => e.tb && e.tb.x >= -2 && e.tb.y >= -2 && e.tb.x + e.tb.w <= W + 2 && e.tb.y + e.tb.h <= H + 2));
-      // how tall its words get on screen, as on a 1080 short side
-      const tall = Math.round(Math.max(0, ...xs.flatMap(r => words(r).filter(e => e.tb).map(e => e.tb.h))) * 1080 / Math.min(W, H));
+      // how tall its words get on screen, one line at a time (a block of small lines is not a big title), as on a 1080 short side
+      const tall = Math.round(Math.max(0, ...xs.flatMap(r => words(r).filter(e => e.tb).map(e => e.tb.lh ?? e.tb.h))) * 1080 / Math.min(W, H));
       return { found: true, onScreen: true, kinetic: !!why, why, inFrame, tall };
     };
     const all = [...holders].map(judge);

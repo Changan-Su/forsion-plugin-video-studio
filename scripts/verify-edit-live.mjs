@@ -436,6 +436,7 @@ try {
     for (const [what, l] of [['title', m.title], ['closing line', m.closing]]) if (!l?.onScreen) miss.push(`the ${what} is never on screen`); else if (!l.inFrame) miss.push(`the ${what} never fits inside the ${W}×${H} frame`);
     // a caption: words in the shot's own html (not in a comment or an attribute), or a caption cue while it is on screen
     if (th.captions) { const bare = shots(p).filter(s => !CJK.test(plain(s.html.replace(/<!--[\s\S]*?-->/g, ''))) && !p.captions.some(c => c.start < s.t1 && c.end > s.t0 && CJK.test(c.text))); if (bare.length) miss.push(`shots without a Chinese caption: ${bare.map(s => s.id).join(', ')}`); }
+    miss.push(...tooSmall(m));
     if (th.level === 'calm') {
       const busy = sh.filter(s => s.accents.length > 1);
       if (busy.length) miss.push(`beat accents in ${busy.map(s => `${s.id} ×${s.accents.length}`).join(', ')} (a calm cut has at most one a shot)`);
@@ -443,7 +444,6 @@ try {
     } else {
       if (moving.length < Math.ceil(sh.length * .6)) miss.push(`the picture moves in ${moving.length} of ${sh.length} shots (want 60 %)`);
       if (!m.title?.kinetic || !m.closing?.kinetic) miss.push(`title ${line(m.title)}, closing ${line(m.closing)} (want both kinetic)`);
-      miss.push(...tooSmall(m));
       // inside-shot accents: a beat-cut edit's shots are a beat or two, its cuts are the accents (10-24 travel: 13 shots)
       const want = th.beatCut ? 0 : th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
       if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);

@@ -25,7 +25,7 @@ test('what only looks like a way does not count', () => {
 test('a class rule in single quotes, a whole-second path that drives a K, two clips', () => {
   const css = '```css\n.cut { clip-path: circle(40%) }\n```\n\n';
   const text = head + css + scene('a', { html: "<video class='cut' src='media/a.webm'></video>" }) +
-    scene('b', { js: "const p = [[0, 10, 10], [1, 20, 20]];\nK('.pin', p.map(([d, x, y]) => [t0 + d, { x, y }]));" }) +
+    scene('b', { js: "const unused = [[0, 1, 1], [1, 2, 2]];\nconst p = [[0, 10, 10], [1, 20, 20]];\nK('.pin', p.map(([d, x, y]) => [t0 + d, { x, y }]));" }) +
     scene('c', { html: '<video src="media/a.webm"></video><video src="media/b.webm"></video>' });
   assert.deepEqual(read(text), { A: ['a'], B: ['b'], C: ['c'], D: [] });
 });
