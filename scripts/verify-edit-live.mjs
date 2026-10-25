@@ -50,6 +50,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseProject } from '../src/lib/project.js';
 import { videos } from '../src/lib/html.js';
+import { combos } from './lib/combos.mjs';
 import { emptyTemplate } from '../src/lib/templates.js';
 import { fetchFootage, FOOTAGE, SETS } from './lib/fetch-footage.mjs';
 import { unfilled, FLAT_LIMIT } from './lib/frame-fill.mjs';
@@ -166,9 +167,11 @@ const near = (a, b, eps = 0.02) => Math.abs(a - b) <= eps;
 const shots = p => p.scenes.filter(s => videos(s.html).some(v => v.src));
 // the footage fills the frame, read from the render's pixels: not from the project and not from `fvs review`, so a
 // mistake both of those miss still fails here (10-24: every clip at 854×480 in a corner, passed as "title on the shot")
+// A shot whose html marks something data-layout-ignore leaves the frame bare on purpose (panels, the shot inside a word)
 function filled(key, p, legs, ev, at = [.5]) {
-  const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), shots(p), at);
-  legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(${at.length > 1 ? `${at.join(' / ')} 处取最低的` : '中点'}平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)`);
+  const all = shots(p), meant = all.filter(s => /data-layout-ignore/.test(s.html));
+  const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), all.filter(s => !meant.includes(s)), at);
+  legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(${at.length > 1 ? `${at.join(' / ')} 处取最低的` : '中点'}平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)${meant.length ? `;标了 data-layout-ignore、不判:${meant.map(s => s.id).join('、')}` : ''}`);
   if (over.length) throw fail(`footage does not fill the frame (flat share over ${FLAT_LIMIT} at the shot's middle): ${over.map(r => `${r.id} ${r.share}`).join(', ')}`, ev);
 }
 const lineMotion = l => (!l?.found ? '没找到' : !l.onScreen ? '不在画面里' : l.kinetic ? `动态(${l.why === 'in steps' ? '分步出现' : '有位移 / 缩放 / 裁切'})` : '只是淡入或硬切');
@@ -412,6 +415,8 @@ try {
     const sh = m.shots, moving = sh.filter(s => s.camera), acc = sh.flatMap(s => s.accents), footageSec = sh.reduce((a, s) => a + s.t1 - s.t0, 0);
     const line = l => `${lineMotion(l)}${l?.onScreen && !l.inFrame ? '、跑出画框' : ''}`;
     legs.push(`${W}×${H}、${p.scenes.length} 个场景、${p.length.toFixed(2)} s、${p.meta.tempo?.bpm} BPM,用了 ${used.size}/${set.length} 段素材;自己跑 review:${ranReview(ev) ? '是' : '否'};review:${facts.review};按间隔抽帧看素材 ${frameLooks(ev).length} 次`);
+    const cb = combos(p, text, m);
+    legs.push(`实拍 × 动画:${Object.entries(cb).map(([k, ids]) => `${k} ${ids.length ? ids.join('、') : '无'}`).join(';')};跑了 fvs track:${ev.tools.some(t => /fvs\.mjs\S*"?\s+track\b/.test(t.args)) ? '是' : '否'}`);
     legs.push(`动效:运镜 ${moving.length}/${sh.length};镜头内卡拍变化 ${acc.length} 处(${sh.filter(s => s.accents.length).length}/${sh.length} 个镜头有);图形 ${sh.filter(s => s.graphic).length}、同屏两画面 ${sh.filter(s => s.multi).length};片名「${th.title}」${line(m.title)};片尾「${th.closing}」${line(m.closing)};转场 ${p.scenes.filter(s => s.transition).map(s => `${s.id} ${s.transition.type}`).join('、') || '全部硬切'}`);
     const miss = [];
     if (th.portrait && Math.abs(W / H - 9 / 16) > .01) miss.push(`not a vertical 9:16 frame (${W}×${H})`);
@@ -437,7 +442,9 @@ try {
       // inside-shot accents: a beat-cut edit's shots are a beat or two, its cuts are the accents (10-24 travel: 13 shots)
       const want = th.beatCut ? 0 : th.level === 'impact' ? Math.max(4, Math.round(footageSec / 3)) : Math.max(3, Math.ceil(sh.length / 2));
       if (acc.length < want) miss.push(`${acc.length} changes on the beat inside shots (want ${want})`);
-      if (th.level === 'impact' && !sh.some(s => s.graphic || s.multi)) miss.push('no moving graphic and no two pictures at once');
+      // footage and graphics as one picture (step 5b): standard at least one way, impact at least two different ones
+      const kinds = Object.entries(cb).filter(([, ids]) => ids.length).map(([k]) => k), need = th.level === 'impact' ? 2 : 1;
+      if (kinds.length < need) miss.push(`footage and graphics combined in ${kinds.length ? kinds.join(', ') : 'no way'} (want ${need} of A–D)`);
     }
     const ours = f => { const t = (f.text || '').replace(/\s+/g, ''), msg = f.message || ''; return [th.title, th.closing].map(plain).some(l => (t && (l.includes(t) || t.includes(l))) || msg.includes(l)); };
     const found = reviewOf(pr.file).scenes.flatMap(s => s.findings.map(f => ({ ...f, scene: s.id })));

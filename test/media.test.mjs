@@ -103,7 +103,7 @@ test('hit warnings: trimmed hits are fine, a split continuation is fine, a stray
 });
 
 test('transitions: parse, default length, clamping, first scene, unknown type', () => {
-  assert.deepEqual(P.TRANSITIONS, ['fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur']);
+  assert.deepEqual(P.TRANSITIONS, ['fade', 'dip', 'slide-left', 'slide-up', 'push-left', 'wipe-left', 'zoom', 'blur', 'iris', 'sweep']);
   assert.deepEqual(TRANSITION_TYPES, P.TRANSITIONS, 'the runtime implements exactly these');
   const p = P.parseProject(DOC);
   assert.equal(p.scenes[0].transition, null);
