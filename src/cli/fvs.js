@@ -429,20 +429,32 @@ const commands = {
     const ff = ffmpegBin(), probe = spawnSync(ff, ['-hide_banner', '-i', src], { encoding: 'utf8' }).stderr || '';
     const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(probe), size = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(probe);
     if (!size) die(`ffmpeg reads no video stream from ${src}`);
-    const vw = +size[1], vh = +size[2], length = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : Infinity;
+    // a phone clip stored on its side with a rotation flag decodes upright: the picture's sides swap
+    const turned = /rotat\w*\s*(?:of\s*)?:?\s*-?(?:90|270)\b/i.test(probe);
+    const vw = +size[turned ? 2 : 1], vh = +size[turned ? 1 : 2], length = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : Infinity;
     const to = Math.min(length, flags.to === undefined ? at + 4 : +flags.to);
     if (!(to > at)) die(`nothing to follow between ${at} and ${to} s (the clip is ${length.toFixed(1)} s long)`);
     const AW = 480, AH = Math.round(AW * vh / vw / 2) * 2; // analysed at 480 px wide
-    const raw = spawnSync(ff, ['-v', 'error', '-ss', String(at), '-t', String(+(to - at).toFixed(3)), '-i', src, '-vf', `fps=${1 / every},scale=${AW}:${AH}`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 1 << 30 });
-    const count = Math.floor((raw.stdout?.length || 0) / (AW * AH));
+    // each time read on its own, seeked exactly (as the sheet below and the renderer's clip do): an fps filter picks
+    // frames that can sit a sampling step off the times they are labelled with
+    const frames = [];
+    for (let t = at; t <= to - .02 || !frames.length; t += every) {
+      const r = spawnSync(ff, ['-v', 'error', '-ss', String(+t.toFixed(3)), '-i', src, '-frames:v', '1', '-vf', `scale=${AW}:${AH}`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 16 << 20 });
+      if (r.status !== 0 || (r.stdout?.length || 0) < AW * AH) break; // past the last picture
+      frames.push(r.stdout.subarray(0, AW * AH));
+    }
+    const count = frames.length;
     if (!count) die(`ffmpeg could not read frames of ${src} from ${at} s`);
-    const frames = Array.from({ length: count }, (_, i) => raw.stdout.subarray(i * AW * AH, (i + 1) * AW * AH));
     const found = trackPoint(frames, AW, AH, [point[0] / 100 * AW, point[1] / 100 * AH], { half: Math.round(AW * .025), search: Math.round(AW * (+flags.search || 10) / 100), snap: Math.round(AW * .03) });
     const [W, H] = String(flags.frame || '1920x1080').split('x').map(Number);
-    const typical = found.slice(1).map(f => f.err).sort((a, b) => a - b)[Math.floor((found.length - 1) / 2)] || 0;
+    // lost: a match much worse than the trusted ones before it (the median so far; what comes after a loss is not trusted)
+    const trusted = [], median = a => [...a].sort((p, q) => p - q)[a.length >> 1];
+    let gone = false;
     const rows = found.map((f, i) => {
       const dt = +(i * every).toFixed(3), [sx, sy] = coverPoint(f.x / AW * vw, f.y / AH * vh, vw, vh, W, H);
-      return { dt, file: +(at + dt).toFixed(3), xp: f.x / AW * 100, yp: f.y / AH * 100, sx, sy, lost: i > 0 && f.err > Math.max(2.5 * typical, 18) };
+      const lost = gone || (i > 0 && f.err > Math.max(trusted.length >= 2 ? 2.5 * median(trusted) : 30, 18));
+      if (lost) gone = true; else if (i > 0) trusted.push(f.err);
+      return { dt, file: +(at + dt).toFixed(3), xp: f.x / AW * 100, yp: f.y / AH * 100, sx, sy, lost };
     });
     log(`${basename(src)} · ${at}–${+(at + (count - 1) * every).toFixed(2)} s · every ${every} s · started at ${rows[0].xp.toFixed(1)} %, ${rows[0].yp.toFixed(1)} % (snapped from ${point.join(' %, ')} %)`);
     log(`  file s    x %     y %     stage px (${W}×${H}, object-fit cover)`);

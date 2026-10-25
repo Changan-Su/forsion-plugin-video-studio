@@ -1090,7 +1090,8 @@ var spread = (p) => {
   for (const v of p) s += (v - m) ** 2;
   return Math.sqrt(s / p.length);
 };
-function trackPoint(frames, w, h, [x0, y0], { half = 12, search = 40, snap = 14, pull = 0.15 } = {}) {
+function trackPoint(frames, w, h, [x0, y0], { half: want = 12, search = 40, snap = 14, pull = 0.15 } = {}) {
+  const half = Math.max(1, Math.min(want, Math.floor((Math.min(w, h) - 1) / 2)));
   const cx = (v) => Math.max(half, Math.min(w - 1 - half, Math.round(v))), cy = (v) => Math.max(half, Math.min(h - 1 - half, Math.round(v)));
   let x = cx(x0), y = cy(y0), most = -1;
   for (let yy = cy(y0 - snap); yy <= cy(y0 + snap); yy += 2) for (let xx = cx(x0 - snap); xx <= cx(x0 + snap); xx += 2) {
@@ -1719,20 +1720,29 @@ ${String(r.stderr || "").trim().split("\n").slice(-6).join("\n")}`);
     const ff = ffmpegBin(), probe = spawnSync2(ff, ["-hide_banner", "-i", src], { encoding: "utf8" }).stderr || "";
     const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(probe), size = /Video:.*?(\d{2,5})x(\d{2,5})/.exec(probe);
     if (!size) die(`ffmpeg reads no video stream from ${src}`);
-    const vw = +size[1], vh = +size[2], length = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : Infinity;
+    const turned = /rotat\w*\s*(?:of\s*)?:?\s*-?(?:90|270)\b/i.test(probe);
+    const vw = +size[turned ? 2 : 1], vh = +size[turned ? 1 : 2], length = d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : Infinity;
     const to = Math.min(length, flags.to === void 0 ? at + 4 : +flags.to);
     if (!(to > at)) die(`nothing to follow between ${at} and ${to} s (the clip is ${length.toFixed(1)} s long)`);
     const AW = 480, AH = Math.round(AW * vh / vw / 2) * 2;
-    const raw = spawnSync2(ff, ["-v", "error", "-ss", String(at), "-t", String(+(to - at).toFixed(3)), "-i", src, "-vf", `fps=${1 / every},scale=${AW}:${AH}`, "-f", "rawvideo", "-pix_fmt", "gray", "-"], { maxBuffer: 1 << 30 });
-    const count = Math.floor((raw.stdout?.length || 0) / (AW * AH));
+    const frames = [];
+    for (let t = at; t <= to - 0.02 || !frames.length; t += every) {
+      const r = spawnSync2(ff, ["-v", "error", "-ss", String(+t.toFixed(3)), "-i", src, "-frames:v", "1", "-vf", `scale=${AW}:${AH}`, "-f", "rawvideo", "-pix_fmt", "gray", "-"], { maxBuffer: 16 << 20 });
+      if (r.status !== 0 || (r.stdout?.length || 0) < AW * AH) break;
+      frames.push(r.stdout.subarray(0, AW * AH));
+    }
+    const count = frames.length;
     if (!count) die(`ffmpeg could not read frames of ${src} from ${at} s`);
-    const frames = Array.from({ length: count }, (_, i) => raw.stdout.subarray(i * AW * AH, (i + 1) * AW * AH));
     const found = trackPoint(frames, AW, AH, [point[0] / 100 * AW, point[1] / 100 * AH], { half: Math.round(AW * 0.025), search: Math.round(AW * (+flags.search || 10) / 100), snap: Math.round(AW * 0.03) });
     const [W, H] = String(flags.frame || "1920x1080").split("x").map(Number);
-    const typical = found.slice(1).map((f) => f.err).sort((a, b) => a - b)[Math.floor((found.length - 1) / 2)] || 0;
+    const trusted = [], median = (a) => [...a].sort((p, q) => p - q)[a.length >> 1];
+    let gone = false;
     const rows = found.map((f, i) => {
       const dt = +(i * every).toFixed(3), [sx, sy] = coverPoint(f.x / AW * vw, f.y / AH * vh, vw, vh, W, H);
-      return { dt, file: +(at + dt).toFixed(3), xp: f.x / AW * 100, yp: f.y / AH * 100, sx, sy, lost: i > 0 && f.err > Math.max(2.5 * typical, 18) };
+      const lost = gone || i > 0 && f.err > Math.max(trusted.length >= 2 ? 2.5 * median(trusted) : 30, 18);
+      if (lost) gone = true;
+      else if (i > 0) trusted.push(f.err);
+      return { dt, file: +(at + dt).toFixed(3), xp: f.x / AW * 100, yp: f.y / AH * 100, sx, sy, lost };
     });
     log(`${basename(src)} \xB7 ${at}\u2013${+(at + (count - 1) * every).toFixed(2)} s \xB7 every ${every} s \xB7 started at ${rows[0].xp.toFixed(1)} %, ${rows[0].yp.toFixed(1)} % (snapped from ${point.join(" %, ")} %)`);
     log(`  file s    x %     y %     stage px (${W}\xD7${H}, object-fit cover)`);

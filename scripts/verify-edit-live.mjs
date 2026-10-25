@@ -49,7 +49,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseProject } from '../src/lib/project.js';
-import { videos } from '../src/lib/html.js';
+import { videos, scan } from '../src/lib/html.js';
 import { combos } from './lib/combos.mjs';
 import { emptyTemplate } from '../src/lib/templates.js';
 import { fetchFootage, FOOTAGE, SETS } from './lib/fetch-footage.mjs';
@@ -169,7 +169,7 @@ const shots = p => p.scenes.filter(s => videos(s.html).some(v => v.src));
 // mistake both of those miss still fails here (10-24: every clip at 854×480 in a corner, passed as "title on the shot")
 // A shot whose html marks something data-layout-ignore leaves the frame bare on purpose (panels, the shot inside a word)
 function filled(key, p, legs, ev, at = [.5]) {
-  const all = shots(p), meant = all.filter(s => /data-layout-ignore/.test(s.html));
+  const all = shots(p), meant = all.filter(s => scan(s.html).tags.some(t => t.attrs.some(a => a.name === 'data-layout-ignore')));
   const { read, over } = unfilled(join(artifacts, `${key}-evidence/preview.mp4`), all.filter(s => !meant.includes(s)), at);
   legs.push(`画面铺满:${read.length - over.length}/${read.length} 个镜头(${at.length > 1 ? `${at.join(' / ')} 处取最低的` : '中点'}平坦占比 ${read.map(r => `${r.id} ${r.share}`).join(' / ')},超过 ${FLAT_LIMIT} 算没铺满)${meant.length ? `;标了 data-layout-ignore、不判:${meant.map(s => s.id).join('、')}` : ''}`);
   if (over.length) throw fail(`footage does not fill the frame (flat share over ${FLAT_LIMIT} at the shot's middle): ${over.map(r => `${r.id} ${r.share}`).join(', ')}`, ev);

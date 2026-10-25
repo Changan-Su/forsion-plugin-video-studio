@@ -20,7 +20,8 @@ const spread = p => { let m = 0; for (const v of p) m += v; m /= p.length; let s
  * ponytail: one fixed-size patch, whole-pixel steps, no scale change; a subject that grows or shrinks a lot (coming at
  * the camera) is held by its middle at best. Add a scale search if that is ever needed.
  */
-export function trackPoint(frames, w, h, [x0, y0], { half = 12, search = 40, snap = 14, pull = .15 } = {}) {
+export function trackPoint(frames, w, h, [x0, y0], { half: want = 12, search = 40, snap = 14, pull = .15 } = {}) {
+  const half = Math.max(1, Math.min(want, Math.floor((Math.min(w, h) - 1) / 2))); // the patch fits inside the frame
   const cx = v => Math.max(half, Math.min(w - 1 - half, Math.round(v))), cy = v => Math.max(half, Math.min(h - 1 - half, Math.round(v)));
   let x = cx(x0), y = cy(y0), most = -1;
   for (let yy = cy(y0 - snap); yy <= cy(y0 + snap); yy += 2) for (let xx = cx(x0 - snap); xx <= cx(x0 + snap); xx += 2) {
