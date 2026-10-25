@@ -1142,30 +1142,40 @@ function footageFindings(seen) {
     fixHint: "size every shot to the frame in the project css, before the first scene (a scene's own css block applies inside that scene only): video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }. A deliberate inset (picture in picture, a framed screen recording): data-layout-ignore on the video."
   }));
 }
-function scrimsOnScreen() {
+function wordedScenes(p) {
+  const words = (html) => /\S/.test(html.replace(/<(script|style)\b[\s\S]*?<\/\1>|<!--[\s\S]*?-->/gi, "").replace(/<[^>]*>/g, "").replace(/&nbsp;|&#160;/g, " "));
+  return p.scenes.filter((s) => words(s.html || "")).map((s) => s.id);
+}
+function scrimsOnScreen(worded = []) {
   const root = document.querySelector(".fvs-stage"), stage = root?.getBoundingClientRect();
   if (!stage || !stage.width) return [];
-  const dark = (c) => {
+  const alpha = (c, k) => {
     const n = c.match(/[\d.]+/g);
-    return !!n && +(n[3] ?? 1) >= 0.3 && Math.max(+n[0], +n[1], +n[2]) < 80;
+    return n && Math.max(+n[0], +n[1], +n[2]) < 80 ? +(n[3] ?? 1) * k : 0;
   };
   const words = (sc) => {
+    if (worded.includes(sc.dataset.scene)) return true;
     const w = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT);
     for (let n; n = w.nextNode(); ) if (n.data.trim() && !n.parentElement.closest("script, style")) return true;
     return false;
   };
   const bare = /* @__PURE__ */ new Map();
-  return [...root.querySelectorAll("[data-scene] *")].flatMap((el) => {
+  return [...root.querySelectorAll("[data-scene]")].flatMap((sc) => [sc, ...sc.querySelectorAll("*")]).flatMap((el) => {
     if (el.tagName === "VIDEO" || el.closest("[data-layout-ignore]") || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return [];
-    const cs = getComputedStyle(el), fill = cs.backgroundColor.match(/rgba?\([^)]*\)/)?.[0] || "";
-    const tint = dark(fill) && +(fill.match(/[\d.]+/g)[3] ?? 1) < 1;
-    if (!tint && !(cs.backgroundImage.includes("gradient(") && (cs.backgroundImage.match(/rgba?\([^)]*\)/g) || []).some(dark))) return [];
-    const r = el.getBoundingClientRect();
-    const share = Math.max(0, Math.min(r.right, stage.right) - Math.max(r.left, stage.left)) * Math.max(0, Math.min(r.bottom, stage.bottom) - Math.max(r.top, stage.top)) / (stage.width * stage.height);
-    if (share < 1 / 3) return [];
-    const sc = el.closest("[data-scene]");
-    if (!bare.has(sc)) bare.set(sc, !words(sc));
-    return bare.get(sc) ? [{ scene: sc.dataset.scene, selector: el.tagName.toLowerCase() + [...el.classList].map((c) => `.${c}`).join(""), share }] : [];
+    const own = getComputedStyle(el);
+    return (el.matches("[data-scene]") ? ["::before", "::after"] : ["", "::before", "::after"]).flatMap((pseudo) => {
+      const cs = pseudo ? getComputedStyle(el, pseudo) : own;
+      if (pseudo && (cs.content === "none" || cs.content === "normal" || cs.display === "none")) return [];
+      const k = +own.opacity * (pseudo ? +cs.opacity : 1), fill = alpha(cs.backgroundColor.match(/rgba?\([^)]*\)/)?.[0] || "", k);
+      const tint = fill >= 0.3 && fill < 1;
+      if (!tint && !(cs.backgroundImage.includes("gradient(") && (cs.backgroundImage.match(/rgba?\([^)]*\)/g) || []).some((c) => alpha(c, k) >= 0.3))) return [];
+      const r = el.getBoundingClientRect();
+      const share = Math.max(0, Math.min(r.right, stage.right) - Math.max(r.left, stage.left)) * Math.max(0, Math.min(r.bottom, stage.bottom) - Math.max(r.top, stage.top)) / (stage.width * stage.height);
+      if (share < 1 / 3) return [];
+      const sc = el.closest("[data-scene]");
+      if (!bare.has(sc)) bare.set(sc, !words(sc));
+      return bare.get(sc) ? [{ scene: sc.dataset.scene, selector: el.tagName.toLowerCase() + [...el.classList].map((c) => `.${c}`).join("") + pseudo, share }] : [];
+    });
   });
 }
 function scrimFindings(seen) {
@@ -1399,12 +1409,12 @@ async function footageCheck(ctx, times) {
   try {
     stage = await openStage(ctx, browser, { scale: 0.25, captions: false });
     const named = Object.fromEntries(Object.entries(stage.payload.assets).map(([rel, url]) => [url, rel]));
-    const seen = [], scrims = [];
+    const seen = [], scrims = [], worded = wordedScenes(ctx.p);
     for (const t of times) {
       await stage.pg.evaluate((x) => __stage.seek(x), t);
       const m = await stage.pg.evaluate(footageOnScreen, ctx.p.meta.width);
       if (m) seen.push({ ...m, t, shots: m.shots.map((s) => ({ ...s, src: named[s.src] || s.src })) });
-      for (const s of await stage.pg.evaluate(scrimsOnScreen)) scrims.push({ ...s, t });
+      for (const s of await stage.pg.evaluate(scrimsOnScreen, worded)) scrims.push({ ...s, t });
     }
     return [...footageFindings(seen), ...scrimFindings(scrims)];
   } catch (e) {

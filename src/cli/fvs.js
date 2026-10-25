@@ -13,7 +13,7 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
-import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings, scrimsOnScreen, scrimFindings } from '../lib/review.js';
+import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings, scrimsOnScreen, scrimFindings, wordedScenes } from '../lib/review.js';
 
 const VERSION = '0.7.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
@@ -190,12 +190,12 @@ async function footageCheck(ctx, times) {
   try {
     stage = await openStage(ctx, browser, { scale: 0.25, captions: false });
     const named = Object.fromEntries(Object.entries(stage.payload.assets).map(([rel, url]) => [url, rel])); // page url → the project's path
-    const seen = [], scrims = [];
+    const seen = [], scrims = [], worded = wordedScenes(ctx.p);
     for (const t of times) {
       await stage.pg.evaluate(x => __stage.seek(x), t);
       const m = await stage.pg.evaluate(footageOnScreen, ctx.p.meta.width);
       if (m) seen.push({ ...m, t, shots: m.shots.map(s => ({ ...s, src: named[s.src] || s.src })) });
-      for (const s of await stage.pg.evaluate(scrimsOnScreen)) scrims.push({ ...s, t });
+      for (const s of await stage.pg.evaluate(scrimsOnScreen, worded)) scrims.push({ ...s, t });
     }
     return [...footageFindings(seen), ...scrimFindings(scrims)];
   } catch (e) { // an extra look, not a reason to lose HyperFrames' report

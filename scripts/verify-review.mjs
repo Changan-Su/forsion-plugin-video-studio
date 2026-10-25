@@ -44,7 +44,7 @@ ok(`defects: ${defects.counts.error} errors, in their scenes (${intro.length} in
 // bare
 const scrimsAt = res => res.scenes.flatMap(s => s.findings.filter(f => f.code === 'scrim_without_text').map(f => `${s.id}:${f.selector}`));
 const scrims = join(fixtures, 'scrims.fvs.md');
-assert.deepEqual(scrimsAt(review(scrims)), ['bare:div.shade'], 'the scrim on the bare shot is reported; the same scrim behind a title is not, nor a thin dark rule');
+assert.deepEqual(scrimsAt(review(scrims)), ['bare:div.shade', 'dimmed:div.dim', 'pseudo:div.frame::after'], 'the scrim on the bare shot, a black fill at 60 % opacity and a gradient on ::after are reported; the same scrim behind a title is not, nor behind one typed in later, nor a thin dark rule');
 ok('bare: a scrim on a shot with no words is reported, behind a title it is not');
 
 // marked
@@ -59,7 +59,7 @@ try {
   assert.deepEqual(codes(review(marked), 'corner').filter(c => c.startsWith('footage_not_filling')), [], 'a deliberate inset marked data-layout-ignore is not reported');
   const graded = join(tmp, 'scrims.fvs.md');
   writeFileSync(graded, readFileSync(graded, 'utf8').replace('<div class="shade"></div>\n<div class="rule">', '<div class="shade" data-layout-ignore></div>\n<div class="rule">'));
-  assert.deepEqual(scrimsAt(review(graded)), [], 'a deliberate grade marked data-layout-ignore is not reported');
+  assert.deepEqual(scrimsAt(review(graded)).filter(c => c.startsWith('bare:')), [], 'a deliberate grade marked data-layout-ignore is not reported');
   ok('marked: data-layout-allow-occlusion and data-layout-ignore take their findings away');
   // the picture, not the box: object-fit none leaves the 320×180 clip small in a full-frame box; a clipping parent
   // cuts a full-frame clip down to its own 854×480; will-change: transform makes the zero-height wrapper the one the
