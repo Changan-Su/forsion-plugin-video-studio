@@ -13,7 +13,7 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
-import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview } from '../lib/review.js';
+import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings } from '../lib/review.js';
 
 const VERSION = '0.7.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
@@ -28,6 +28,8 @@ const HELP = `fvs ${VERSION} — Forsion Video Studio
   fvs html <file> [--out f.html] [--inline]   standalone web video (player page)
   fvs still <file> --at <t|scene[:hit]> [--out f.png] [--scale 0.5]   one frame as PNG
   fvs sheet <file> [--scenes | --every <sec>] [--out sheet.png]       contact sheet of frames
+  fvs frames <media…> [--every 2] [--from s] [--to s] [--out dir]    a contact sheet per footage file, each
+                                       frame labelled with its time in the file (pick in-points from it)
   fvs render <file> [--out f.mp4] [--from s] [--to s] [--scale 0.5] [--workers 3] [--crf 18]
                     [--keep-frames dir] [--no-audio] [--no-captions] MP4 with the project's audio and captions
   fvs render-job <job.json>            export with real progress and a .cancel marker
@@ -80,7 +82,8 @@ function timeArg(p, v) {
 }
 
 /* ───────── browser & ffmpeg ───────── */
-async function chromium() {
+/** A launched Chromium; `need` false: null instead of exiting when there is no driver or no browser. */
+async function chromium({ need = true } = {}) {
   const req = createRequire(join(process.cwd(), 'x.js'));
   const tries = ['playwright-core', 'playwright'];
   let pw = null;
@@ -90,7 +93,7 @@ async function chromium() {
     }
     if (pw) break;
   }
-  if (!pw) die('This command needs a browser driver. Install one:  npm i -g playwright-core   (or run inside a folder with playwright installed)');
+  if (!pw) { if (!need) return null; die('This command needs a browser driver. Install one:  npm i -g playwright-core   (or run inside a folder with playwright installed)'); }
   const { chromium: C } = pw.chromium ? pw : pw.default;
   const exe = process.env.FVS_CHROMIUM || flags.browser;
   const attempts = [];
@@ -101,6 +104,7 @@ async function chromium() {
   for (const opt of attempts) {
     try { return await C.launch({ ...opt, args: ['--force-color-profile=srgb', '--font-render-hinting=none', '--hide-scrollbars'] }); } catch (e) { lastErr = e; }
   }
+  if (!need) return null;
   die(`Could not start a Chromium-based browser (${String(lastErr && lastErr.message || lastErr).split('\n')[0]}).\nInstall Google Chrome or Microsoft Edge, or run: npx playwright install chromium, or set FVS_CHROMIUM=/path/to/chrome`);
 }
 function globalRequire(m) {
@@ -124,6 +128,15 @@ function ffmpegBin() {
     if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
   }
   die('ffmpeg not found. Install it (macOS: brew install ffmpeg · Windows: winget install ffmpeg · Linux: apt install ffmpeg) or set FFMPEG=/path/to/ffmpeg');
+}
+
+/** Frames (base64 JPEG, 320 px wide) laid out with their labels as one PNG. */
+async function contactSheet(browser, shots, labels, out) {
+  const cols = Math.min(6, Math.ceil(Math.sqrt(shots.length * 1.4)));
+  const sheet = await browser.newPage({ viewport: { width: cols * 332 + 12, height: 400 } });
+  await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},320px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><img style="display:block;width:320px" src="data:image/jpeg;base64,${b}"><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join('')}</div></body>`);
+  await sheet.screenshot({ path: out, fullPage: true });
+  await sheet.close();
 }
 
 /** Open the project's capture page: the stage at 1:1, window.__stage.seek(t). */
@@ -163,6 +176,31 @@ function missingMedia({ p, dir }) {
   if (p.stageHtml >= 0) inHtml(stageHtml(p), p.toks[p.stageHtml].line, undefined);
   for (const s of p.scenes) inHtml(s.html, s.htmlTok >= 0 ? p.toks[s.htmlTok].line : s.line, s.id);
   return out;
+}
+
+/** Footage that does not fill the frame, which HyperFrames does not look for: our own capture page, seeked to each time. */
+async function footageCheck(ctx, times) {
+  if (!times.length) return [];
+  const browser = await chromium({ need: false });
+  if (!browser) { console.error('warn  not checked whether the footage fills the frame: that needs playwright-core and a Chromium, like `sheet`'); return []; }
+  let stage = null;
+  try {
+    stage = await openStage(ctx, browser, { scale: 0.25, captions: false });
+    const named = Object.fromEntries(Object.entries(stage.payload.assets).map(([rel, url]) => [url, rel])); // page url → the project's path
+    const seen = [];
+    for (const t of times) {
+      await stage.pg.evaluate(x => __stage.seek(x), t);
+      const m = await stage.pg.evaluate(footageOnScreen, ctx.p.meta.width);
+      if (m) seen.push({ ...m, t, shots: m.shots.map(s => ({ ...s, src: named[s.src] || s.src })) });
+    }
+    return footageFindings(seen);
+  } catch (e) { // an extra look, not a reason to lose HyperFrames' report
+    console.error(`warn  not checked whether the footage fills the frame: ${String(e?.message || e).split('\n')[0]}`);
+    return [];
+  } finally {
+    await browser.close();
+    if (stage) rmSync(stage.tmp, { recursive: true, force: true });
+  }
 }
 
 /* ───────── commands ───────── */
@@ -256,7 +294,8 @@ const commands = {
       // a report has its sections; {ok:false, error} is HyperFrames failing to look (no Chrome, a crash), not a clean film
       if (!hf || hf.error || !['lint', 'layout'].every(k => hf[k])) die(`HyperFrames did not run (${hf?.error || (r.error ? r.error.message : `exit ${r.status}`)}). It needs Node with npx and, the first time, the network (~330 MB: the package and a Chrome).\n${String(r.stderr || '').trim().split('\n').slice(-6).join('\n')}`);
       if (hf.browserSkipped) console.error('warn  HyperFrames looked at the page source only (its lint stopped the browser pass); the findings below are not about frames');
-      const grouped = groupFindings(p, hf, { all: !!flags.all });
+      const footage = await footageCheck(ctx, flags.at ? times : footageTimes(p));
+      const grouped = groupFindings(p, { ...hf, footage: { findings: footage } }, { all: !!flags.all });
       if (outside.length) console.error(`warn  not reviewed with their assets (outside the project folder): ${outside.join(', ')}`);
       if (flags.json) log(JSON.stringify({ hyperframes: HYPERFRAMES_VERSION, times, ...grouped }, null, 2));
       else log(formatReview(grouped, { times: times.length }));
@@ -327,13 +366,39 @@ const commands = {
     runtimeErrors(st, logs);
     const shots = [];
     for (const t of times) { await pg.evaluate(x => __stage.seek(x), t); shots.push((await pg.screenshot({ type: 'jpeg', quality: 80 })).toString('base64')); }
-    const cols = Math.min(6, Math.ceil(Math.sqrt(shots.length * 1.4)));
-    const sheet = await browser.newPage({ viewport: { width: cols * 332 + 12, height: 400 } });
-    await sheet.setContent(`<body style="margin:0;background:#111;color:#bbb;font:12px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},320px);gap:12px;padding:12px">${shots.map((b, i) => `<figure style="margin:0"><img style="display:block;width:320px" src="data:image/jpeg;base64,${b}"><figcaption style="padding-top:4px">${labels[i]}</figcaption></figure>`).join('')}</div></body>`);
     const out = resolve(flags.out || `${ctx.path.replace(/\.fvs\.md$/i, '')}-sheet.png`);
-    await sheet.screenshot({ path: out, fullPage: true });
+    await contactSheet(browser, shots, labels, out);
     await browser.close();
     log(out);
+  },
+
+  async frames() {
+    if (!pos.length) die('which footage? (fvs frames <media…> [--every 2])');
+    const ff = ffmpegBin(), every = flags.every === undefined ? 2 : +flags.every, dir = resolve(flags.out || join(tmpdir(), 'fvs-frames'));
+    if (!(every > 0)) die('--every takes a number of seconds above 0');
+    mkdirSync(dir, { recursive: true });
+    const browser = await chromium();
+    try {
+      for (const file of pos) {
+        const src = resolve(file);
+        if (!existsSync(src)) die(`no such file: ${src}`);
+        const m = /Duration: (\d+):(\d+):([\d.]+)/.exec(spawnSync(ff, ['-hide_banner', '-i', src], { encoding: 'utf8' }).stderr || '');
+        const length = m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : +flags.to;
+        if (!(length > 0)) die(`ffmpeg reads no duration from ${src}; pass --to <seconds>`);
+        const from = flags.from === undefined ? 0 : +flags.from, to = Math.min(length, flags.to === undefined ? length : +flags.to);
+        if (!(from >= 0 && to > from)) die(`nothing to show between ${flags.from ?? 0} and ${flags.to ?? 'the end'} s of ${basename(src)} (${length.toFixed(1)} s long)`);
+        const step = (to - from) / every > 24 ? Math.ceil((to - from) / 12) / 2 : every; // ponytail: at most ~24 frames a sheet, on half seconds; look closer with --from/--to
+        const times = [], shots = [];
+        for (let t = from; t < to - 0.04 || !shots.length && t < to + step; t += step) {
+          const r = spawnSync(ff, ['-v', 'error', '-ss', String(+t.toFixed(2)), '-i', src, '-frames:v', '1', '-vf', 'scale=320:-2', '-q:v', '4', '-f', 'image2pipe', '-c:v', 'mjpeg', '-'], { maxBuffer: 16 << 20 });
+          if (r.status === 0 && r.stdout.length) { times.push(+t.toFixed(2)); shots.push(r.stdout.toString('base64')); } // none past the last picture (the sound can run longer)
+        }
+        if (!shots.length) die(`ffmpeg could not read a frame of ${src} between ${from} and ${to} s`);
+        const out = join(dir, `${basename(src).replace(/\./g, '-')}-frames.png`);
+        await contactSheet(browser, shots, times.map(t => `${basename(src)} · ${t} s`), out);
+        log(`${out}\n  ${basename(src)} · ${length.toFixed(1)} s · a frame every ${+step.toFixed(2)} s at: ${times.join(' ')}`);
+      }
+    } finally { await browser.close(); }
   },
 
   async render() {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseProject } from '../src/lib/project.js';
 import { compile, buildHtml } from '../src/lib/compile.js';
-import { reviewTimes, groupFindings, formatReview } from '../src/lib/review.js';
+import { reviewTimes, groupFindings, formatReview, footageTimes, footageFindings } from '../src/lib/review.js';
 
 const DOC = `# R
 
@@ -53,6 +53,17 @@ test('findings land in the scene on screen at their time; lint goes to the film;
   assert.deepEqual(g.counts, { error: 1, warning: 2, info: 1 });
   assert.equal(groupFindings(p, hf, { all: true }).scenes.find(s => s.id === 'a').findings.length, 2);
   assert.match(formatReview(g, { times: 5 }), /^b · 二 · 4\.00–6\.00 s\n {2}error {3}4\.80 s text_occluded · p$/m);
+});
+
+test('footage that does not fill the frame: looked for at the middle of each scene with a clip, reported in that scene', () => {
+  const p = parseProject(DOC.replace('<p>b</p>', '<video src="media/b.webm"></video>')); // b: 4–6 s
+  assert.deepEqual(footageTimes(p), [5]);
+  const shot = { src: 'media/b.webm', w: 854, h: 480 };
+  const found = footageFindings([{ t: 5, share: 0.19, frame: [1920, 1080], shots: [shot] }, { t: 5, share: 0.75, frame: [1920, 1080], shots: [shot] }, { t: 5, share: 0.9, frame: [1920, 1080], shots: [shot] }]);
+  assert.deepEqual(found.map(f => [f.code, f.severity]), [['footage_not_filling', 'error'], ['footage_not_filling', 'warning']]);
+  assert.match(found[0].message, /covers 19% of the frame: media\/b\.webm at 854×480 in 1920×1080/);
+  const g = groupFindings(p, { footage: { findings: found } });
+  assert.deepEqual(g.scenes.map(s => [s.id, s.findings.map(f => `${f.code}:${f.selector}`)]), [['b', ['footage_not_filling:video[src="media/b.webm"]', 'footage_not_filling:video[src="media/b.webm"]']]]);
 });
 
 test('the hf page: a sized root and a timed host without GSAP timelines, the runtime from a file, the capture boot', () => {

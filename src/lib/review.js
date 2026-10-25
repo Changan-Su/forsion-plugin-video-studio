@@ -1,6 +1,8 @@
-// `fvs review`: the project looked at by HyperFrames' checks (layout, contrast, readability, runtime). DOM-free.
-// The page is buildHtml(mode 'hf'); these are the parts that need no browser: where to look and how to report.
+// `fvs review`: the project looked at by HyperFrames' checks (layout, contrast, readability, runtime), plus one of
+// ours (footage that does not fill the frame). The page is buildHtml(mode 'hf'); these are the parts that need no
+// browser (where to look, how to report), and footageOnScreen, which the CLI hands to its own capture page.
 import { visibleHits } from './project.js';
+import { videos } from './html.js';
 
 /** The HyperFrames CLI release `fvs review` runs (npx). Pinned: its checks and their codes change between releases. */
 export const HYPERFRAMES_VERSION = '0.8.190';
@@ -25,10 +27,77 @@ export function reviewTimes(p) {
   return [...new Set(out.map(t => +t.toFixed(3)))].sort((a, b) => a - b);
 }
 
-/** Every finding of a `hyperframes check --json` report, flattened, with the section it came from. */
+/** Below this share of the frame the footage on screen is reported (`footage_not_filling`); under half, as an error. */
+const FILL = 0.9;
+
+/** Where to look for footage that does not fill the frame (HyperFrames does not): the middle of every scene with a clip. */
+export function footageTimes(p) {
+  return p.scenes.filter(s => videos(s.html).some(v => v.src)).map(s => +((s.t0 + s.t1) / 2).toFixed(3));
+}
+
+/**
+ * Runs in the capture page after `__stage.seek(t)`, with the project's width: how much of the stage the footage on
+ * screen covers. Each visible <video>'s picture (its box; with object-fit contain, the default, none or scale-down, the
+ * picture inside it), cut to the parents whose overflow clips it, sampled on a 64×36 grid over the stage. A video marked
+ * `data-layout-ignore` (or inside one) is left out. null: no footage on screen. ponytail: transforms count as their
+ * bounding box, clip-path and object-position are ignored; measure the picture's pixels if a wipe or an off-centre crop
+ * is ever misreported.
+ */
+export function footageOnScreen(width) {
+  const stage = document.querySelector('.fvs-stage')?.getBoundingClientRect();
+  if (!stage || !stage.width) return null;
+  const shown = [...document.querySelectorAll('.fvs-stage video')].filter(v => !v.closest('[data-layout-ignore]') && v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+  if (!shown.length) return null;
+  const k = width / stage.width, root = document.querySelector('.fvs-stage');
+  const pics = shown.map(v => {
+    let { left: l, top: t, width: w, height: h } = v.getBoundingClientRect();
+    const fit = getComputedStyle(v).objectFit, vw = v.videoWidth, vh = v.videoHeight;
+    if (fit !== 'fill' && fit !== 'cover' && vw && vh) { // the picture inside the box, centred
+      const contain = Math.min(w / vw, h / vh), own = v.offsetWidth ? w / v.offsetWidth : 1; // own: its pixels at 1:1, transforms applied
+      const s = fit === 'none' ? own : fit === 'scale-down' ? Math.min(contain, own) : contain;
+      l += (w - vw * s) / 2; t += (h - vh * s) / 2; w = vw * s; h = vh * s;
+    }
+    let r = l + w, b = t + h;
+    // what a parent's overflow cuts away is not on screen, but it cuts only what it contains as a block: an absolutely
+    // placed element skips the unpositioned parents between it and the one it is placed in, a fixed one every parent
+    // that does not hold fixed boxes (a transform of any kind, a filter, perspective, layout or paint containment, or
+    // the will-change of one). ponytail: clip-path and the scrolled offset of a scrolling parent are not counted.
+    const holdsFixed = ac => ['transform', 'translate', 'rotate', 'scale', 'perspective', 'filter', 'backdropFilter'].some(k => ac[k] && ac[k] !== 'none')
+      || /layout|paint|strict|content/.test(ac.contain) || (ac.containerType && ac.containerType !== 'normal')
+      || (ac.contentVisibility && ac.contentVisibility !== 'visible') || /transform|translate|rotate|scale|perspective|filter/.test(ac.willChange);
+    let placed = getComputedStyle(v).position;
+    for (let a = v.parentElement; a && a !== root; a = a.parentElement) {
+      const ac = getComputedStyle(a), boxed = holdsFixed(ac);
+      if (placed === 'fixed' ? !boxed : placed === 'absolute' ? ac.position === 'static' && !boxed : false) continue;
+      placed = ac.position;
+      if (ac.overflow === 'visible') continue;
+      const c = a.getBoundingClientRect();
+      l = Math.max(l, c.left); t = Math.max(t, c.top); r = Math.min(r, c.right); b = Math.min(b, c.bottom);
+    }
+    return { src: v.getAttribute('src') || '', l, t, r, b, w: Math.max(0, Math.round((r - l) * k)), h: Math.max(0, Math.round((b - t) * k)) };
+  });
+  let hit = 0;
+  for (let i = 0; i < 64; i++) for (let j = 0; j < 36; j++) {
+    const x = stage.left + (i + 0.5) * stage.width / 64, y = stage.top + (j + 0.5) * stage.height / 36;
+    if (pics.some(q => x >= q.l && x < q.r && y >= q.t && y < q.b)) hit++;
+  }
+  return { share: hit / (64 * 36), frame: [Math.round(stage.width * k), Math.round(stage.height * k)], shots: pics.map(({ src, w, h }) => ({ src, w, h })) };
+}
+
+/** footageOnScreen() results ({ t, share, frame, shots }) as findings for groupFindings' `footage` section. */
+export function footageFindings(seen) {
+  return seen.filter(m => m && m.share < FILL).map(m => ({
+    code: 'footage_not_filling', severity: m.share < 0.5 ? 'error' : 'warning', time: m.t,
+    selector: m.shots.map(s => `video[src="${s.src}"]`).join(', '),
+    message: `The footage covers ${Math.round(m.share * 100)}% of the frame: ${m.shots.map(s => `${s.src || 'a video'} at ${s.w}×${s.h}`).join(', ')} in ${m.frame[0]}×${m.frame[1]}; the rest is the stage background.`,
+    fixHint: 'size every shot to the frame in the project css, before the first scene (a scene\'s own css block applies inside that scene only): video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }. A deliberate inset (picture in picture, a framed screen recording): data-layout-ignore on the video.',
+  }));
+}
+
+/** Every finding of a `hyperframes check --json` report (and our `footage` section), flattened, with its section. */
 function flatten(report) {
   const out = [];
-  for (const section of ['lint', 'runtime', 'layout', 'motion', 'contrast', 'craft']) {
+  for (const section of ['lint', 'runtime', 'layout', 'motion', 'contrast', 'craft', 'footage']) {
     for (const f of report?.[section]?.findings || []) out.push({ ...f, section });
   }
   return out;

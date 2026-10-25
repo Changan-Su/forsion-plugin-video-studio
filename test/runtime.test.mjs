@@ -3,7 +3,7 @@
 // Needs playwright-core + a Chromium (and ffmpeg for the video parts); prints SKIP and passes without them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -596,4 +596,24 @@ test('CLI: captions command, info line, still burns captions in, render --no-cap
     ff('-i', out, '-frames:v', '1', frame);
     assert.equal(light(frame) > 200, lit, `render ${flag.join(' ') || '(captions on)'}`);
   }
+});
+
+test('CLI: frames lays out a clip every N seconds, labelled with file time, and widens the step for long files', { skip: !browser || !hasFfmpeg }, async () => {
+  const cli = process.env.FVS_CLI || join(root, 'tools/fvs.mjs');
+  const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  ff('-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=10:duration=7', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'seven.mp4');
+  ff('-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=5:duration=61', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'long.mp4');
+  const out = join(dir, 'frames');
+  const r = run('frames', join(dir, 'seven.mp4'), join(dir, 'long.mp4'), '--out', out);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /seven\.mp4 · 7\.0 s · a frame every 2 s at: 0 2 4 6\n/);
+  assert.match(r.stdout, /long\.mp4 · 61\.0 s · a frame every 3 s at: 0 3 6 .* 60\n/);
+  assert.ok(statSync(join(out, 'seven-mp4-frames.png')).size > 1000 && statSync(join(out, 'long-mp4-frames.png')).size > 1000);
+  assert.match(run('frames', join(dir, 'seven.mp4'), '--from', '2', '--to', '4', '--every', '0.5', '--out', out).stdout, /every 0\.5 s at: 2 2\.5 3 3\.5\n/);
+  // the container runs a second past the last picture (its sound is longer): that time is left out, not a failure
+  ff('-f', 'lavfi', '-i', 'testsrc=size=160x90:rate=10:duration=2', '-f', 'lavfi', '-i', 'sine=duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', 'tail.mp4');
+  const tail = run('frames', join(dir, 'tail.mp4'), '--every', '1', '--out', out);
+  assert.equal(tail.status, 0, tail.stderr);
+  assert.match(tail.stdout, /tail\.mp4 · 3\.\d s · a frame every 1 s at: 0 1\n/);
+  for (const bad of [['--every', '-1'], ['--from', '10'], ['--from', '4', '--to', '2'], ['--to', 'x']]) assert.notEqual(run('frames', join(dir, 'seven.mp4'), ...bad, '--out', out).status, 0, bad.join(' '));
 });

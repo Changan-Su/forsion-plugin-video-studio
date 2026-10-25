@@ -2,7 +2,7 @@
 name: forsion-video-studio
 description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
 metadata:
-  version: 0.4.0
+  version: 0.5.0
   author: Forsion
   category: Forsion
 ---
@@ -69,6 +69,8 @@ node fvs.mjs info <project>                 # scenes, start/end, hits → READ T
 node fvs.mjs check <project> --runtime      # parse errors + runs every scene script in a browser
 node fvs.mjs review <project> [--at cards,cards:3,12.5]   # what the frames look like (below) → read it, fix, mark
 node fvs.mjs sheet <project> [--every 2]    # contact sheet PNG (one frame per scene, or every N s) → look at it
+node fvs.mjs frames media/*.webm [--every 2] [--from s --to s]   # a sheet per footage file, frames labelled
+                                            # with their time in the file → look at each before picking in-points
 node fvs.mjs still <project> --at cards:3   # one frame: seconds, a scene id, or scene:hit
 node fvs.mjs cues <project>                 # the cue sheet JSON a score is written against
 node fvs.mjs captions <project> [--out x.srt]   # the captions track as a SubRip file
@@ -77,9 +79,9 @@ node fvs.mjs html <project>                 # standalone web-video player (.html
 node fvs.mjs render <project> --out x.mp4 [--workers 3] [--from s --to s] [--scale 0.5] [--no-captions]
 ```
 
-`still`, `sheet`, `render` and `check --runtime` need a Chromium: `npm i -g playwright-core` (or a local
+`still`, `sheet`, `frames`, `render` and `check --runtime` need a Chromium: `npm i -g playwright-core` (or a local
 install) plus Google Chrome or Microsoft Edge; the CLI also accepts `FVS_CHROMIUM=/path/to/chrome`, or run
-`npx playwright install chromium`. `render` and `sync` need ffmpeg (`brew install ffmpeg`,
+`npx playwright install chromium`. `render`, `sync` and `frames` need ffmpeg (`brew install ffmpeg`,
 `winget install ffmpeg`, `apt install ffmpeg`, or `FFMPEG=/path`). Install what is missing yourself and say so.
 After rendering, look at a few frames (`view_video` if you have it, or `still`) before reporting.
 
@@ -89,11 +91,14 @@ middle and just after each hit and reports, by scene: text hidden under somethin
 text blocks overlapping (`content_overlap`), text clipped or out of its box or off the frame (`clipped_text`,
 `text_box_overflow`, `canvas_overflow`), contrast under WCAG AA against what is really behind the text, footage
 included (`contrast_aa_failure`), text on screen too briefly to read (`line_unread`), type too small for a phone
-(`text_below_floor`), long stretches where nothing moves (`dead_stretch`). It is advice, never a gate: it exits 0
-whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
+(`text_below_floor`), long stretches where nothing moves (`dead_stretch`). One check is our own (HyperFrames does
+not look for it; it needs playwright-core and a Chromium like `sheet`, and is skipped with a warning without them):
+footage that does not fill the frame (`footage_not_filling`), e.g. a clip left at its own 854×480 in a corner because
+the rule that sizes it never applied. It is advice, never a gate: it exits 0 whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
 the edge, a word flashed in a montage), keep it and put the marker HyperFrames reads on that element:
 `data-layout-allow-overflow`, `data-layout-allow-occlusion`, `data-layout-allow-overlap`, `data-hold` (stillness
-on purpose) or `data-layout-ignore`; say which ones you kept and why. If `review` cannot run (no network, no npx),
+on purpose) or `data-layout-ignore` (also for footage inset on purpose: picture in picture, a framed screen
+recording); say which ones you kept and why. If `review` cannot run (no network, no npx),
 say so and fall back to `check --runtime` and stills.
 
 ## The file format
@@ -152,7 +157,9 @@ grain('.grain')
 ```
 
 ```css
-/* optional; scoped to this scene automatically (nested under [data-scene="intro"]) */
+/* optional; scoped to this scene automatically (nested under [data-scene="intro"]): write `video { … }`, not
+   `.fvs-scene video { … }` (that looks for a scene inside this one and matches nothing). Rules every scene
+   shares go in the project css block before the first scene. */
 ```
 
 ```js
@@ -175,8 +182,9 @@ grain('.grain')
   scene. Types: `fade`, `dip` (through the stage background), `slide-left`, `slide-up`, `push-left`,
   `wipe-left` (revealed from the right edge), `zoom`, `blur`. Default `dur` is 1 beat (0.5 s without a tempo),
   clamped to this scene's length. For `dur` the previous scene stays on screen
-  underneath and keeps animating (its `data-seq` keeps its last item); ignored on the first scene. Hard cuts on
-  hits are the house style: use transitions for section changes, not everywhere.
+  underneath and keeps animating (its `data-seq` keeps its last item); ignored on the first scene. In animated
+  scenes hard cuts on hits are the house style: use transitions for section changes, not everywhere (footage
+  montages have their own default, see **Cut footage**).
 - Audio tracks also take `"in"` (where in the file to start, seconds or a length), `"dur"` (how long to play;
   default to the file's end) and `"mute": true`. A track plays file time `in + (t − at)` from project time `at`.
 - **Captions**: one ```` ```srt ```` block **before the first scene** (inside a scene it is ignored, with a
@@ -306,6 +314,40 @@ it to `audio`. Run `fvs sync` and fix misses. Melodies must be original — a re
 the on-screen story: time each to its line (scene starts and hit times from `fvs info` / `fvs cues` are good
 anchors), keep them off on-screen text where you can, then `check` (bad times and cues after the end are
 reported) and look at a `still` inside a cue.
+
+**Cut footage.** When the user gives you clips to cut (a montage, a recap of screen recordings, a trailer
+from their shots), every shot is a window you choose inside a file. Choose it by looking:
+
+1. `fvs frames media/*` (or the files you were given) writes one contact sheet per file to a temporary folder,
+   every frame labelled with its time in the file (every 2 s; long files get a wider step, at most about 24
+   frames), and prints each sheet's path and times. View every sheet before you place that clip. Never pick an
+   in-point from a single frame or a fixed offset into each file.
+2. For each clip, say which window you use and why, in a line: where the action peaks (the train pulls in, the
+   wave breaks, people cross the square), the light and framing are best, the camera is steady and in focus,
+   nothing distracting enters. For a screen recording: the moment the feature is seen working. When two moments
+   are close, look closer: `fvs frames <clip> --from 6 --to 10 --every 0.5`. The window's start is the shot's
+   `data-clip-in` (plus the scene's `in` when it has one: file time = `data-clip-in` + `in`). Leave out a clip
+   with nothing worth showing rather than pad with it, and say so.
+3. One shot per scene, its length on the beat grid; order the shots for a line (wide to close, calm to busy,
+   building to the last one). Size the shots to the frame once, in the project css before the first scene:
+   `.fvs-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }` (a video
+   left unsized shows at its own pixel size in a corner).
+4. **Title and closing line go on the footage, not on black cards.** Put the title in the first shot's scene as
+   its own element (`data-in="h0"`, gone a beat or two before the cut with `data-out` / `data-fx-out="fade"`),
+   over a dark gradient scrim that is its own element too, for example
+   `background: linear-gradient(transparent, rgba(0,0,0,.65))` across the third of the frame the text sits in.
+   A text-shadow alone is often not enough over bright footage. The closing line sits on the last shot the same
+   way and may hold to the end. A plain card only when the user asks for one or no shot can carry the text.
+5. **Between shots:** cut on the beat by default; the cuts are the rhythm. Use a short cross-fade
+   (`"transition": { "type": "fade", "dur": "0.5 beats" }`, one beat at most) where the energy drops (a slow
+   shot after a busy one, into the last shot); a `dip` through the background into the last shot at most (a
+   transition plays at the start of the scene that has it). A fade on every cut only when the user asks for a
+   soft film.
+6. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
+   `muted` on clips whose sound is wind or talk you are not using.
+7. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
+   come back without a contrast finding; if not, darken the scrim, do not lighten the text), and `sheet --every 2` to see the rhythm.
+   In your reply, list the shots with the window you took from each clip.
 
 **Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings
 that matter in plain words, scene by scene, with what you would change (pacing, legibility, text over footage,
