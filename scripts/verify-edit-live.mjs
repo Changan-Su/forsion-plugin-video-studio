@@ -486,7 +486,7 @@ try {
   await scenario('asked', '运动素材剪成高光,要求里点名四种实拍 × 动画:字里透画面、跟拍圈、三栏版式、扫屏和圆形展开', async legs => {
     const TITLE = '热血', CLOSING = '下一个就是你';
     const pr = projectWith('asked', emptyTemplate({ title: TITLE, zh: true }), await sportsClips());
-    const ev = await ask(await session('asked', pr.dir), `media 里是滑板、冲浪、篮球、足球、骑行的素材。帮我剪一支 25 秒左右的运动高光《${TITLE}》，节奏 128 BPM，原声都不要，结尾一句「${CLOSING}」。有几处我想这样做：片名《${TITLE}》做成画面在字里透出来，再放大成整幅画面；冲浪那段，给冲浪的人加个圈和速度读数，跟着他走；滑板、扣篮、骑行三段排成三栏一起出现，最后一块撑满全屏；中间换场用一次色块扫过，最后一个镜头用圆形展开进来。`, pr.dir);
+    const ev = await ask(await session('asked', pr.dir), `media 里是滑板、冲浪、篮球、足球、骑行的素材。帮我剪一支 25 秒左右的运动高光《${TITLE}》，节奏 128 BPM，原声都不要，结尾一句「${CLOSING}」。有几处我想这样做：片名《${TITLE}》做成画面在字里透出来，再放大成整幅画面；冲浪那段，给冲浪的人加个圈和速度读数，跟着他走；滑板、扣篮、骑行三段排成三栏一起出现，最后一块撑满全屏；中间换场用一次色块扫过，最后一个镜头用圆形展开进来。`, pr.dir, 2_700_000); // four built pieces and a track take longer than one cut (10-25: still checking at 25 min)
     if (ev.error) throw fail(`the run failed: ${ev.error}`, ev);
     const { facts, p, at } = evidence('asked', pr, ev, { render: true, every: 0.5 });
     const m = await motionOf({ cli, file: pr.file, dir: pr.dir, p, lines: { title: TITLE, closing: CLOSING } });
