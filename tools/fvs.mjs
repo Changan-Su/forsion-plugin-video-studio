@@ -1135,6 +1135,30 @@ function coverPoint(x, y, vw, vh, W, H) {
   return [Math.round((W - vw * s) / 2 + x * s), Math.round((H - vh * s) / 2 + y * s)];
 }
 
+// src/lib/combos.js
+function combos(p, text, m) {
+  const fx = /mix-blend-mode\s*:(?!\s*normal\b)|clip-path\s*:(?!\s*none\b)|mask(?:-image)?\s*:(?!\s*none\b)/;
+  const head = text.slice(0, text.search(/^## /m) < 0 ? text.length : text.search(/^## /m));
+  const fxClasses = new Set([...head.matchAll(/```css\n([\s\S]*?)```/g)].flatMap((b) => [...b[1].matchAll(/([^{}]+)\{([^}]*)\}/g)]).filter((r) => fx.test(r[2])).flatMap((r) => [...r[1].matchAll(/\.([\w-]+)/g)].map((c) => c[1])));
+  const uses = (html) => scan(html).tags.flatMap((t) => (t.attr("class") || "").split(/\s+/)).some((c) => fxClasses.has(c));
+  const sh = p.scenes.filter((s) => videos(s.html).some((v) => v.src));
+  return {
+    A: sh.filter((s) => fx.test(s.css || "") || fx.test(s.html) || uses(s.html)).map((s) => s.id),
+    // a pasted path ([[0, x, y], [0.25, x, y] …) that drives a K: `K('.pin', path.map(…))`
+    B: sh.filter((s) => {
+      const m2 = /(\w+)\s*=\s*\[\s*\[\s*0(?:\.0+)?\s*,\s*-?\d+\s*,\s*-?\d+\s*\]\s*,\s*\[\s*\d*\.?\d+\s*,/.exec(s.js || "");
+      return !!m2 && new RegExp(`K\\(\\s*['"][^'"]+['"]\\s*,\\s*${m2[1]}\\.map\\(`).test(s.js);
+    }).map((s) => s.id),
+    C: m ? (m.shots || []).filter((x) => x.multi).map((x) => x.id) : sh.filter((s) => videos(s.html).filter((v) => v.src).length >= 2).map((s) => s.id),
+    D: p.scenes.filter((s) => s.transition && ["iris", "sweep"].includes(s.transition.type)).map((s) => s.id)
+  };
+}
+function combosLine(p, text) {
+  if (!p.scenes.some((s) => videos(s.html).some((v) => v.src))) return "";
+  const cb = combos(p, text), used = Object.entries(cb).filter(([, ids]) => ids.length), none = Object.keys(cb).filter((k) => !cb[k].length);
+  return `footage \xD7 graphics (step 5b): ${used.map(([k, ids]) => `${k} \xD7${ids.length} (${ids.join(", ")})`).join(" \xB7 ") || "none"}${used.length && none.length ? ` \xB7 no ${none.join(", ")}` : ""}. Standard wants one of A\u2013D, impact two different ones; a sweep or iris two or three times a film at most.`;
+}
+
 // src/lib/review.js
 var HYPERFRAMES_VERSION = "0.8.190";
 var NOT_OURS = /* @__PURE__ */ new Set(["film_silent"]);
@@ -1544,6 +1568,8 @@ captions: ${p.captions.length} cues, ${Math.min(...p.captions.map((c) => c.start
     }
     if (n) die(`${n} error(s)`);
     log(`ok \xB7 ${ctx.p.scenes.length} scenes \xB7 ${ctx.p.length.toFixed(2)} s${flags.runtime ? " \xB7 scripts ran clean" : ""}`);
+    const mix = combosLine(ctx.p, ctx.text);
+    if (mix) log(mix);
   },
   async review() {
     const ctx = load(pos[0]);

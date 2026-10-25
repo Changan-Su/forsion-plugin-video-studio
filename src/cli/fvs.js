@@ -14,6 +14,7 @@ import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
 import { trackPoint, coverPoint } from '../lib/track.js';
+import { combosLine } from '../lib/combos.js';
 import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings, scrimsOnScreen, scrimFindings, wordedScenes } from '../lib/review.js';
 
 const VERSION = '0.7.0';
@@ -272,6 +273,8 @@ const commands = {
     }
     if (n) die(`${n} error(s)`);
     log(`ok · ${ctx.p.scenes.length} scenes · ${ctx.p.length.toFixed(2)} s${flags.runtime ? ' · scripts ran clean' : ''}`);
+    const mix = combosLine(ctx.p, ctx.text);
+    if (mix) log(mix);
   },
 
   async review() {

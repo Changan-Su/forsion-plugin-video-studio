@@ -187,7 +187,9 @@ export async function motionOf({ cli, file, dir, p, lines = {} }) {
       // wide for a portrait frame runs off its sides, onScreen only needs some of it showing, and a typed line grows)
       const words = r => r.els.filter(e => e.on && e.own), cover = r => words(r).reduce((n, e) => n + e.text.length, 0), full = Math.max(...xs.map(cover));
       const inFrame = full > 0 && xs.some(r => cover(r) === full && words(r).every(e => e.tb && e.tb.x >= -2 && e.tb.y >= -2 && e.tb.x + e.tb.w <= W + 2 && e.tb.y + e.tb.h <= H + 2));
-      return { found: true, onScreen: true, kinetic: !!why, why, inFrame };
+      // how tall its words get on screen, as on a 1080 short side
+      const tall = Math.round(Math.max(0, ...xs.flatMap(r => words(r).filter(e => e.tb).map(e => e.tb.h))) * 1080 / Math.min(W, H));
+      return { found: true, onScreen: true, kinetic: !!why, why, inFrame, tall };
     };
     const all = [...holders].map(judge);
     return all.find(r => r.kinetic && r.inFrame) || all.find(r => r.kinetic) || all.find(r => r.onScreen && r.inFrame) || all.find(r => r.onScreen) || all[0];

@@ -356,7 +356,8 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    on the hits and a line is drawn, cutting into the first shot on a hit (often with a `flash`); the title is in
    the opener or slams onto the first shot.
 5. **Move the picture.** Footage that only cuts plays like a slideshow; give it the motion the animated videos have.
-   Choose the level from the brief, and say which in your reply:
+   Choose the level from the brief before you write the scenes, and with it which ways of step 5b go in which shots;
+   say both in your reply:
    - *calm* (a mood piece, landscapes, "quiet", "gentle"): one slow push or pull per shot, words fading or blurring
      in, a soft transition where it helps;
    - *standard*, **the default**, also for a plain "cut these clips": every shot has a camera move (a slow push, or a
@@ -453,7 +454,9 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    soft film.
 7. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
-8. Then `check --runtime`, `review` (no `footage_not_filling` or `scrim_without_text`; the title and closing line over footage must
+8. Then `check --runtime`: its last line says which of A–D (step 5b) the film uses and where; what your level asks for
+   and that line does not show is still to do. Then `review`, which takes a minute or two on a film with footage: give
+   the command a long timeout (`timeout_ms: 600000`) and read what it says before you reply (no `footage_not_filling` or `scrim_without_text`; the title and closing line over footage must
    come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
    the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip, the
    level you chose and where each thing that level asks for is (impact, say: the opener 0–2 s, the title slammed in at
