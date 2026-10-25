@@ -14,6 +14,8 @@ const literal = s => (/^[\s\d.,\-[\]]+$/.test(s) ? Function(`return ${s}`)() : n
  * tracker's own path from the same start. Returns { ok, max, median, n, until } in stage pixels, or { ok: false, why }.
  * `tol` is about the ring's radius on a 1080 frame: further than that, the graphic is beside the thing, not on it.
  * ponytail: the first clip of the scene, no rotation metadata; the camera move on the wrapper carries both alike
+ * ponytail: it reads the pasted array, not what the K does with it: an offset in the map (`x - 80`, 10-25 asked, on
+ * the surfer in the frames) is not seen, so look at the scene's frames as well
  */
 export function follows({ cli, dir, p, id, tol = 90 }) {
   const s = p.scenes.find(x => x.id === id), v = s && videos(s.html).find(x => x.src);
