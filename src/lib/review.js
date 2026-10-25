@@ -94,6 +94,43 @@ export function footageFindings(seen) {
   }));
 }
 
+/**
+ * Runs in the capture page after `__stage.seek(t)`: dark gradients (or a see-through dark fill) over a third of the
+ * stage or more, in a scene with no words anywhere in it (its text, timed or not, counted whatever is on screen now).
+ * A scrim is there for text; on a bare shot it only darkens the footage (the title's scrim copied onto every shot).
+ * Inside `data-layout-ignore` is left out. ponytail: colours computed as rgb()/rgba() only (an oklch or color-mix
+ * stop is not read), the box's share of the stage stands for the gradient's (a gradient fading out halfway still
+ * counts its whole box), and an overlay in the stage's html outside every scene is not looked at.
+ */
+export function scrimsOnScreen() {
+  const root = document.querySelector('.fvs-stage'), stage = root?.getBoundingClientRect();
+  if (!stage || !stage.width) return [];
+  const dark = c => { const n = c.match(/[\d.]+/g); return !!n && +(n[3] ?? 1) >= 0.3 && Math.max(+n[0], +n[1], +n[2]) < 80; };
+  const words = sc => { const w = document.createTreeWalker(sc, NodeFilter.SHOW_TEXT); for (let n; (n = w.nextNode());) if (n.data.trim() && !n.parentElement.closest('script, style')) return true; return false; };
+  const bare = new Map();
+  return [...root.querySelectorAll('[data-scene] *')].flatMap(el => {
+    if (el.tagName === 'VIDEO' || el.closest('[data-layout-ignore]') || !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return [];
+    const cs = getComputedStyle(el), fill = cs.backgroundColor.match(/rgba?\([^)]*\)/)?.[0] || '';
+    const tint = dark(fill) && +(fill.match(/[\d.]+/g)[3] ?? 1) < 1;
+    if (!tint && !(cs.backgroundImage.includes('gradient(') && (cs.backgroundImage.match(/rgba?\([^)]*\)/g) || []).some(dark))) return [];
+    const r = el.getBoundingClientRect();
+    const share = Math.max(0, Math.min(r.right, stage.right) - Math.max(r.left, stage.left)) * Math.max(0, Math.min(r.bottom, stage.bottom) - Math.max(r.top, stage.top)) / (stage.width * stage.height);
+    if (share < 1 / 3) return [];
+    const sc = el.closest('[data-scene]');
+    if (!bare.has(sc)) bare.set(sc, !words(sc));
+    return bare.get(sc) ? [{ scene: sc.dataset.scene, selector: el.tagName.toLowerCase() + [...el.classList].map(c => `.${c}`).join(''), share }] : [];
+  });
+}
+
+/** scrimsOnScreen() results ({ t, scene, selector, share }) as findings for the `footage` section. */
+export function scrimFindings(seen) {
+  return seen.map(m => ({
+    code: 'scrim_without_text', severity: 'warning', time: m.t, selector: m.selector,
+    message: `A dark scrim covers ${Math.round(m.share * 100)}% of the frame in "${m.scene}", a shot with no words: it only darkens the footage.`,
+    fixHint: 'a scrim is for text: keep it only in the scenes with a title, caption or closing line, as a band behind the part of the frame the text sits in, and take it out of this scene. A deliberate grade or vignette: data-layout-ignore on it.',
+  }));
+}
+
 /** Every finding of a `hyperframes check --json` report (and our `footage` section), flattened, with its section. */
 function flatten(report) {
   const out = [];

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseProject } from '../src/lib/project.js';
 import { compile, buildHtml } from '../src/lib/compile.js';
-import { reviewTimes, groupFindings, formatReview, footageTimes, footageFindings } from '../src/lib/review.js';
+import { reviewTimes, groupFindings, formatReview, footageTimes, footageFindings, scrimFindings } from '../src/lib/review.js';
 
 const DOC = `# R
 
@@ -64,6 +64,14 @@ test('footage that does not fill the frame: looked for at the middle of each sce
   assert.match(found[0].message, /covers 19% of the frame: media\/b\.webm at 854×480 in 1920×1080/);
   const g = groupFindings(p, { footage: { findings: found } });
   assert.deepEqual(g.scenes.map(s => [s.id, s.findings.map(f => `${f.code}:${f.selector}`)]), [['b', ['footage_not_filling:video[src="media/b.webm"]', 'footage_not_filling:video[src="media/b.webm"]']]]);
+});
+
+test('a scrim on a shot with no words: a warning in the scene on screen', () => {
+  const p = parseProject(DOC.replace('<p>b</p>', '<video src="media/b.webm"></video>')); // b: 4–6 s
+  const found = scrimFindings([{ t: 5, scene: 'b', selector: 'div.shade', share: 1 }]);
+  assert.deepEqual(found.map(f => [f.code, f.severity, f.selector]), [['scrim_without_text', 'warning', 'div.shade']]);
+  assert.match(found[0].message, /covers 100% of the frame in "b", a shot with no words/);
+  assert.deepEqual(groupFindings(p, { footage: { findings: found } }).scenes.map(s => s.id), ['b']);
 });
 
 test('the hf page: a sized root and a timed host without GSAP timelines, the runtime from a file, the capture boot', () => {

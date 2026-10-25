@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.2 — 2026-10-25
+
+- `fvs review` 新增一条检查 `scrim_without_text`：没有字的镜头上盖着大面积暗色渐变（或半透明的暗色底）时报出来。之前导演常把片名下面那层暗色渐变复制到每一个镜头上，整条片子的边缘都像压着一圈阴影；10-24 的五条题材短片里有四条是这样，运动那条 18 个镜头里有 16 个。检查方法：在每个有素材的场景中点，找面积超过画面三分之一、带暗色渐变的元素，它所在的场景里一个字都没有就报出来。只是警告，不拦人；故意的调色或暗角加 `data-layout-ignore`。
+- 技能：暗色渐变只放在有片名、说明或片尾的镜头里，只垫在字后面那一条（例如贴着底边、40% 高的渐变）；没字的镜头不加暗层，也不压暗角。`review` 之后不应再有 `scrim_without_text`。
+- 工程文件格式不变，需要的 Forsion 和 0.13.0 相同。
+- **English:** `fvs review` has a new check, `scrim_without_text`: a dark gradient (or a see-through dark fill) over a large part of a shot that has no words. The Director often copied the title's scrim onto every shot, so the whole film looked shadowed at its edges; four of the five themed shorts of 10-24 did, 16 of 18 shots in the sports one. It looks at the middle of every scene with footage for an element over a third of the frame or more with a dark gradient, and reports it when its scene has no words at all. A warning, never a gate; a deliberate grade or vignette takes `data-layout-ignore`. Skill: a scrim goes only in the shots with a title, caption or closing line, and only as a band behind the words (a gradient 40% high along the bottom, say); shots without words get no scrim and no vignette, and `review` should come back without `scrim_without_text`. The project format is unchanged; Forsion versions: the same as 0.13.0.
+
 ## 0.13.1 — 2026-10-24
 
 - 修复：被 `K()` 移动或缩放的行内元素（例如片名里的 `<span>`，或 `<h1 data-each data-fx="zoom"><span>…</span></h1>`）现在按 inline-block 排版。之前 CSS 的 transform 对行内元素不起作用，砸入、上移这类入场只剩下「直接出现」，片名看上去是硬切出来的。

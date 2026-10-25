@@ -13,7 +13,7 @@ import { onsetEnvelope, syncReport, ONSET_SR } from '../lib/onsets.js';
 import { TEMPLATES } from '../lib/templates.js';
 import RUNTIME from '../generated/runtime-src.js';
 import { renderVideo, renderJob } from './render.js';
-import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings } from '../lib/review.js';
+import { HYPERFRAMES_VERSION, reviewTimes, groupFindings, formatReview, footageTimes, footageOnScreen, footageFindings, scrimsOnScreen, scrimFindings } from '../lib/review.js';
 
 const VERSION = '0.7.0';
 const HELP = `fvs ${VERSION} — Forsion Video Studio
@@ -178,24 +178,28 @@ function missingMedia({ p, dir }) {
   return out;
 }
 
-/** Footage that does not fill the frame, which HyperFrames does not look for: our own capture page, seeked to each time. */
+/**
+ * What HyperFrames does not look for, in our own capture page seeked to each time: footage that does not fill the
+ * frame, and a dark scrim on a shot with no words.
+ */
 async function footageCheck(ctx, times) {
   if (!times.length) return [];
   const browser = await chromium({ need: false });
-  if (!browser) { console.error('warn  not checked whether the footage fills the frame: that needs playwright-core and a Chromium, like `sheet`'); return []; }
+  if (!browser) { console.error('warn  footage not checked (filling the frame, scrims on shots without words): that needs playwright-core and a Chromium, like `sheet`'); return []; }
   let stage = null;
   try {
     stage = await openStage(ctx, browser, { scale: 0.25, captions: false });
     const named = Object.fromEntries(Object.entries(stage.payload.assets).map(([rel, url]) => [url, rel])); // page url → the project's path
-    const seen = [];
+    const seen = [], scrims = [];
     for (const t of times) {
       await stage.pg.evaluate(x => __stage.seek(x), t);
       const m = await stage.pg.evaluate(footageOnScreen, ctx.p.meta.width);
       if (m) seen.push({ ...m, t, shots: m.shots.map(s => ({ ...s, src: named[s.src] || s.src })) });
+      for (const s of await stage.pg.evaluate(scrimsOnScreen)) scrims.push({ ...s, t });
     }
-    return footageFindings(seen);
+    return [...footageFindings(seen), ...scrimFindings(scrims)];
   } catch (e) { // an extra look, not a reason to lose HyperFrames' report
-    console.error(`warn  not checked whether the footage fills the frame: ${String(e?.message || e).split('\n')[0]}`);
+    console.error(`warn  footage not checked (filling the frame, scrims on shots without words): ${String(e?.message || e).split('\n')[0]}`);
     return [];
   } finally {
     await browser.close();

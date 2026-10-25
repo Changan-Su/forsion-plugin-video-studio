@@ -30,7 +30,7 @@
 //               travel    impact vertical 9:16 beat-cut travel vlog at 100 BPM, sound muted, shots of a beat or two
 //             all: the montage's basics, the title and closing line on screen and inside the frame, no text under the
 //             phone floor (`fvs review` text_below_floor) and a legible title and closing line, every shot filling the
-//             frame; standard and impact: the picture moving in most shots, a kinetic title and closing line, beat
+//             frame, no dark scrim on a shot without words (scrim_without_text); standard and impact: the picture moving in most shots, a kinetic title and closing line, beat
 //             accents, and at impact a moving graphic or two pictures at once; a sheet every 0.5 s
 //
 // After each one the Director's own `review` use is recorded (not required: what is required is the result).
@@ -444,6 +444,10 @@ try {
     const small = found.filter(f => f.code === 'text_below_floor'), hard = found.filter(f => ['contrast_aa_failure', 'text_occluded'].includes(f.code) && ours(f));
     if (small.length) miss.push(`text under the phone floor: ${small.map(f => `${f.scene} ${(f.message || '').slice(0, 60)}`).join(' / ')}`);
     if (hard.length) miss.push(`the title or the closing line is hard to read: ${hard.map(f => `${f.code} ${f.t?.toFixed(2)}s`).join(' / ')}`);
+    // a scrim only behind words (10-24: the title's scrim on every shot, 16 of 18 in sports, shadowed the whole film)
+    const dim = found.filter(f => f.code === 'scrim_without_text');
+    legs.push(`暗色渐变压在没字的镜头上:${dim.length ? dim.map(f => f.scene).join('、') : '没有'}`);
+    if (dim.length) miss.push(`a dark scrim on shots without words: ${dim.map(f => f.scene).join(', ')}`);
     const loud = clips.filter(v => th.sound === 'mute' ? !v.muted && !(v.gain <= -40) : !v.muted && !(v.gain < 0));
     if (loud.length) miss.push(`${th.sound === 'mute' ? 'clips not muted' : 'clips with their sound at full level'}: ${loud.map(v => v.src).join(', ')}`);
     if (!/^ok/.test(facts.check)) miss.push(`check: ${facts.check}`);

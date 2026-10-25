@@ -94,7 +94,8 @@ included (`contrast_aa_failure`), text on screen too briefly to read (`line_unre
 (`text_below_floor`), long stretches where nothing moves (`dead_stretch`). One check is our own (HyperFrames does
 not look for it; it needs playwright-core and a Chromium like `sheet`, and is skipped with a warning without them):
 footage that does not fill the frame (`footage_not_filling`), e.g. a clip left at its own 854×480 in a corner because
-the rule that sizes it never applied. It is advice, never a gate: it exits 0 whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
+the rule that sizes it never applied, and a dark scrim on a shot with no words (`scrim_without_text`), e.g. the
+title's scrim copied onto every shot. It is advice, never a gate: it exits 0 whatever it finds. Fix what is a mistake. When a finding is a deliberate choice (an outline numeral, a bleed off
 the edge, a word flashed in a montage), keep it and put the marker HyperFrames reads on that element:
 `data-layout-allow-overflow`, `data-layout-allow-occlusion`, `data-layout-allow-overlap`, `data-hold` (stillness
 on purpose) or `data-layout-ignore` (also for footage inset on purpose: picture in picture, a framed screen
@@ -341,8 +342,11 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    left unsized shows at its own pixel size in a corner).
 4. **Title and closing line go on the footage, not on black cards.** Put the title in the first shot's scene as
    its own element (`data-in="h0"`, gone a beat or two before the cut with `data-out` / `data-fx-out="fade"`),
-   over a dark gradient scrim that is its own element too, for example
-   `background: linear-gradient(transparent, rgba(0,0,0,.65))` across the third of the frame the text sits in.
+   over a dark gradient scrim that is its own element too, in that scene only and only as a band behind the text,
+   for example `position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(transparent,
+   rgba(0,0,0,.65))` for words in the lower part of the frame. Shots without words get no scrim, tint or vignette:
+   the footage is the picture, and a scrim on every shot shadows the whole film at its edges. Only where every shot
+   carries a line (a caption per shot) does every shot have a band, each behind its own line.
    A text-shadow alone is often not enough over bright footage. The closing line sits on the last shot the same
    way and may hold to the end. A plain card only when the user asks for one or no shot can carry the text. At the
    *impact* level (next step) an animated opener may come first: one or two bars without footage where words arrive
@@ -407,7 +411,7 @@ from their shots), every shot is a window you choose inside a file. Choose it by
    soft film.
 7. Keep the clips' own sound unless told otherwise, lower under a score (`data-gain` about −12 to −18 dB);
    `muted` on clips whose sound is wind or talk you are not using.
-8. Then `check --runtime`, `review` (no `footage_not_filling`; the title and closing line over footage must
+8. Then `check --runtime`, `review` (no `footage_not_filling` or `scrim_without_text`; the title and closing line over footage must
    come back without a contrast finding; if not, darken the scrim, do not lighten the text), `sheet --every 2` to see
    the rhythm and `sheet --every 0.5` to see the moves: one frame per scene cannot show whether anything moved. In your reply, list the shots with the window you took from each clip, the
    level you chose and where each thing that level asks for is (impact, say: the opener 0–2 s, the title slammed in at
@@ -416,7 +420,7 @@ from their shots), every shot is a window you choose inside a file. Choose it by
 **Review the cut.** `fvs review`, then a contact sheet (`sheet`), then read the project. Report the findings
 that matter in plain words, scene by scene, with what you would change (pacing, legibility, text over footage,
 order); fix them if the person asked you to. Text over footage is where contrast fails most: give captions a
-scrim, a shadow or a darker band of the clip rather than a lighter colour.
+scrim (a band behind the words, in their scene only), a shadow or a darker band of the clip rather than a lighter colour.
 
 **Sync check.** `fvs sync` lists hits without an accent. A hit on a drop to silence counts. For each miss,
 move the picture-only hit onto the accent (nearest eighth) or change the score.
