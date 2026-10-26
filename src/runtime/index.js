@@ -3,7 +3,8 @@ import { mount, timeExpr } from './player.js';
 import { EASE, prog, rng, createStage } from './engine.js';
 import { payloadSegments } from '../lib/compile.js';
 
-const PLAYER_CSS = `
+// The marker tells `check-plugin --style` this is the video page's CSS, not the host's (main.js carries this runtime as one line).
+const PLAYER_CSS = `/* forsion-style: off */
 html,body{margin:0;background:#0b0b0b;color:#e8e6e1;font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Noto Sans SC",sans-serif}
 .fvs-app{max-width:1200px;margin:0 auto;padding:24px 16px 48px;display:grid;gap:14px}
 .fvs-app h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.02em}
