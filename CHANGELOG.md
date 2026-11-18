@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.1 — 2026-11-18
+
+- 插件保存的设置（上次打开的工程、新建工程用的文件夹、信任过的工程）存过却读不出来时（文件读出错、是空的、写到一半或被手改坏），不再按空设置接着用：记住这几样先停用，什么都不保存，原来的设置原样留着，并提示一次。以前在这种情况下新建工程或点「运行预览」，会把保存的设置整个换成只有这一个工程的信任列表，上次的工程、文件夹和以前信任过的工程全丢了。
+- 这时打开工程照样先问要不要运行脚本（读不出信任列表就当谁都没信任）；点「运行预览」后这个工程在本次运行里有效，不会保存，并提示下次还会再问。「打开最近的工程」不知道上次是哪个，就提示原因，不再改成打开新建页。
+- 没存过时照旧；需要 2026-11-17 之后的 Forsion（更早的版本读不出来时仍当没存过）。工程文件格式不变。
+- **English:** When the plugin's saved settings (the last project, the folder for new projects, the projects you trusted) were saved but can't be read (a read error, an empty file, a write cut off halfway, or a hand edit that broke it), the plugin no longer carries on as if nothing were saved: remembering them is paused, nothing is saved, the original is left as it was, and you are told once. Before, creating a project or pressing "Run preview" in that state replaced the saved settings with a trust list holding only that project, losing the last project, the folder and every project you had trusted. Projects still ask before running their scripts (a trust list that can't be read trusts nothing); "Run preview" then trusts the project for this session only, and says it will ask again. "Open the last project" can't know which one that was, so it says why instead of opening the create page. With nothing saved yet it works as before. Needs a Forsion build from 2026-11-17 or later (earlier builds still treat unreadable data as never saved). The project format is unchanged.
+
 ## 0.14.0 — 2026-10-25
 
 - 导演剪实拍素材时，可以把画面和动画做成一体，不只是把字盖在整幅画面上。技能「Cut footage」新加第 5b 步，按镜头内容挑做法，具体写法放在技能文件夹的 `references/footage-graphics.md`，用到时再读：

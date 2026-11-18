@@ -6,6 +6,7 @@ import { parseProject, setProjectMeta } from '../lib/project.js';
 import { emptyTemplate } from '../lib/templates.js';
 import { openMenu, closeLayer } from './menu.js';
 import { AGENT, ensureTools } from './ai.js';
+import { loadSaved } from './data.js';
 
 // the create page's frames (the project page offers these and 4K)
 const ASPECTS = [[1920, 1080, 'frame-landscape'], [1080, 1920, 'frame-portrait'], [1080, 1080, 'frame-square'], [1440, 1080, 'frame-classic']];
@@ -128,7 +129,7 @@ export function registerWorkspace(ctx, t, { createProject, remember }) {
     } catch (e) { for (const x of held) x.resume(); throw e; }
     if (selected === path) selected = null;
     titles.delete(path); paths = paths.filter(q => q !== path); emit();
-    try { if (((await ctx.loadData?.()) || {}).last === path) await remember(null); } catch { /* best effort */ }
+    try { if ((await loadSaved(ctx))?.last === path) await remember(null); } catch { /* best effort */ }
     // (the host says "moved to the recycle bin" itself; only the case it cannot know is ours to explain)
     if (!own && dir) ctx.notify?.(t('project-deleted-file', { name }));
     void refresh();
@@ -251,7 +252,8 @@ export function registerWorkspace(ctx, t, { createProject, remember }) {
         await app.writeFile(path, setProjectMeta(emptyTemplate({ title, zh: !t.en() }), { width, height }));
         await trust(ctx, path);
         // (before the project opens: opening it writes the plugin's data too, and two writers at once lose one)
-        try { await ctx.saveData?.({ ...((await ctx.loadData?.()) || {}), folder: folder === fallback ? null : folder }); } catch { /* best effort */ }
+        // (saved data that cannot be read: the folder is not kept, and nothing else is overwritten; see data.js)
+        try { const d = await loadSaved(ctx); if (d) await ctx.saveData?.({ ...d, folder: folder === fallback ? null : folder }); } catch { /* best effort */ }
         nav.page = 'projects'; // closing this project later comes back to the list
         void refresh();
         await onOpen(path, idea.value.trim());
@@ -260,7 +262,7 @@ export function registerWorkspace(ctx, t, { createProject, remember }) {
     }
     // the folder typed last time, unless something is typed already
     void (async () => {
-      let last = ''; try { last = (await ctx.loadData?.())?.folder || ''; } catch { last = ''; }
+      let last = ''; try { last = (await loadSaved(ctx))?.folder || ''; } catch { last = ''; }
       if (last && !place.value && folderPath(last)) { place.value = last; paintWhere(); }
     })();
     paintWhere();
@@ -509,7 +511,7 @@ export function registerWorkspace(ctx, t, { createProject, remember }) {
     const restored = view.getParams?.().filePath;
     const unsubscribe = view.onParamsChanged?.(params => { if (valid(params.filePath)) void show(params.filePath, { initial: starting && params.filePath === restored }); });
     (async () => {
-      let last = null; try { last = (await ctx.loadData?.())?.last; } catch { /* no data */ }
+      let last = null; try { last = (await loadSaved(ctx))?.last; } catch { /* no data */ }
       const initial = () => view.getParams?.().filePath || selected || last;
       // the project to reopen is a file in the library; with nothing to reopen the launchpad shows at once
       if (valid(initial())) await libraryReady();
