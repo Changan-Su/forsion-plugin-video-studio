@@ -9,6 +9,7 @@ import { parseProject } from '../lib/project.js';
 import { registerWorkspace } from './workspace.js';
 import { EMBED_CSS } from './styles.js';
 import { icon } from './icons.js';
+import { loadSaved } from './data.js';
 
 const t = makeT(ctx);
 const EXT = '.fvs.md';
@@ -18,7 +19,8 @@ let workspace = null;
 const exists = async p => { try { return (await app.readFile(p)) !== null; } catch { return false; } };
 
 async function remember(path) {
-  try { const d = (await ctx.loadData?.()) || {}; await ctx.saveData?.({ ...d, last: path }); } catch { /* best effort */ }
+  // (saved data that cannot be read: save nothing, or `last`, `folder` and the trust list would be lost; see data.js)
+  try { const d = await loadSaved(ctx); if (d) await ctx.saveData?.({ ...d, last: path }); } catch { /* best effort */ }
 }
 
 /** Create an empty project in `folder` and (by default) open it. */
@@ -61,7 +63,12 @@ if (registered !== false) {
     keywords: 'video studio fvs recent 最近',
     run: async () => {
       let last = null;
-      try { last = ((await ctx.loadData?.()) || {}).last; } catch { last = null; }
+      try {
+        const d = await loadSaved(ctx, { asked: true });
+        // which project was last is not known: say so, and neither open nor start another (the create page) instead
+        if (!d) return;
+        last = d.last;
+      } catch { last = null; }
       if (last && (await exists(last))) workspace.open(last); else workspace.newProject();
     },
     invoke: {

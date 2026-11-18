@@ -17,6 +17,7 @@ import { directorController } from './director-panel.js';
 import { openMenu, openPopover, closeLayer } from './menu.js';
 import { h, dirOf, joinPath, mimeOf, b64 } from './util.js';
 import { icon } from './icons.js';
+import { trustList, trust } from './data.js';
 export { h, dirOf, joinPath, mimeOf, b64 };
 
 const fmtTime = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
@@ -29,17 +30,8 @@ const MOD = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent || '') ? '⌘
 const RULER_H = 24, CAPTION_H = 32, VIDEO_H = 64, ELEM_H = 46, AUDIO_H = 44; // track order: what sits on the picture is drawn above it
 const ELEM_ROWS = 3, ELEM_ROW_H = 14; // the elements lane: what is inside the scenes, under them
 
-/** Shared per-plugin trust list: paths whose scripts the user agreed to run. */
-export async function trustList(ctx) {
-  try { const d = (await ctx.loadData?.()) || {}; return Array.isArray(d.trusted) ? d.trusted : []; } catch { return []; }
-}
-export async function trust(ctx, path) {
-  let d = {};
-  try { d = (await ctx.loadData?.()) || {}; } catch { d = {}; }
-  const list = new Set(Array.isArray(d.trusted) ? d.trusted : []);
-  list.add(path);
-  try { await ctx.saveData?.({ ...d, trusted: [...list].slice(-500) }); } catch { /* best effort */ }
-}
+// the shared per-plugin trust list (what happens when the saved list cannot be read is in data.js)
+export { trustList, trust };
 
 /**
  * Asset URLs for the sandboxed preview. Pictures and fonts are inlined as data URLs (cheap, always load);
@@ -604,7 +596,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     view.querySelectorAll('.fvs-gate').forEach(x => x.remove());
     view.append(h('div', { class: 'fvs-gate' }, h('div', {},
       icon('ShieldAlert'), h('h3', { text: t('trust-title') }), h('p', { text: t('trust-body') }),
-      h('button', { type: 'button', class: 'fvs-btn primary', onclick: async () => { S.trusted = true; await trust(ctx, path); view.querySelectorAll('.fvs-gate').forEach(x => x.remove()); renderTimeline(); thumbs.refresh(); buildPreview(); } }, t('trust-run')))));
+      h('button', { type: 'button', class: 'fvs-btn primary', onclick: async () => { S.trusted = true; await trust(ctx, path, { asked: true }); view.querySelectorAll('.fvs-gate').forEach(x => x.remove()); renderTimeline(); thumbs.refresh(); buildPreview(); } }, t('trust-run')))));
   }
   let previewTimer = 0;
   function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(buildPreview, 220); }
