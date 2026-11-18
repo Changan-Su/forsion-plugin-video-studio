@@ -10,6 +10,7 @@ import { makeT } from './i18n.js';
 export const isUnreadable = e => !!e && typeof e === 'object' && e.code === 'plugin-data-unreadable';
 
 let warned = false;
+let blocked = false; // a read failed that way and none has worked since: another kind of read error then saves nothing either
 const sessionTrust = new Set(); // projects trusted while the list could not be read: until the plugin reloads
 
 function warn(ctx, key) {
@@ -28,13 +29,16 @@ function warn(ctx, key) {
  * `quiet` leaves the telling to the caller.
  */
 export async function loadSaved(ctx, { asked = false, quiet = false } = {}) {
-  try { return (await ctx.loadData?.()) || {}; } catch (e) {
-    if (!isUnreadable(e)) throw e;
-    if (!warned) console.warn(`[fvs] saved plugin data could not be read (${e.reason}); nothing will be saved until it can`);
+  let d;
+  try { d = await ctx.loadData?.(); } catch (e) {
+    if (!isUnreadable(e) && !blocked) throw e;
+    if (!warned) console.warn(`[fvs] saved plugin data could not be read (${e?.reason}); nothing will be saved until it can`);
     if (!quiet && (asked || !warned)) warn(ctx, 'data');
-    warned = true;
+    warned = blocked = true;
     return null;
   }
+  blocked = false;
+  return d || {};
 }
 
 /** Shared per-plugin trust list: paths whose scripts the person agreed to run. A list that cannot be read trusts

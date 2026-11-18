@@ -92,6 +92,15 @@ test('unreadable data: a notice that throws does not turn into a save', async ()
   assert.deepEqual(b.saves, [], 'still no saveData');
 });
 
+test('unreadable, then another kind of read error: still nothing is saved until a read works', async () => {
+  let n = 0;
+  const b = boot({ loadData: async () => { if (n++ === 0) throw unreadable(); throw new Error('EIO'); } });
+  await b.newProject('Videos');
+  await b.newProject('Videos');
+  assert.equal([...b.files.keys()].filter(p => p.endsWith('.fvs.md')).length, 2, 'both projects were written');
+  assert.deepEqual(b.saves, [], 'no saveData after the unreadable read, whatever the next read says');
+});
+
 test('nothing saved yet (and older hosts): saving works and nothing is said', async () => {
   const b = boot({ loadData: async () => null });
   await b.newProject('Videos');

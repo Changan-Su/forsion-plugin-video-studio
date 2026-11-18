@@ -3478,6 +3478,7 @@
   // src/ui/data.js
   var isUnreadable = (e) => !!e && typeof e === "object" && e.code === "plugin-data-unreadable";
   var warned = false;
+  var blocked = false;
   var sessionTrust = /* @__PURE__ */ new Set();
   function warn(ctx2, key) {
     try {
@@ -3489,15 +3490,18 @@
     }
   }
   async function loadSaved(ctx2, { asked = false, quiet = false } = {}) {
+    let d;
     try {
-      return await ctx2.loadData?.() || {};
+      d = await ctx2.loadData?.();
     } catch (e) {
-      if (!isUnreadable(e)) throw e;
-      if (!warned) console.warn("[fvs] saved plugin data could not be read (".concat(e.reason, "); nothing will be saved until it can"));
+      if (!isUnreadable(e) && !blocked) throw e;
+      if (!warned) console.warn("[fvs] saved plugin data could not be read (".concat(e?.reason, "); nothing will be saved until it can"));
       if (!quiet && (asked || !warned)) warn(ctx2, "data");
-      warned = true;
+      warned = blocked = true;
       return null;
     }
+    blocked = false;
+    return d || {};
   }
   async function trustList(ctx2) {
     let d;
