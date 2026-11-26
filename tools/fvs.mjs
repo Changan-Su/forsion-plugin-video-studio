@@ -1380,7 +1380,7 @@ function timeArg(p, v) {
 async function chromium({ need = true } = {}) {
   const req = createRequire(join2(process.cwd(), "x.js"));
   const tries = ["playwright-core", "playwright"];
-  const extra = [flags.modules, process.env.FVS_MODULES].filter((v) => typeof v === "string" && v).join(delimiter).split(delimiter).filter(Boolean);
+  const extra = [...typeof flags.modules === "string" && flags.modules ? [flags.modules] : [], ...String(process.env.FVS_MODULES || "").split(delimiter).filter(Boolean)];
   let pw = null;
   for (const m of tries) {
     for (const load2 of [() => import(m), () => req(m), () => createRequire(import.meta.url)(m), ...extra.map((d) => () => createRequire(join2(resolve2(d), "x.js"))(m)), () => globalRequire(m)]) {

@@ -2,8 +2,10 @@
 // snapshot it renders, and the per-project "latest job" index (formerly `<project folder>/.fvs-jobs/`). They belong to
 // the plugin, so on a host whose plugin data folder can hand the engine a path (`ctx.storage.vault().hostPath`,
 // Forsion 2026-11-26+) they go to `jobs/<project path>/` there. Otherwise (older Forsion, a remote engine, web) they
-// stay in the vault exactly as before. Each index says which store its record is in (`store: 'data'`); an index
-// without it is an old vault one. Old `.fvs-jobs/` files are only read (the last job's status), never moved or deleted.
+// stay in the vault exactly as before, in the same format. An index in the data folder says so (`store: 'data'`);
+// one without it is a vault index. Old `.fvs-jobs/` files are only read (the last job's status), never moved or
+// deleted. Each job keeps the layer that placed it (`at.layer`), so a library switch makes its writes reject instead
+// of landing in the other library.
 import { dirOf, joinPath } from './util.js';
 
 export const DATA = 'data';
@@ -23,10 +25,17 @@ export function jobStore(ctx, path) {
     if (!v) throw Object.assign(new Error('The vault is not open yet'), { code: 'storage-wait' });
     return v;
   }
+  /** The data layer when the engine can be handed paths in it right now, else null (vault mode). */
+  async function dataLayer() {
+    const L = layer();
+    if (!L || typeof L.hostPath !== 'function') return null;
+    return (await L.hostPath(folder)) ? L : null;
+  }
   return {
-    /** The latest job's index `{ id, record, store?, sessionId? }`, or null. A failed read rejects. */
+    /** The latest job's index `{ id, record, store?, sessionId? }`, or null. A failed read rejects. In vault mode only
+     *  the vault index counts (a leftover data-folder index must not hide a newer vault job). */
     async readIndex() {
-      const L = layer();
+      const L = await dataLayer();
       if (L) {
         const text = await L.readText(`${folder}/latest.json`);
         if (text != null) return JSON.parse(text);
@@ -34,29 +43,31 @@ export function jobStore(ctx, path) {
       const text = await app.readFile(legacyIndex);
       return text ? JSON.parse(text) : null;
     },
-    async writeIndex(index) {
-      if (index.store === DATA) return layer().write(`${folder}/latest.json`, JSON.stringify(index));
-      return app.writeFile(legacyIndex, JSON.stringify(index));
+    /** `at` = the placement of this job (from `place`), so its writes stay in the layer that placed it. */
+    async writeIndex(index, at) {
+      const { store, ...rest } = index;
+      if (store === DATA) return (at?.layer || layer()).write(`${folder}/latest.json`, JSON.stringify({ ...rest, store }));
+      return app.writeFile(legacyIndex, JSON.stringify(rest)); // the vault index keeps its old shape
     },
     async read(ref, store) {
       if (store !== DATA) return app.readFile(ref);
       const L = layer();
       return L ? L.readText(ref) : null;
     },
-    async write(ref, store, text) {
-      if (store === DATA) return layer().write(ref, text);
+    async write(ref, store, text, at) {
+      if (store === DATA) return (at?.layer || layer()).write(ref, text);
       return app.writeFile(ref, text);
     },
     /** Where a new job goes, with the absolute paths the engine needs (null when it can't be handed one). */
     async place(id) {
-      const L = layer();
-      if (L && typeof L.hostPath === 'function') {
+      const L = await dataLayer();
+      if (L) {
         const record = `${folder}/${id}.json`, snapshot = `${folder}/${id}.source.txt`;
         const [recordAbs, snapshotAbs] = [await L.hostPath(record), await L.hostPath(snapshot)];
-        if (recordAbs && snapshotAbs) return { store: DATA, record, recordAbs, snapshot, snapshotAbs };
+        if (recordAbs && snapshotAbs) return { store: DATA, layer: L, record, recordAbs, snapshot, snapshotAbs };
       }
       const record = joinPath(dir, `.fvs-jobs/${id}.json`), snapshot = joinPath(dir, `.fvs-jobs/${id}.source.txt`);
-      return { store: 'vault', record, recordAbs: app.hostPath?.(record) || null, snapshot, snapshotAbs: app.hostPath?.(snapshot) || null };
+      return { store: 'vault', layer: null, record, recordAbs: app.hostPath?.(record) || null, snapshot, snapshotAbs: app.hostPath?.(snapshot) || null };
     },
   };
 }

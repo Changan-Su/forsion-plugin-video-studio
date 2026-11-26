@@ -1700,7 +1700,7 @@ export function mountStudio(ctx, el, path, t, opts = {}) {
     let tools = null; try { tools = await ensureTools(ctx); } catch { tools = null; }
     const mp4 = path.replace(/\.fvs\.md$/i, '') + '.mp4';
     const abs = app.hostPath ? app.hostPath(path) : null;
-    const cmd = `node "${(tools && (tools.cliAbs || tools.cli)) || 'fvs.mjs'}" render "${abs || path}" --out "${(app.hostPath && app.hostPath(mp4)) || mp4}"`;
+    const cmd = `node "${(tools && (tools.cliAbs || tools.cli)) || 'fvs.mjs'}" render "${abs || path}" --out "${(app.hostPath && app.hostPath(mp4)) || mp4}"${tools && tools.modules ? ` --modules "${tools.modules}"` : ''}`;
     try { await navigator.clipboard.writeText(cmd); } catch { /* shown below */ }
     notify(ctx, cmd);
   }

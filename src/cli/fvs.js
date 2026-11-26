@@ -92,9 +92,10 @@ function timeArg(p, v) {
 async function chromium({ need = true } = {}) {
   const req = createRequire(join(process.cwd(), 'x.js'));
   const tries = ['playwright-core', 'playwright'];
-  // --modules <dir>[<path delimiter><dir>…] or FVS_MODULES: extra folders whose node_modules may hold the driver
+  // --modules <dir> or FVS_MODULES: extra folders whose node_modules may hold the driver
   // (the Studio passes the old in-vault tools folder, where earlier versions told people to `npm i playwright-core`)
-  const extra = [flags.modules, process.env.FVS_MODULES].filter(v => typeof v === 'string' && v).join(delimiter).split(delimiter).filter(Boolean);
+  // --modules is one literal folder (paths may contain the delimiter); FVS_MODULES is a delimiter-separated list
+  const extra = [...(typeof flags.modules === 'string' && flags.modules ? [flags.modules] : []), ...String(process.env.FVS_MODULES || '').split(delimiter).filter(Boolean)];
   let pw = null;
   for (const m of tries) {
     for (const load of [() => import(m), () => req(m), () => createRequire(import.meta.url)(m), ...extra.map(d => () => createRequire(join(resolve(d), 'x.js'))(m)), () => globalRequire(m)]) {

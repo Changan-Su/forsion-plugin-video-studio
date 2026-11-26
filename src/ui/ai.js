@@ -29,11 +29,12 @@ export async function ensureTools(ctx) {
       for (const [name, src] of Object.entries(MUSIC)) await store.write(`tools/music/${name}`, src);
       await store.write('tools/VERSION', TOOLS_VERSION + '\n');
     }
-    const legacy = app.hostPath ? app.hostPath(base) : null;
-    let modules = null;
-    if (legacy) { try { if (await app.readFile(`${base}/VERSION`) != null) modules = legacy; } catch { modules = null; } }
+    // the old in-vault tools folder, whenever it resolves: the CLI looks there for a browser driver and skips it when
+    // there is none (its own files may be gone while node_modules stayed)
+    const modules = (app.hostPath ? app.hostPath(base) : null) || null;
     const [cliAbs, musicAbs] = [await store.hostPath('tools/fvs.mjs'), await store.hostPath('tools/music')];
-    return { cli: cliAbs, music: musicAbs, cliAbs, musicAbs, modules };
+    // the engine moved away while we were writing: fall through to the vault copy below
+    if (cliAbs && musicAbs) return { cli: cliAbs, music: musicAbs, cliAbs, musicAbs, modules };
   }
   const stamp = `${base}/VERSION`;
   let have = null;
