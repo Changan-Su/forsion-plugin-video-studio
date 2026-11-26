@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0 — 2026-11-26
+
+- 「AI 导演」自己的东西（上一次任务的记录、交给导演之前和撤回之前的整份工程快照）不再写进笔记库的 `.fvs-history/`，改放 Forsion 的插件数据文件夹（按库分开，不跟笔记同步）。快照会越积越多，以后不会再堆在库里。
+- 第一次打开一个工程的导演面板时，把库里旧的 `.fvs-history/` 里上一次任务的记录和它的改前快照**复制**一份进插件数据（只复制，不删不挪），之后只用复制的那份；**库里的原件留着，确认没问题后可以自己删掉**。
+- 插件数据读不出来时，导演面板会说出原因，先不接新任务；库还没打开好就等它打开。
+- 导出 MP4 用的命令行工具 `.fvs-tools/` 和导出任务记录 `.fvs-jobs/` 这一版仍在库里：导演要用绝对路径去跑它们，而插件数据文件夹目前不给插件界面绝对路径，等 Forsion 补上再搬。旧版 Forsion 与网页端照旧全写库里。
+- **English:** The AI Director's own files (the last task's record, and the full project snapshots taken before a hand-off and before an undo) no longer go into `.fvs-history/` in the vault: they live in Forsion's plugin data folder (per vault, not synced with your notes), so the ever-growing snapshots stop piling up in the vault. The first time a project's Director panel opens, its last task record and before snapshot are copied from the old `.fvs-history/` into the plugin data folder (copied, never moved or deleted) and used from there; the originals stay in the vault for you to delete once you're happy. If the plugin data can't be read, the Director panel says why and holds new tasks; it waits for the vault to finish opening. The MP4 export tools (`.fvs-tools/`) and export job records (`.fvs-jobs/`) stay in the vault for now, because the Director runs them by absolute path and the plugin data folder doesn't give plugin windows one yet. Older Forsion versions and the web keep writing everything to the vault.
+
 ## 0.14.1 — 2026-11-18
 
 - 插件保存的设置（上次打开的工程、新建工程用的文件夹、信任过的工程）存过却读不出来时（文件读出错、是空的、写到一半或被手改坏），不再按空设置接着用：记住这几样先停用，什么都不保存，原来的设置原样留着，并提示一次。以前在这种情况下新建工程或点「运行预览」，会把保存的设置整个换成只有这一个工程的信任列表，上次的工程、文件夹和以前信任过的工程全丢了。

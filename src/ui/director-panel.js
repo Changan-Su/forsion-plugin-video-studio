@@ -1,7 +1,8 @@
-import { h, dirOf, joinPath, randomId } from './util.js';
+import { h, randomId } from './util.js';
 import { handOff, TASKS, AGENT } from './ai.js';
 import { parseProject, cssBlocks, stageHtml, stageJs } from '../lib/project.js';
 import { CSS } from './styles.js';
+import { historyStore } from './history-store.js';
 import { icon } from './icons.js';
 
 const clock = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
@@ -22,9 +23,9 @@ export function sceneChanges(before, after) {
 
 export function directorController(ctx, state, t, flush) {
   const app = ctx.app, path = state().path;
-  const base = joinPath(dirOf(path), `.fvs-history/${path.split('/').pop().replace(/\.fvs\.md$/i, '')}`);
-  const record = base + '.director.json';
-  let task = null, before = '', after = '', disposed = false, reading = false, submitting = false;
+  const store = historyStore(ctx, path);
+  // a failed read of the plugin data folder: the panel says so and refuses new tasks until a read works again
+  let task = null, before = '', after = '', disposed = false, reading = false, submitting = false, unreadable = '';
   // Let the native picker resolve Agent/global defaults until the user makes a selection.
   let draft = { text: '', thinkingLevel: 'medium' };
   let follow = null; // an idea from the launchpad: its edits go back to the workspace until it is sent (remounts)
@@ -32,13 +33,25 @@ export function directorController(ctx, state, t, flush) {
   async function refresh() {
     if (reading || disposed) return; reading = true;
     try {
-      const data = JSON.parse(await app.readFile(record) || 'null');
+      let text, data, snap = null, op;
+      try {
+        op = store.bind();
+        text = await op.readRecord();
+        try { data = JSON.parse(text || 'null'); } catch { data = null; } // a damaged pointer counts as no task
+        if (data) snap = await op.readSnapshot(data.beforePath);
+      } catch (e) {
+        if (!store.stored) throw e; // older hosts: as before, a failed read just skips this refresh
+        // the library is still opening: try again on the next tick; anything else is a real read failure
+        if (e?.code !== 'storage-wait' && !unreadable) { unreadable = String(e.message || e); emit(); }
+        return;
+      }
+      if (unreadable) { unreadable = ''; emit(); }
       if (data) {
-        task = data; before = await app.readFile(task.beforePath) || ''; after = await app.readFile(path) || '';
+        task = data; before = snap || ''; after = await app.readFile(path) || '';
         task.phase = task.sessionId ? ctx.tangu?.agentStatus?.(task.sessionId)?.phase || 'idle' : 'waiting';
         task.changes = sceneChanges(before, after); emit();
       }
-    } catch { /* No previous Director task. */ }
+    } catch { /* No previous Director task, or a damaged record: shown as none. */ }
     finally { reading = false; }
   }
   const timer = setInterval(refresh, 1000); void refresh();
@@ -47,12 +60,18 @@ export function directorController(ctx, state, t, flush) {
     submitting = true;
     try {
       if (!await flush()) throw new Error(t('export-save-first'));
-      const snapshot = state().text, id = randomId(), beforePath = base + `.${id}.before.txt`;
-      await app.writeFile(beforePath, snapshot);
+      // one layer for the whole task (a library switch makes it reject rather than write into the other library),
+      // and a fresh read first: never replace a record that can't be read
+      const op = store.bind();
+      if (store.stored) {
+        try { await op.readRecord(); } catch (e) { if (e?.code !== 'storage-wait') unreadable = String(e.message || e); throw e; }
+      }
+      if (unreadable) throw new Error(t('director-history-unreadable', { msg: unreadable }));
+      const snapshot = state().text, id = randomId(), beforePath = await op.writeSnapshot(`${id}.before.txt`, snapshot);
       const next = { id, beforePath, phase: 'waiting', scene: state().sel, time: state().time, createdAt: new Date().toISOString() };
       const ok = await handOff(ctx, state(), specific || TASKS.ask(selection.text.trim()), t, { ...selection, onStarted(r) { next.sessionId = r.sessionId; } });
       if (!ok) return false;
-      await app.writeFile(record, JSON.stringify(next)); task = next; before = snapshot; draft.text = ''; follow?.(''); follow = null; emit(); return true;
+      await op.writeRecord(JSON.stringify(next)); task = next; before = snapshot; draft.text = ''; follow?.(''); follow = null; emit(); return true;
     } catch (e) { ctx.notify?.(String(e.message || e), { level: 'warning' }); return false; }
     finally { submitting = false; }
   }
@@ -76,8 +95,8 @@ export function directorController(ctx, state, t, flush) {
     const contextTimer = setInterval(paintContext, 400);
     let chat, textarea;
     const render = () => {
-      phase.dataset.phase = task ? task.phase : 'none';
-      phase.textContent = task ? t(`director-${task.phase}`) : t('director-intro');
+      phase.dataset.phase = unreadable ? 'error' : task ? task.phase : 'none';
+      phase.textContent = unreadable ? t('director-history-unreadable', { msg: unreadable }) : task ? t(`director-${task.phase}`) : t('director-intro');
       changes.replaceChildren();
       if (!task?.changes?.length) return;
       changes.append(h('h4', { text: t('director-changes', { n: task.changes.length }) }));
@@ -87,8 +106,9 @@ export function directorController(ctx, state, t, flush) {
       changes.append(h('button', { type: 'button', class: 'fvs-btn', 'data-director': 'restore', disabled: !['idle', 'done', 'error'].includes(task.phase), onclick: async () => {
         try {
           if (!await flush() || await app.readFile(path) !== reviewed) throw new Error(t('director-stale'));
-          const snapshot = await app.readFile(task.beforePath); if (snapshot === null) throw new Error(t('director-no-snapshot'));
-          await app.writeFile(base + `.${randomId()}.reverted.txt`, reviewed);
+          const op = store.bind();
+          const snapshot = await op.readSnapshot(task.beforePath); if (snapshot === null) throw new Error(t('director-no-snapshot'));
+          await op.writeSnapshot(`${randomId()}.reverted.txt`, reviewed);
           await app.writeFile(path, snapshot); await refresh();
         } catch (e) { ctx.notify?.(String(e.message || e), { level: 'warning' }); }
       } }, icon('Undo2'), t('director-restore')));
