@@ -1,7 +1,7 @@
 // fvs — the Forsion Video Studio command line. Single file, no install needed except for `render`,
 // `still`, `sheet` and `check --runtime` (a Chromium through playwright-core) and ffmpeg (render, sync).
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, mkdtempSync, readdirSync, statSync, copyFileSync, symlinkSync, lstatSync, unlinkSync } from 'node:fs';
-import { dirname, join, resolve, relative, basename, extname, sep, posix } from 'node:path';
+import { dirname, join, resolve, relative, basename, extname, sep, posix, delimiter } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir, homedir, platform } from 'node:os';
 import { spawnSync, spawn } from 'node:child_process';
@@ -42,7 +42,7 @@ const HELP = `fvs ${VERSION} — Forsion Video Studio
   fvs sync <file> [--audio a.mp3]      do the hits land on accents of the score?
 
   Times: 12.5 (seconds), scene id (its start), scene:3 (its hit 3).
-  Browser: playwright-core (npm i -g playwright-core) + Chrome/Edge, or FVS_CHROMIUM=/path/to/chrome.
+  Browser: playwright-core (npm i -g playwright-core, or --modules <folder holding node_modules>) + Chrome/Edge, or FVS_CHROMIUM=/path/to/chrome.
   ffmpeg: on PATH, or FFMPEG=/path/to/ffmpeg.`;
 
 /* ───────── args ───────── */
@@ -92,9 +92,12 @@ function timeArg(p, v) {
 async function chromium({ need = true } = {}) {
   const req = createRequire(join(process.cwd(), 'x.js'));
   const tries = ['playwright-core', 'playwright'];
+  // --modules <dir>[<path delimiter><dir>…] or FVS_MODULES: extra folders whose node_modules may hold the driver
+  // (the Studio passes the old in-vault tools folder, where earlier versions told people to `npm i playwright-core`)
+  const extra = [flags.modules, process.env.FVS_MODULES].filter(v => typeof v === 'string' && v).join(delimiter).split(delimiter).filter(Boolean);
   let pw = null;
   for (const m of tries) {
-    for (const load of [() => import(m), () => req(m), () => createRequire(import.meta.url)(m), () => globalRequire(m)]) {
+    for (const load of [() => import(m), () => req(m), () => createRequire(import.meta.url)(m), ...extra.map(d => () => createRequire(join(resolve(d), 'x.js'))(m)), () => globalRequire(m)]) {
       try { pw = await load(); if (pw && (pw.chromium || (pw.default && pw.default.chromium))) break; pw = null; } catch { /* next */ }
     }
     if (pw) break;

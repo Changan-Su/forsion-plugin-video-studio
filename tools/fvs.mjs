@@ -3,7 +3,7 @@
 
 // src/cli/fvs.js
 import { readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2, existsSync as existsSync2, rmSync as rmSync2, mkdtempSync as mkdtempSync2, readdirSync, statSync as statSync2, copyFileSync, symlinkSync, lstatSync, unlinkSync } from "node:fs";
-import { dirname as dirname2, join as join2, resolve as resolve2, relative, basename, extname, sep, posix } from "node:path";
+import { dirname as dirname2, join as join2, resolve as resolve2, relative, basename, extname, sep, posix, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir as tmpdir2, homedir, platform } from "node:os";
 import { spawnSync as spawnSync2, spawn as spawn2 } from "node:child_process";
@@ -1333,7 +1333,7 @@ var HELP = `fvs ${VERSION} \u2014 Forsion Video Studio
   fvs sync <file> [--audio a.mp3]      do the hits land on accents of the score?
 
   Times: 12.5 (seconds), scene id (its start), scene:3 (its hit 3).
-  Browser: playwright-core (npm i -g playwright-core) + Chrome/Edge, or FVS_CHROMIUM=/path/to/chrome.
+  Browser: playwright-core (npm i -g playwright-core, or --modules <folder holding node_modules>) + Chrome/Edge, or FVS_CHROMIUM=/path/to/chrome.
   ffmpeg: on PATH, or FFMPEG=/path/to/ffmpeg.`;
 var argv = process.argv.slice(2);
 var cmd = argv.shift();
@@ -1380,9 +1380,10 @@ function timeArg(p, v) {
 async function chromium({ need = true } = {}) {
   const req = createRequire(join2(process.cwd(), "x.js"));
   const tries = ["playwright-core", "playwright"];
+  const extra = [flags.modules, process.env.FVS_MODULES].filter((v) => typeof v === "string" && v).join(delimiter).split(delimiter).filter(Boolean);
   let pw = null;
   for (const m of tries) {
-    for (const load2 of [() => import(m), () => req(m), () => createRequire(import.meta.url)(m), () => globalRequire(m)]) {
+    for (const load2 of [() => import(m), () => req(m), () => createRequire(import.meta.url)(m), ...extra.map((d) => () => createRequire(join2(resolve2(d), "x.js"))(m)), () => globalRequire(m)]) {
       try {
         pw = await load2();
         if (pw && (pw.chromium || pw.default && pw.default.chromium)) break;
