@@ -9,13 +9,33 @@ export const TOOLS_VERSION = __FVS_VERSION__;
 const dirOf = p => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
 
 /**
- * Put the CLI and the music toolkit into the vault (a hidden folder in the plugin's work folder), so the
- * agent can run them wherever the engine runs. Rewritten only when the plugin version changes.
+ * Put the CLI and the music toolkit where the agent can run them, rewritten only when the plugin version changes.
+ * On a host whose plugin data folder can hand the engine a path (`ctx.storage.hostPath`, Forsion 2026-11-26+) they
+ * go to `tools/` there (the plugin's own files, not the user's notes). Otherwise (older Forsion, a remote engine, web)
+ * into the vault as before: a hidden `.fvs-tools/` in the plugin's work folder. The old in-vault copy is never moved
+ * or deleted; when it is there, its folder is passed as `modules` so a browser driver installed next to it (earlier
+ * versions said to `npm i playwright-core` there) is still found.
  * Returns vault-relative and (when the engine shares this filesystem) absolute paths.
  */
 export async function ensureTools(ctx) {
   const app = ctx.app || {};
   const base = `${app.workFolder ? app.workFolder() : 'Forsion Video Studio'}/.fvs-tools`;
+  const store = ctx.storage;
+  const here = typeof store?.hostPath === 'function' ? await store.hostPath('tools') : null;
+  if (here) {
+    const have = await store.readText('tools/VERSION'); // a failed read rejects: never rewrite over what can't be read
+    if ((have || '').trim() !== TOOLS_VERSION) {
+      await store.write('tools/fvs.mjs', CLI);
+      for (const [name, src] of Object.entries(MUSIC)) await store.write(`tools/music/${name}`, src);
+      await store.write('tools/VERSION', TOOLS_VERSION + '\n');
+    }
+    // the old in-vault tools folder, whenever it resolves: the CLI looks there for a browser driver and skips it when
+    // there is none (its own files may be gone while node_modules stayed)
+    const modules = (app.hostPath ? app.hostPath(base) : null) || null;
+    const [cliAbs, musicAbs] = [await store.hostPath('tools/fvs.mjs'), await store.hostPath('tools/music')];
+    // the engine moved away while we were writing: fall through to the vault copy below
+    if (cliAbs && musicAbs) return { cli: cliAbs, music: musicAbs, cliAbs, musicAbs, modules };
+  }
   const stamp = `${base}/VERSION`;
   let have = null;
   try { have = await app.readFile(stamp); } catch { have = null; }
@@ -25,7 +45,7 @@ export async function ensureTools(ctx) {
     await app.writeFile(stamp, TOOLS_VERSION + '\n');
   }
   const abs = p => (app.hostPath ? app.hostPath(p) : null);
-  return { cli: `${base}/fvs.mjs`, music: `${base}/music`, cliAbs: abs(`${base}/fvs.mjs`), musicAbs: abs(`${base}/music`) };
+  return { cli: `${base}/fvs.mjs`, music: `${base}/music`, cliAbs: abs(`${base}/fvs.mjs`), musicAbs: abs(`${base}/music`), modules: null };
 }
 
 const q = s => JSON.stringify(s);
@@ -43,7 +63,8 @@ function contextBlock(ctx, s, tools) {
   ];
   if (tools) {
     const cli = tools.cliAbs || tools.cli;
-    lines.push(`Command line: node ${q(cli)} <command> <project> (run "node ${q(cli)} help"). Start with "info" to see the scenes, times and hits; "check --runtime" after editing, then "review" (what the frames look like: hidden, overlapping or unreadable text, contrast over footage; advice, not a gate); "sheet" or "still" to look at frames.`);
+    const mod = tools.modules ? ` --modules ${q(tools.modules)}` : '';
+    lines.push(`Command line: node ${q(cli)} <command> <project>${mod} (run "node ${q(cli)} help"). Start with "info" to see the scenes, times and hits; "check --runtime" after editing, then "review" (what the frames look like: hidden, overlapping or unreadable text, contrast over footage; advice, not a gate); "sheet" or "still" to look at frames.`);
     lines.push(`Music toolkit (Python): ${q(tools.musicAbs || tools.music)} (see its README.md).`);
   }
   if (sel) lines.push(`The user has scene "${sel.id}"${sel.title ? ` (${sel.title})` : ''} selected (${sel.t0.toFixed(2)}–${sel.t1.toFixed(2)} s).`);

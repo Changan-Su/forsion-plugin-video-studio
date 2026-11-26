@@ -2,7 +2,7 @@
 name: forsion-video-studio
 description: Make and edit Forsion Video Studio videos — web-animation videos written as a single .fvs.md project file (HTML/CSS scenes, keyframes, a beat-grid timeline and a score). Use when the user asks for a promo, trailer, intro, title sequence, animated explainer or "a video like the 2.12 one", when the user gives clips to cut into a montage, recap or promo, when a .fvs.md file is involved, when the user quotes a scene, an element, a hit or a caption from the Video Studio timeline, or when asked to render, score, re-time, illustrate or check the sync of such a video.
 metadata:
-  version: 0.7.0
+  version: 0.7.1
   author: Forsion
   category: Forsion
 ---
@@ -54,8 +54,9 @@ scene's own units (its hits, beats from its start) before you write them into th
 
 The command line is one file, `fvs.mjs` (Node ≥ 18). Use the first of these that exists:
 
-1. the absolute path a hand-off message from the editor gives;
-2. `../.fvs-tools/fvs.mjs` from the project's folder (the Studio keeps a copy beside its projects; elsewhere
+1. the absolute path a hand-off message from the editor gives (newer Forsion keeps it in the plugin's data folder,
+   outside the vault; keep any `--modules <folder>` the message adds, it is where the browser driver is installed);
+2. `../.fvs-tools/fvs.mjs` from the project's folder (older Forsion) (the Studio keeps a copy beside its projects; elsewhere
    in the vault it is `<plugin work folder>/.fvs-tools/fvs.mjs`);
 3. the installed plugin: `~/.forsion/plugins/forsion-video-studio/tools/fvs.mjs` (`~/.forsion-dev/…` for dev
    builds).

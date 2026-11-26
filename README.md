@@ -40,7 +40,7 @@ AI 辅助的网页动画视频编辑器。Forsion 2.12 的宣传片就是用这�
 
 导出 MP4 和配乐在你的电脑上运行，需要：
 
-- **MP4**：Node 18+、Chrome 或 Edge（或 `npx playwright install chromium`）、`playwright-core`（例如在智库的 `Forsion Video Studio/.fvs-tools/` 目录运行 `npm i playwright-core`）、ffmpeg。
+- **MP4**：Node 18+、Chrome 或 Edge（或 `npx playwright install chromium`）、`playwright-core`（全局装 `npm i -g playwright-core`；以前在智库 `.fvs-tools/` 里装过的那份照样能用）、ffmpeg。
 - **配乐**：Python 3 和 `tools/music/requirements.txt` 里的包，外加 VSCO 2 CE 管弦乐采样（CC0，`python3 tools/music/fetch_samples.py` 下载）。
 
 缺什么，导演 Agent 会先装好或者告诉你。

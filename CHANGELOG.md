@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.0 — 2026-11-26
+
+- 「AI 导演」自己的东西（上一次任务的记录、交给导演之前和撤回之前的整份工程快照）不再写进笔记库的 `.fvs-history/`，改放 Forsion 的插件数据文件夹（按库分开，不跟笔记同步）。快照会越积越多，以后不会再堆在库里。
+- 第一次打开一个工程的导演面板时，把库里旧的 `.fvs-history/` 里上一次任务的记录和它的改前快照**复制**一份进插件数据（只复制，不删不挪），之后只用复制的那份；**库里的原件留着，确认没问题后可以自己删掉**。
+- 插件数据读不出来时，导演面板会说出原因，先不接新任务；库还没打开好就等它打开。
+- 导出 MP4 用的命令行工具和音乐工具（原 `.fvs-tools/`）、导出任务记录（原 `.fvs-jobs/`）也搬进插件数据文件夹：需要 Forsion 能把插件数据文件夹的本机路径交给导演（`ctx.storage.hostPath`，引擎在这台电脑上时才有）。拿不到时（旧版 Forsion、引擎在别的电脑、网页端）照旧写库里。库里旧的 `.fvs-tools/` 不删；如果你照以前的说明在里面装过 playwright-core，导演会通过 `--modules` 接着用那一份。旧的导出状态照样能看到。
+- **English:** The AI Director's own files (the last task's record, and the full project snapshots taken before a hand-off and before an undo) no longer go into `.fvs-history/` in the vault: they live in Forsion's plugin data folder (per vault, not synced with your notes), so the ever-growing snapshots stop piling up in the vault. The first time a project's Director panel opens, its last task record and before snapshot are copied from the old `.fvs-history/` into the plugin data folder (copied, never moved or deleted) and used from there; the originals stay in the vault for you to delete once you're happy. If the plugin data can't be read, the Director panel says why and holds new tasks; it waits for the vault to finish opening. The MP4 export and music tools (formerly `.fvs-tools/`) and export job records (formerly `.fvs-jobs/`) move to the plugin data folder too when Forsion can hand the Director a local path there (`ctx.storage.hostPath`, only with the engine on this computer). Otherwise (older Forsion, a remote engine, the web) they stay in the vault as before. The old `.fvs-tools/` isn't deleted, and a playwright-core installed there per the old instructions keeps working through `--modules`. The last export's status still shows.
+
 ## 0.14.1 — 2026-11-18
 
 - 插件保存的设置（上次打开的工程、新建工程用的文件夹、信任过的工程）存过却读不出来时（文件读出错、是空的、写到一半或被手改坏），不再按空设置接着用：记住这几样先停用，什么都不保存，原来的设置原样留着，并提示一次。以前在这种情况下新建工程或点「运行预览」，会把保存的设置整个换成只有这一个工程的信任列表，上次的工程、文件夹和以前信任过的工程全丢了。
